@@ -1,0 +1,15 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+dist/
+*.egg-info/
+config/piper_voices/
+*.wav
+*.log
+piper/
+static/avatar.html.bak
+config/avatar_settings.json
+*.bak

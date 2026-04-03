@@ -1,0 +1,8 @@
+# AI Avatar — Entity Access Control List
+# Full unrestricted access to all Home Assistant entities and services.
+version: 1
+
+rules:
+  - domain: "*"
+    entities: "*"
+    services: "*"

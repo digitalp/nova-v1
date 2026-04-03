@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nova — AI Avatar</title>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three":         "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+      "talkinghead":   "https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@1.4/modules/talkinghead.mjs"
+    }
+  }
+  </script>
+
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #080d16; color: #f0f4f8;
+      font-family: system-ui, -apple-system, sans-serif;
+      height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
+    }
+
+    #avatar-container {
+      flex: 1; position: relative; overflow: hidden;
+      background: radial-gradient(ellipse at 50% 40%, #0d1f35 0%, #080d16 70%);
+    }
+
+    /* ── Tap-to-start gate ── */
+    #start-gate {
+      position: absolute; inset: 0; z-index: 30;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px;
+      background: #080d16;
+    }
+    #start-gate.hidden { display: none; }
+    #start-gate h2 { font-size: 2rem; font-weight: 800; color: #67e8f9; letter-spacing: 0.1em; }
+    #start-gate p  { font-size: 0.9rem; color: #64748b; }
+    #btn-start {
+      padding: 14px 44px; border-radius: 30px;
+      background: linear-gradient(135deg, #6366f1, #0891B2);
+      border: none; color: #fff; font-size: 1rem; font-weight: 700;
+      cursor: pointer; box-shadow: 0 4px 24px rgba(99,102,241,0.35);
+      transition: transform 0.12s;
+    }
+    #btn-start:hover { transform: translateY(-2px); }
+
+    /* ── Loading ── */
+    #loading-overlay {
+      position: absolute; inset: 0; display: none;
+      flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+      background: #080d16; z-index: 20; transition: opacity 0.6s;
+    }
+    #loading-overlay.show { display: flex; }
+    #loading-overlay.fade-out { opacity: 0; pointer-events: none; }
+    .spinner {
+      width: 52px; height: 52px; border-radius: 50%;
+      border: 3px solid rgba(8,145,178,0.2); border-top-color: #0891B2;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading-text { color: #64748b; font-size: 0.9rem; }
+
+    /* ── Overlays ── */
+    #name-badge {
+      position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.5); backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 20px;
+      padding: 4px 16px; font-size: 0.85rem; font-weight: 600;
+      letter-spacing: 0.1em; text-transform: uppercase; color: #67e8f9; z-index: 5;
+    }
+    #wake-pill {
+      position: absolute; top: 54px; left: 50%; transform: translateX(-50%);
+      background: rgba(99,102,241,0.15); backdrop-filter: blur(6px);
+      border: 1px solid rgba(99,102,241,0.4); border-radius: 14px;
+      padding: 3px 14px; font-size: 0.73rem; color: #a5b4fc; z-index: 5;
+      opacity: 0; transition: opacity 0.3s; pointer-events: none; white-space: nowrap;
+    }
+    #wake-pill.on { opacity: 1; }
+    #energy-wrap {
+      position: absolute; top: 84px; left: 50%; transform: translateX(-50%);
+      width: 140px; height: 4px; background: rgba(255,255,255,0.08);
+      border-radius: 2px; z-index: 5; opacity: 0; transition: opacity 0.3s;
+    }
+    #energy-wrap.on { opacity: 1; }
+    #energy-fill {
+      height: 100%; width: 0%; border-radius: 2px;
+      background: linear-gradient(90deg, #6366f1, #38bdf8); transition: width 0.08s;
+    }
+    #energy-fill.speaking { background: linear-gradient(90deg, #10b981, #38bdf8); }
+    #wake-flash {
+      position: absolute; inset: 0; z-index: 6; pointer-events: none;
+      background: rgba(99,102,241,0.2); opacity: 0; transition: opacity 0.12s;
+    }
+    #wake-flash.on { opacity: 1; }
+    #state-ring {
+      position: absolute; inset: 0; pointer-events: none; z-index: 4;
+      transition: box-shadow 0.4s;
+    }
+    #state-ring.listening { box-shadow: inset 0 0 40px rgba(96,165,250,0.3); }
+    #state-ring.thinking  { box-shadow: inset 0 0 40px rgba(251,191,36,0.22); }
+    #state-ring.speaking  { box-shadow: inset 0 0 40px rgba(52,211,153,0.22); }
+    #state-ring.alert     { box-shadow: inset 0 0 40px rgba(248,113,113,0.3); }
+    #subtitle {
+      position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+      max-width: 85%; background: rgba(0,0,0,0.65); backdrop-filter: blur(8px);
+      border-radius: 12px; padding: 8px 16px; font-size: 0.88rem; line-height: 1.5;
+      text-align: center; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 5;
+    }
+    #subtitle.on { opacity: 1; }
+
+    /* ── Bottom bar ── */
+    #bottom-bar {
+      display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+      background: rgba(0,0,0,0.5); border-top: 1px solid rgba(255,255,255,0.06);
+    }
+    #status-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: #374151;
+      flex-shrink: 0; transition: background 0.3s, box-shadow 0.3s;
+    }
+    .dot-online  { background: #10b981 !important; box-shadow: 0 0 6px #10b981; }
+    .dot-waking  { background: #6366f1 !important; animation: pw 1.8s ease-in-out infinite; }
+    .dot-speech  { background: #38bdf8 !important; box-shadow: 0 0 8px #38bdf8; }
+    .dot-recding { background: #ef4444 !important; box-shadow: 0 0 8px #ef4444; }
+    @keyframes pw { 0%,100%{ box-shadow: 0 0 3px #6366f1; } 50%{ box-shadow: 0 0 10px #6366f1; } }
+    #status-text { flex: 1; font-size: 0.82rem; color: #64748b; }
+    #btn-mic {
+      padding: 9px 22px; border-radius: 22px;
+      border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.07);
+      color: #f0f4f8; font-size: 0.88rem; font-weight: 600; cursor: pointer;
+      transition: background 0.15s; user-select: none; touch-action: none;
+    }
+    #btn-mic.rec {
+      background: linear-gradient(135deg,#ef4444,#dc2626);
+      border-color: transparent; box-shadow: 0 2px 14px rgba(239,68,68,0.5);
+    }
+    #btn-mic:disabled { opacity: 0.4; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+<div id="avatar-container">
+  <div id="start-gate">
+    <h2>NOVA</h2>
+    <p>Your AI home assistant</p>
+    <button id="btn-start">Tap to Start</button>
+  </div>
+
+  <div id="wake-flash"></div>
+  <div id="state-ring"></div>
+  <div id="name-badge">Nova</div>
+  <div id="wake-pill">🎤 Listening for "Nova"…</div>
+  <div id="energy-wrap"><div id="energy-fill"></div></div>
+
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <div id="loading-text">Loading Nova…</div>
+  </div>
+  <div id="subtitle"></div>
+</div>
+
+<div id="bottom-bar">
+  <div id="status-dot"></div>
+  <span id="status-text">Tap to Start</span>
+  <button id="btn-mic" disabled>🎙 Hold to Talk</button>
+</div>
+
+<script type="module">
+import { TalkingHead } from 'talkinghead';
+
+// ── Config ──────────────────────────────────────────────────────────────────
+const params  = new URLSearchParams(location.search);
+const API_KEY = params.get('api_key')    || '';
+const SESSION = params.get('session_id') || 'avatar';
+const SERVER  = (params.get('server') || location.origin).replace(/\/$/, '');
+const WS_URL  = SERVER.replace(/^http/, 'ws')
+              + `/ws/voice?api_key=${encodeURIComponent(API_KEY)}&session_id=${encodeURIComponent(SESSION)}`;
+let AVATAR_URL = `${SERVER}/static/avatars/brunette.glb`;
+let _skinToneIndex = 0;
+
+// Three.js material color per skin tone index (0=Porcelain … 4=Deep).
+// Applied as material.color on skin meshes only (Wolf3D_Skin, Wolf3D_Body).
+// material.color acts as a multiplier on top of the texture in MeshStandardMaterial.
+const SKIN_TONE_COLORS = [
+  0xfdebd0,  // 0 Porcelain
+  0xf1c27d,  // 1 Light
+  0xc68642,  // 2 Medium
+  0x8d5524,  // 3 Dark
+  0x4a2c0a,  // 4 Deep
+];
+
+// Material names that correspond to skin in the brunette.glb RPM avatar
+const SKIN_MATERIAL_NAMES = new Set(['Wolf3D_Skin', 'Wolf3D_Body']);
+
+function applySkinTone() {
+  if (!head?.scene) return;
+  const color = SKIN_TONE_COLORS[_skinToneIndex] ?? SKIN_TONE_COLORS[0];
+  head.scene.traverse(obj => {
+    if (!obj.isMesh) return;
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+    mats.forEach(mat => {
+      if (mat && SKIN_MATERIAL_NAMES.has(mat.name)) {
+        mat.color.setHex(color);
+        mat.needsUpdate = true;
+      }
+    });
+  });
+}
+
+// ── VAD config ───────────────────────────────────────────────────────────────
+const VAD_THRESHOLD  = 0.012;  // RMS energy — above = speech
+const VAD_SILENCE_MS = 1800;   // stop after this much post-speech silence
+const VAD_MIN_MS     = 400;    // don't send clips shorter than this
+const VAD_MAX_MS     = 14000;  // hard cap
+
+// ── DOM ──────────────────────────────────────────────────────────────────────
+const $gate      = document.getElementById('start-gate');
+const $btnStart  = document.getElementById('btn-start');
+const $overlay   = document.getElementById('loading-overlay');
+const $loadText  = document.getElementById('loading-text');
+const $dot       = document.getElementById('status-dot');
+const $statusTxt = document.getElementById('status-text');
+const $btnMic    = document.getElementById('btn-mic');
+const $ring      = document.getElementById('state-ring');
+const $pill      = document.getElementById('wake-pill');
+const $ew        = document.getElementById('energy-wrap');
+const $ef        = document.getElementById('energy-fill');
+const $flash     = document.getElementById('wake-flash');
+const $sub       = document.getElementById('subtitle');
+
+// ── State ────────────────────────────────────────────────────────────────────
+let head              = null;
+let ws                = null;
+let audioCtx          = null;
+let wsReady           = false;
+let pendingWordTimings = null;  // word timings arriving just before audio
+let reconnectDelay = 1000;
+let isBusy         = false;    // Nova is thinking/speaking
+
+// Recording state
+let recording      = false;
+let mediaRec       = null;
+let mediaChunks    = [];
+let micStream      = null;
+let analyser       = null;
+let vadInterval    = null;
+let maxTimer       = null;
+let speechSeen     = false;
+let silenceStart   = null;
+let holdMode       = false;    // true = hold-to-talk (no VAD auto-stop)
+
+// Wake word state (SpeechRecognition path)
+let wakeSupported  = false;
+let wakeActive     = false;
+let wakeRec        = null;
+let wakeTriggered  = false;
+
+// Wake word state (VAD/server fallback — for FKB / browsers without SpeechRecognition)
+let wakeVadActive  = false;
+let wakeVadStream  = null;
+let wakeVadChecking = false;  // true while a /stt/wake POST is in-flight
+let wakeVadFallbackTimer = null;  // detects SR black-hole (starts but never fires events)
+
+// ── Start gate ───────────────────────────────────────────────────────────────
+$btnStart.addEventListener('click', async () => {
+  $gate.classList.add('hidden');
+  $overlay.classList.add('show');
+
+  // Create AudioContext on this user gesture (satisfies Chrome autoplay policy)
+  audioCtx = new AudioContext();
+  if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+  // ── Mic test before loading avatar ──────────────────────────────────────
+  $loadText.textContent = 'Testing microphone…';
+  const micOk = await testMic();
+  if (!micOk) {
+    // Show clear error — do NOT proceed; user must fix mic first
+    $overlay.classList.remove('show');
+    $gate.classList.remove('hidden');
+    $gate.querySelector('p').textContent = '';
+    $gate.querySelector('h2').textContent = '⚠ Mic Blocked';
+    const msg = document.createElement('div');
+    msg.style.cssText = 'max-width:300px;text-align:center;color:#94a3b8;font-size:0.85rem;line-height:1.6;padding:0 16px';
+    msg.innerHTML =
+      'Your microphone is <strong style="color:#ef4444">blocked or silent</strong>.<br><br>' +
+      '1. Click the 🔒 icon in your browser address bar<br>' +
+      '2. Set <strong>Microphone → Allow</strong><br>' +
+      '3. Reload the page<br><br>' +
+      '<em>If using the HA app, open this URL in <strong>Chrome</strong> or <strong>Safari</strong> instead.</em>';
+    $gate.insertBefore(msg, $btnStart);
+    $btnStart.textContent = 'Try Again';
+    return;
+  }
+
+  // Load avatar settings (skin tone, custom avatar URL) before initialising
+  try {
+    const s = await fetch(`${SERVER}/admin/avatar-settings`).then(r => r.json());
+    if (typeof s.skin_tone === 'number') _skinToneIndex = s.skin_tone;
+    if (s.avatar_url) AVATAR_URL = s.avatar_url;
+  } catch (_) {}
+
+  initHead().catch(e => { $loadText.textContent = 'Error: ' + e.message; console.error(e); });
+});
+
+async function testMic() {
+  let testStream = null;
+  try {
+    testStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    const testCtx  = new AudioContext();
+    const src      = testCtx.createMediaStreamSource(testStream);
+    const analyser = testCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    src.connect(analyser);
+
+    // Sample energy for 1.5 seconds
+    const buf = new Float32Array(analyser.fftSize);
+    let maxRms = 0;
+    await new Promise(resolve => {
+      let ticks = 0;
+      const id = setInterval(() => {
+        analyser.getFloatTimeDomainData(buf);
+        let s = 0;
+        for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
+        maxRms = Math.max(maxRms, Math.sqrt(s / buf.length));
+        if (++ticks >= 15) { clearInterval(id); resolve(); }
+      }, 100);
+    });
+
+    await testCtx.close();
+    console.log('[Nova] Mic test maxRms:', maxRms);
+    // maxRms > 0.0001 means we're getting real audio (even quiet room noise)
+    return maxRms > 0.0001;
+  } catch (e) {
+    console.error('[Nova] Mic test failed:', e);
+    return false;
+  } finally {
+    testStream?.getTracks().forEach(t => t.stop());
+  }
+}
+
+// ── TalkingHead ───────────────────────────────────────────────────────────────
+async function initHead() {
+  head = new TalkingHead(document.getElementById('avatar-container'), {
+    ttsEndpoint: 'https://texttospeech.googleapis.com/v1/text:synthesize',
+    jwtGet: () => Promise.resolve(''),
+    lipsyncModules: ['en'], lipsyncLang: 'en',
+    modelFPS: 30, cameraView: 'upper', avatarMute: false, avatarMood: 'neutral',
+  });
+  $loadText.textContent = 'Loading avatar model…';
+  await head.showAvatar({ url: AVATAR_URL, body: 'F', avatarMood: 'neutral', lipsyncLang: 'en' });
+  // Apply skin tone to the loaded Three.js materials (skin meshes only)
+  applySkinTone();
+  $overlay.classList.add('fade-out');
+  setTimeout(() => $overlay.classList.remove('show'), 700);
+  connectWs();
+}
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+function connectWs() {
+  ws = new WebSocket(WS_URL);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    wsReady = true; reconnectDelay = 1000;
+    $btnMic.disabled = false;
+    startWakeWord();
+  };
+
+  ws.onmessage = async (evt) => {
+    if (evt.data instanceof ArrayBuffer) { await playWav(evt.data); return; }
+    try {
+      const msg = JSON.parse(evt.data);
+      if (msg.type === 'state' || msg.type === 'avatar_state') handleState(msg.state);
+      if (msg.type === 'transcript')  showSub('You: ' + msg.text);
+      if (msg.type === 'response')    showSub('Nova: ' + msg.text);
+      if (msg.type === 'word_timings') pendingWordTimings = msg.word_timings;
+      if (msg.type === 'announce') {
+        showSub('Nova: ' + msg.text);
+        if (msg.word_timings) pendingWordTimings = msg.word_timings;
+      }
+    } catch (_) {}
+  };
+
+  ws.onclose = () => {
+    wsReady = false; $btnMic.disabled = true;
+    stopWakeWord(); stopRecording(false);
+    setStatus('Reconnecting…', '');
+    setTimeout(() => { reconnectDelay = Math.min(reconnectDelay * 2, 30000); connectWs(); }, reconnectDelay);
+  };
+  ws.onerror = () => ws.close();
+  setInterval(() => { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'ping'})); }, 25000);
+}
+
+// ── State handler ─────────────────────────────────────────────────────────────
+function handleState(state) {
+  if (!state) return;
+  $ring.className = state;
+  if (head) try { head.setMood({idle:'neutral',listening:'happy',thinking:'neutral',speaking:'happy',alert:'angry',error:'sad'}[state]||'neutral'); } catch(_){}
+
+  if (state === 'idle') {
+    isBusy = false;
+    if (!recording && wsReady) {
+      wakeSupported ? setStatus('Say "Nova" to talk', 'dot-waking') : setStatus('Ready', 'dot-online');
+      if (!wakeActive && !wakeVadActive) setTimeout(startWakeWord, 300);
+    }
+  } else if (state === 'thinking') {
+    isBusy = true; setStatus('Thinking…', 'dot-online');
+  } else if (state === 'speaking') {
+    isBusy = true; setStatus('Speaking…', 'dot-online');
+  } else if (state === 'listening') {
+    setStatus('Listening…', 'dot-recding');
+  }
+}
+
+// ── Wake word ─────────────────────────────────────────────────────────────────
+function _clearWakeVadFallback() {
+  if (wakeVadFallbackTimer) { clearTimeout(wakeVadFallbackTimer); wakeVadFallbackTimer = null; }
+}
+
+function startWakeWord() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { startWakeWordVAD(); return; }   // No SR at all — go straight to VAD
+  if (wakeVadActive) return;                  // VAD already running — don't stack SR on top
+  if (wakeActive || recording || wakeTriggered || isBusy || !wsReady) return;
+
+  wakeSupported = true; wakeActive = true;
+  $pill.classList.add('on');
+  setStatus('Say "Nova" to talk', 'dot-waking');
+  $btnMic.textContent = '🎙 Or Hold to Talk';
+
+  const rec = new SR();
+  wakeRec = rec;
+  rec.continuous = false; rec.interimResults = true;
+  rec.lang = 'en-US'; rec.maxAlternatives = 1;
+
+  rec.onstart = () => {
+    // SR fired onstart but may never produce results (FKB zombie SR).
+    // If no result arrives within 5 s, kill SR and fall back to VAD.
+    _clearWakeVadFallback();
+    wakeVadFallbackTimer = setTimeout(() => {
+      wakeVadFallbackTimer = null;
+      if (wakeActive && !wakeTriggered && !wakeVadActive) {
+        try { rec.stop(); } catch (_) {}
+        wakeActive = false; wakeRec = null;
+        startWakeWordVAD();
+      }
+    }, 5000);
+  };
+
+  rec.onresult = (e) => {
+    _clearWakeVadFallback();  // SR is alive — cancel fallback
+    let txt = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) txt += e.results[i][0].transcript;
+    if (txt.toLowerCase().includes('nova')) { wakeTriggered = true; rec.abort(); }
+  };
+
+  rec.onend = () => {
+    _clearWakeVadFallback();
+    wakeActive = false; wakeRec = null;
+    if (wakeTriggered) { wakeTriggered = false; onWakeWord(); }
+    else if (wsReady && !recording && !isBusy) setTimeout(startWakeWord, 300);
+  };
+
+  rec.onerror = (e) => {
+    _clearWakeVadFallback();
+    wakeActive = false; wakeRec = null;
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      // SR exists but non-functional — fall back to VAD.
+      startWakeWordVAD();
+      return;
+    }
+    if (wsReady && !recording && !isBusy) setTimeout(startWakeWord, 500);
+  };
+
+  try { rec.start(); } catch (_) { wakeActive = false; wakeRec = null; }
+}
+
+function stopWakeWord() {
+  wakeActive = false; wakeTriggered = false;
+  $pill.classList.remove('on');
+  if (wakeRec) { try { wakeRec.abort(); } catch(_){} wakeRec = null; }
+  stopWakeWordVAD();
+}
+
+// ── VAD-based wake word (server-side Whisper check — works in FKB/WebView) ───
+async function startWakeWordVAD() {
+  if (wakeVadActive || recording || isBusy || !wsReady) return;
+
+  try {
+    wakeVadStream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      video: false,
+    });
+  } catch (e) { return; }
+
+  wakeVadActive = true;
+  wakeSupported = true;
+  $pill.classList.add('on');
+  setStatus('Say "Nova" to talk', 'dot-waking');
+  $btnMic.textContent = '🎙 Or Hold to Talk';
+
+  // AnalyserNode for energy gating — only POST when speech is detected
+  if (!audioCtx) audioCtx = new AudioContext();
+  const wakeAnalyser = audioCtx.createAnalyser();
+  wakeAnalyser.fftSize = 1024;
+  const wakeSrc = audioCtx.createMediaStreamSource(wakeVadStream);
+  wakeSrc.connect(wakeAnalyser);
+  const wakeBuf = new Float32Array(wakeAnalyser.fftSize);
+
+  const mimeType = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','']
+    .find(m => !m || MediaRecorder.isTypeSupported(m)) || '';
+
+  function scheduleChunk() {
+    if (!wakeVadActive || recording || isBusy) return;
+
+    const chunks = [];
+    let hasSpeech = false;
+
+    const mr = new MediaRecorder(wakeVadStream, mimeType ? { mimeType } : {});
+    mr.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+
+    // Sample energy while recording this chunk
+    const energyTimer = setInterval(() => {
+      if (!wakeVadActive) { clearInterval(energyTimer); return; }
+      wakeAnalyser.getFloatTimeDomainData(wakeBuf);
+      let s = 0;
+      for (let i = 0; i < wakeBuf.length; i++) s += wakeBuf[i] * wakeBuf[i];
+      if (Math.sqrt(s / wakeBuf.length) > VAD_THRESHOLD) hasSpeech = true;
+    }, 80);
+
+    mr.onstop = async () => {
+      clearInterval(energyTimer);
+      if (!wakeVadActive || recording || isBusy) return;
+
+      if (hasSpeech && chunks.length && !wakeVadChecking) {
+        wakeVadChecking = true;
+
+        // Show immediate "Heard you…" feedback so the user knows we detected speech
+        setStatus('Heard you…', 'dot-waking');
+
+        // Pre-buffer: start capturing follow-up audio RIGHT NOW while the wake check
+        // processes on the server (~1s with tiny model). When wake is confirmed the
+        // user's question is already being recorded instead of missed.
+        const fuChunks = [];
+        let fuMr = null;
+        try {
+          fuMr = new MediaRecorder(wakeVadStream, mimeType ? { mimeType } : {});
+          fuMr.ondataavailable = e => { if (e.data.size > 0) fuChunks.push(e.data); };
+          fuMr.start(200);
+        } catch (_) { fuMr = null; }
+
+        const blob = new Blob(chunks, { type: mr.mimeType || 'audio/webm' });
+        let wakeConfirmed = false;
+        try {
+          const res = await fetch(
+            `${SERVER}/stt/wake?api_key=${encodeURIComponent(API_KEY)}`,
+            { method: 'POST', body: await blob.arrayBuffer(),
+              headers: { 'Content-Type': 'application/octet-stream' } }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            wakeConfirmed = !!data.wake;
+          }
+        } catch (_) {}
+
+        // Discard pre-buffer regardless (user speaks after the activation flash)
+        if (fuMr && fuMr.state === 'recording') fuMr.stop();
+
+        if (wakeConfirmed && wakeVadActive && !recording && !isBusy) {
+          stopWakeWordVAD();
+          onWakeWord();
+          return;
+        }
+
+        if (wakeVadActive) setStatus('Say "Nova" to talk', 'dot-waking');
+        wakeVadChecking = false;
+      }
+      setTimeout(scheduleChunk, 50);
+    };
+
+    mr.start(200);
+    setTimeout(() => { if (mr.state === 'recording') mr.stop(); }, 2000);
+  }
+
+  scheduleChunk();
+}
+
+function stopWakeWordVAD() {
+  wakeVadActive = false;
+  wakeVadChecking = false;
+  if (wakeVadStream) {
+    wakeVadStream.getTracks().forEach(t => t.stop());
+    wakeVadStream = null;
+  }
+  if (!wakeActive) $pill.classList.remove('on');
+}
+
+function onWakeWord() {
+  $flash.classList.add('on');
+  setTimeout(() => $flash.classList.remove('on'), 280);
+  showSub('Nova activated — speak now');
+  holdMode = false;
+  startRecording();
+}
+
+// ── Recording (MediaRecorder + AnalyserNode VAD) ──────────────────────────────
+async function startRecording() {
+  if (recording || !wsReady) return;
+  recording = true; mediaChunks = []; speechSeen = false; silenceStart = null;
+
+  $btnMic.classList.add('rec');
+  $btnMic.textContent = '⏺ Recording…';
+  $ew.classList.add('on');
+
+  // Resume AudioContext (may have been suspended)
+  if (!audioCtx) audioCtx = new AudioContext();
+  if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: false,
+    });
+  } catch (err) {
+    console.error('[Nova] Mic denied:', err);
+    recording = false;
+    $btnMic.classList.remove('rec');
+    $btnMic.textContent = wakeSupported ? '🎙 Or Hold to Talk' : '🎙 Hold to Talk';
+    $ew.classList.remove('on');
+    showSub('Microphone access denied');
+    if (wakeSupported) setTimeout(startWakeWord, 1000);
+    return;
+  }
+
+  // ── MediaRecorder: captures native audio (webm/ogg) ──
+  const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg', '']
+    .find(m => !m || MediaRecorder.isTypeSupported(m)) || '';
+  mediaRec = new MediaRecorder(micStream, mimeType ? { mimeType } : {});
+  mediaRec.ondataavailable = (e) => { if (e.data.size > 0) mediaChunks.push(e.data); };
+  mediaRec.onstop = sendAudio;
+  mediaRec.start(100);   // collect chunks every 100 ms
+
+  console.log('[Nova] Recording started, mimeType:', mediaRec.mimeType);
+
+  // ── AnalyserNode: reads energy for VAD (doesn't affect MediaRecorder) ──
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 1024;
+  const srcNode = audioCtx.createMediaStreamSource(micStream);
+  srcNode.connect(analyser);
+  // Do NOT connect analyser to destination — no speaker feedback
+
+  const timeDomain = new Float32Array(analyser.fftSize);
+
+  if (!holdMode) {
+    // VAD auto-stop for wake-word-triggered recordings
+    maxTimer = setTimeout(() => { if (recording) stopRecording(true); }, VAD_MAX_MS);
+
+    vadInterval = setInterval(() => {
+      if (!recording) { clearInterval(vadInterval); return; }
+      analyser.getFloatTimeDomainData(timeDomain);
+      let sum = 0;
+      for (let i = 0; i < timeDomain.length; i++) sum += timeDomain[i] * timeDomain[i];
+      const rms = Math.sqrt(sum / timeDomain.length);
+
+      // Update energy bar
+      $ef.style.width = Math.min(100, (rms / 0.05) * 100) + '%';
+      $ef.className = rms > VAD_THRESHOLD ? 'speaking' : '';
+
+      if (rms > VAD_THRESHOLD) {
+        speechSeen = true; silenceStart = null;
+        setStatus('Speaking…', 'dot-speech');
+      } else if (speechSeen) {
+        if (!silenceStart) silenceStart = Date.now();
+        if (Date.now() - silenceStart > VAD_SILENCE_MS) stopRecording(true);
+      }
+    }, 80);
+  }
+}
+
+function stopRecording(send) {
+  if (!recording) return;
+  recording = false;
+
+  clearInterval(vadInterval); vadInterval = null;
+  clearTimeout(maxTimer);     maxTimer    = null;
+
+  $btnMic.classList.remove('rec');
+  $btnMic.textContent = wakeSupported ? '🎙 Or Hold to Talk' : '🎙 Hold to Talk';
+  $ew.classList.remove('on');
+  $ef.style.width = '0%';
+
+  if (mediaRec && mediaRec.state !== 'inactive') {
+    if (!send) mediaRec.ondataavailable = null;   // discard
+    mediaRec.stop();
+  } else {
+    if (send) sendAudio();
+  }
+
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  analyser = null;
+  if (!send && wakeSupported) setTimeout(startWakeWord, 400);
+}
+
+async function sendAudio() {
+  if (!wsReady || mediaChunks.length === 0) {
+    if (wakeSupported) setTimeout(startWakeWord, 400);
+    return;
+  }
+
+  // Check minimum duration
+  const totalBytes = mediaChunks.reduce((n, c) => n + c.size, 0);
+  if (totalBytes < 1000) {
+    console.log('[Nova] Audio too short, discarding');
+    if (wakeSupported) setTimeout(startWakeWord, 400);
+    return;
+  }
+
+  const blob   = new Blob(mediaChunks, { type: mediaRec?.mimeType || 'audio/webm' });
+  const buffer = await blob.arrayBuffer();
+  console.log('[Nova] Sending', buffer.byteLength, 'bytes, type:', blob.type);
+  ws.send(buffer);
+  setStatus('Processing…', 'dot-online');
+  // Wake word resumes when server sends idle state
+}
+
+// ── WAV playback ──────────────────────────────────────────────────────────────
+async function playWav(wavBuffer) {
+  try {
+    if (!audioCtx) audioCtx = new AudioContext();
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    const ab = await audioCtx.decodeAudioData(wavBuffer.slice(0));
+    if (head) {
+      // Consume pending word timings — converts server format to TalkingHead format
+      // matching the TalkMateAI approach: words / wtimes / wdurations arrays
+      const speakOpts = { audio: ab };
+      if (pendingWordTimings && pendingWordTimings.length) {
+        speakOpts.words      = pendingWordTimings.map(t => t.word);
+        speakOpts.wtimes     = pendingWordTimings.map(t => t.start_ms);
+        speakOpts.wdurations = pendingWordTimings.map(t => t.end_ms - t.start_ms);
+      }
+      pendingWordTimings = null;
+      head.speakAudio(speakOpts);
+    } else {
+      const src = audioCtx.createBufferSource();
+      src.buffer = ab; src.connect(audioCtx.destination); src.start();
+    }
+  } catch (e) { console.error('[Nova] WAV playback:', e); }
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+let subTimer = null;
+function showSub(text) {
+  $sub.textContent = text; $sub.classList.add('on');
+  clearTimeout(subTimer);
+  subTimer = setTimeout(() => $sub.classList.remove('on'), 6000);
+}
+function setStatus(text, dotClass) {
+  $statusTxt.textContent = text;
+  $dot.className = dotClass || '';
+}
+
+// ── Hold-to-talk button ───────────────────────────────────────────────────────
+$btnMic.addEventListener('mousedown',  (e) => { e.preventDefault(); holdMode = true; stopWakeWord(); if (!recording) startRecording(); });
+$btnMic.addEventListener('mouseup',    ()  => { if (recording && holdMode) stopRecording(true); });
+$btnMic.addEventListener('mouseleave', ()  => { if (recording && holdMode) stopRecording(true); });
+$btnMic.addEventListener('touchstart', (e) => { e.preventDefault(); holdMode = true; stopWakeWord(); if (!recording) startRecording(); }, { passive: false });
+$btnMic.addEventListener('touchend',   ()  => { if (recording && holdMode) stopRecording(true); });
+</script>
+</body>
+</html>

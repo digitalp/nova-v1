@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nova Admin</title>
+<style>
+  :root {
+    --bg:      #0f1117;
+    --surface: #1a1d27;
+    --border:  #2a2d3a;
+    --accent:  #6366f1;
+    --accent2: #4f46e5;
+    --text:    #e2e8f0;
+    --muted:   #64748b;
+    --green:   #10b981;
+    --red:     #ef4444;
+    --yellow:  #f59e0b;
+    --nav-w:   220px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; display: flex; height: 100vh; overflow: hidden; }
+
+  /* Sidebar */
+  #sidebar {
+    width: var(--nav-w); background: var(--surface); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden;
+  }
+  #sidebar-header { padding: 20px 16px 16px; border-bottom: 1px solid var(--border); }
+  #sidebar-header h1 { font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: -.3px; }
+  #sidebar-header p  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  #sidebar nav { flex: 1; padding: 8px 0; overflow-y: auto; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px; padding: 9px 16px; cursor: pointer;
+    color: var(--muted); font-size: 13px; font-weight: 500; border-radius: 0;
+    transition: background .12s, color .12s; user-select: none;
+  }
+  .nav-item:hover  { background: rgba(99,102,241,.1); color: var(--text); }
+  .nav-item.active { background: rgba(99,102,241,.18); color: var(--accent); border-right: 2px solid var(--accent); }
+  .nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+  #sidebar-footer { padding: 12px 16px; border-top: 1px solid var(--border); }
+  #status-dot {
+    display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted);
+  }
+  #status-dot .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0;
+  }
+  #status-dot.ok  .dot { background: var(--green); }
+  #status-dot.err .dot { background: var(--red); }
+
+  /* Main content */
+  #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  #topbar {
+    height: 52px; padding: 0 24px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+    background: var(--surface);
+  }
+  #topbar h2 { font-size: 15px; font-weight: 600; }
+  #topbar-actions { display: flex; gap: 8px; align-items: center; }
+  #content { flex: 1; overflow-y: auto; padding: 24px; }
+
+  /* Cards */
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  .card-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 14px; }
+
+  /* Forms */
+  label { display: block; font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 5px; }
+  input[type=text], input[type=password], input[type=url], textarea, select {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); padding: 8px 10px; font-size: 13px; outline: none; font-family: inherit;
+    transition: border-color .15s;
+  }
+  input[type=text]:focus, input[type=password]:focus, input[type=url]:focus,
+  textarea:focus, select:focus { border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 120px; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; }
+  .field { margin-bottom: 14px; }
+  .field:last-child { margin-bottom: 0; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px;
+    border-radius: 6px; font-size: 13px; font-weight: 500; border: none; cursor: pointer;
+    transition: opacity .15s, transform .08s; user-select: none;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent2); }
+  .btn-danger  { background: var(--red); color: #fff; }
+  .btn-danger:hover:not(:disabled)  { background: #dc2626; }
+  .btn-outline { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .btn-outline:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .skin-swatch {
+    width: 44px; height: 44px; border-radius: 50%; cursor: pointer;
+    border: 3px solid transparent; transition: border-color .15s, transform .1s;
+  }
+  .skin-swatch:hover { transform: scale(1.1); }
+  .skin-swatch.selected { border-color: var(--accent); }
+  .btn svg { width: 14px; height: 14px; }
+
+  /* Auth gate */
+  #auth-gate {
+    position: fixed; inset: 0; background: var(--bg); z-index: 100;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #auth-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 32px; width: 340px;
+  }
+  #auth-box h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+  #auth-box p  { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  #auth-error  { color: var(--red); font-size: 12px; margin-top: 8px; min-height: 16px; }
+
+  /* Toast */
+  #toast {
+    position: fixed; bottom: 20px; right: 20px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px;
+    font-size: 13px; color: var(--text); box-shadow: 0 4px 20px rgba(0,0,0,.4);
+    transition: opacity .3s, transform .3s; opacity: 0; transform: translateY(8px);
+    pointer-events: none; z-index: 200; max-width: 320px;
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+  #toast.ok  { border-left: 3px solid var(--green); }
+  #toast.err { border-left: 3px solid var(--red); }
+  #toast.warn{ border-left: 3px solid var(--yellow); }
+
+  /* Dashboard stats */
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .stat-value { font-size: 24px; font-weight: 700; margin-top: 4px; }
+  .stat-value.ok   { color: var(--green); }
+  .stat-value.warn { color: var(--yellow); }
+  .stat-value.err  { color: var(--red); }
+
+  /* Live logs */
+  #log-output {
+    background: #0a0c10; border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; height: 440px; overflow-y: auto; font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px; line-height: 1.7; white-space: pre-wrap; word-break: break-all;
+  }
+  .log-line { display: block; }
+  .log-line.lvl-info    { color: #94a3b8; }
+  .log-line.lvl-warning { color: var(--yellow); }
+  .log-line.lvl-error   { color: var(--red); }
+  .log-line.lvl-debug   { color: #475569; }
+  .log-line.lvl-critical{ color: #f97316; }
+
+  /* Sessions table */
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 8px 12px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  tr:last-child td { border-bottom: none; }
+
+  /* Sections */
+  .section { display: none; }
+  .section.active { display: block; }
+
+  /* Announce */
+  .priority-row { display: flex; gap: 8px; align-items: center; }
+  .priority-row select { flex: 1; }
+
+  /* Key input with reveal */
+  .input-reveal { position: relative; }
+  .input-reveal input { padding-right: 36px; }
+  .input-reveal button {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px;
+  }
+  .input-reveal button:hover { color: var(--text); }
+
+  /* Config grid */
+  .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 800px) { .config-grid { grid-template-columns: 1fr; } .stat-grid { grid-template-columns: 1fr 1fr; } }
+
+  /* Spinner */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { display: inline-block; animation: spin .7s linear infinite; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- Auth gate -->
+<div id="auth-gate">
+  <div id="auth-box">
+    <h2>Nova Admin</h2>
+    <p>Enter your API key to continue.</p>
+    <div class="field">
+      <label for="auth-key-input">API Key</label>
+      <div class="input-reveal">
+        <input type="password" id="auth-key-input" placeholder="Enter API key..." autocomplete="current-password">
+        <button onclick="toggleReveal('auth-key-input',this)" tabindex="-1">&#128065;</button>
+      </div>
+    </div>
+    <button class="btn btn-primary" style="width:100%" onclick="authenticate()">Unlock</button>
+    <div id="auth-error"></div>
+  </div>
+</div>
+
+<!-- Sidebar -->
+<div id="sidebar">
+  <div id="sidebar-header">
+    <h1>Nova Admin</h1>
+    <p>AI Server Control Panel</p>
+  </div>
+  <nav id="nav">
+    <div class="nav-item active" data-section="dashboard" onclick="navigate(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item" data-section="config" onclick="navigate(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+      Configuration
+    </div>
+    <div class="nav-item" data-section="prompt" onclick="navigate(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      System Prompt
+    </div>
+    <div class="nav-item" data-section="acl" onclick="navigate(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      ACL Rules
+    </div>
+    <div class="nav-item" data-section="logs" onclick="navigate(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      Live Logs
+    </div>
+    <div class="nav-item" data-section="sessions" onclick="navigate(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Sessions
+    </div>
+    <div class="nav-item" data-section="avatar" onclick="navigate(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+      Avatar
+    </div>
+    <div class="nav-item" data-section="tools" onclick="navigate(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+      Tools
+    </div>
+  </nav>
+  <div id="sidebar-footer">
+    <div id="status-dot">
+      <div class="dot"></div>
+      <span id="status-text">Checking...</span>
+    </div>
+  </div>
+</div>
+
+<!-- Main -->
+<div id="main">
+  <div id="topbar">
+    <h2 id="section-title">Dashboard</h2>
+    <div id="topbar-actions">
+      <button class="btn btn-outline btn-sm" onclick="refreshSection()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.72"/></svg>
+        Refresh
+      </button>
+      <button class="btn btn-danger btn-sm" id="restart-btn" onclick="restartServer()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.49-4.72"/></svg>
+        Restart
+      </button>
+    </div>
+  </div>
+  <div id="content">
+
+    <!-- DASHBOARD -->
+    <div id="section-dashboard" class="section active">
+      <div class="stat-grid" id="health-stats">
+        <div class="stat"><div class="stat-label">Ollama</div><div class="stat-value" id="h-ollama">—</div></div>
+        <div class="stat"><div class="stat-label">Whisper</div><div class="stat-value" id="h-whisper">—</div></div>
+        <div class="stat"><div class="stat-label">Piper</div><div class="stat-value" id="h-piper">—</div></div>
+        <div class="stat"><div class="stat-label">Home Assistant</div><div class="stat-value" id="h-ha">—</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Active Sessions</div>
+        <div id="dash-sessions" style="font-size:32px;font-weight:700;color:var(--accent)">—</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Server Version</div>
+        <div id="dash-version" style="font-size:20px;font-weight:600;color:var(--muted)">—</div>
+      </div>
+    </div>
+
+    <!-- CONFIG -->
+    <div id="section-config" class="section">
+      <div class="card">
+        <div class="card-title">Environment Settings</div>
+        <div class="config-grid" id="config-fields"></div>
+        <div style="margin-top:18px;display:flex;gap:8px;">
+          <button class="btn btn-primary" onclick="saveConfig()">Save Changes</button>
+          <button class="btn btn-outline" onclick="loadConfig()">Discard</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SYSTEM PROMPT -->
+    <div id="section-prompt" class="section">
+      <div class="card">
+        <div class="card-title">System Prompt</div>
+        <div class="field">
+          <textarea id="prompt-text" rows="20" placeholder="Enter system prompt..."></textarea>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary" onclick="savePrompt()">Save Prompt</button>
+          <button class="btn btn-outline" onclick="loadPrompt()">Discard</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ACL -->
+    <div id="section-acl" class="section">
+      <div class="card">
+        <div class="card-title">ACL Rules (YAML)</div>
+        <div class="field">
+          <textarea id="acl-text" rows="20" placeholder="# YAML ACL rules..."></textarea>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary" onclick="saveAcl()">Save ACL</button>
+          <button class="btn btn-outline" onclick="loadAcl()">Discard</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOGS -->
+    <div id="section-logs" class="section">
+      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
+        <button class="btn btn-outline btn-sm" id="log-toggle-btn" onclick="toggleLogs()">
+          <svg id="log-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Start
+        </button>
+        <button class="btn btn-outline btn-sm" onclick="clearLogs()">Clear</button>
+        <label style="margin:0;display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="log-autoscroll" checked> Auto-scroll
+        </label>
+        <span id="log-status" style="color:var(--muted);font-size:12px;margin-left:auto;"></span>
+      </div>
+      <div id="log-output"></div>
+    </div>
+
+    <!-- SESSIONS -->
+    <div id="section-sessions" class="section">
+      <div class="card">
+        <div class="card-title">Active Sessions</div>
+        <table>
+          <thead><tr><th>Session ID</th><th>Action</th></tr></thead>
+          <tbody id="sessions-tbody"><tr><td colspan="2" style="color:var(--muted)">Loading...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- AVATAR -->
+    <div id="section-avatar" class="section">
+      <div class="card">
+        <div class="card-title">Skin Tone</div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:16px;">Select a preset or enter a custom avatar GLB URL. Changes apply when the avatar page is next loaded.</p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;" id="skin-swatches">
+          <div class="skin-swatch" data-index="0" title="Porcelain" style="background:#fde8d2;" onclick="selectSkin(0)"></div>
+          <div class="skin-swatch" data-index="1" title="Light"     style="background:#f1c49a;" onclick="selectSkin(1)"></div>
+          <div class="skin-swatch" data-index="2" title="Medium"    style="background:#c68642;" onclick="selectSkin(2)"></div>
+          <div class="skin-swatch" data-index="3" title="Dark"      style="background:#8d5524;" onclick="selectSkin(3)"></div>
+          <div class="skin-swatch" data-index="4" title="Deep"      style="background:#4a2c0a;" onclick="selectSkin(4)"></div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Selected: <span id="skin-label">—</span></div>
+      </div>
+      <div class="card" style="margin-top:12px;">
+        <div class="card-title">Custom Avatar URL</div>
+        <div class="field">
+          <label for="avatar-url">GLB URL (leave blank to use default)</label>
+          <input type="text" id="avatar-url" placeholder="https://…/avatar.glb">
+        </div>
+        <div style="display:flex;gap:8px;margin-top:4px;">
+          <button class="btn btn-primary" onclick="saveAvatarSettings()">Save</button>
+          <button class="btn btn-outline" onclick="loadAvatarSettings()">Discard</button>
+          <button class="btn btn-outline" onclick="resetAvatarSettings()">Reset to Default</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TOOLS -->
+    <div id="section-tools" class="section">
+      <div class="card">
+        <div class="card-title">Test Announcement</div>
+        <div class="field">
+          <label for="announce-msg">Message</label>
+          <input type="text" id="announce-msg" placeholder="Test announcement text..." value="Hello, this is a test announcement.">
+        </div>
+        <div class="field">
+          <label for="announce-priority">Priority</label>
+          <select id="announce-priority">
+            <option value="normal">Normal</option>
+            <option value="alert">Alert</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="testAnnounce()">Send Announcement</button>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+let API_KEY = '';
+let logEventSource = null;
+let logRunning = false;
+const BASE = '';
+
+// ── Auth ─────────────────────────────────────────────────────────────────────
+
+function toggleReveal(inputId, btn) {
+  const el = document.getElementById(inputId);
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+async function authenticate() {
+  const key = document.getElementById('auth-key-input').value.trim();
+  if (!key) { document.getElementById('auth-error').textContent = 'Please enter your API key.'; return; }
+  try {
+    const r = await fetch('/admin/config', { headers: { 'X-API-Key': key } });
+    if (r.status === 403 || r.status === 401) {
+      document.getElementById('auth-error').textContent = 'Invalid API key.';
+      return;
+    }
+    API_KEY = key;
+    localStorage.setItem('nova_admin_key', key);
+    document.getElementById('auth-gate').style.display = 'none';
+    init();
+  } catch (e) {
+    document.getElementById('auth-error').textContent = 'Cannot reach server.';
+  }
+}
+
+document.getElementById('auth-key-input').addEventListener('keydown', e => { if (e.key === 'Enter') authenticate(); });
+
+// Auto-login from storage
+const stored = localStorage.getItem('nova_admin_key');
+if (stored) {
+  API_KEY = stored;
+  fetch('/admin/config', { headers: { 'X-API-Key': API_KEY } }).then(r => {
+    if (r.ok) { document.getElementById('auth-gate').style.display = 'none'; init(); }
+    else { API_KEY = ''; localStorage.removeItem('nova_admin_key'); }
+  }).catch(() => {
+    document.getElementById('auth-gate').style.display = 'none'; init();
+  });
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+function init() {
+  loadDashboard();
+  pollHealth();
+  setInterval(pollHealth, 15000);
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+
+const TITLES = { dashboard:'Dashboard', config:'Configuration', prompt:'System Prompt', acl:'ACL Rules', logs:'Live Logs', sessions:'Sessions', avatar:'Avatar', tools:'Tools' };
+
+// ── Avatar / skin tone ────────────────────────────────────────────────────────
+const SKIN_LABELS = ['Porcelain','Light','Medium','Dark','Deep'];
+let _currentSkinTone = 0;
+
+function selectSkin(index) {
+  _currentSkinTone = index;
+  document.querySelectorAll('.skin-swatch').forEach(s => s.classList.remove('selected'));
+  const el = document.querySelector(`.skin-swatch[data-index="${index}"]`);
+  if (el) el.classList.add('selected');
+  document.getElementById('skin-label').textContent = SKIN_LABELS[index];
+}
+
+async function loadAvatarSettings() {
+  try {
+    const d = await api('GET', '/admin/avatar-settings');
+    selectSkin(d.skin_tone ?? 0);
+    document.getElementById('avatar-url').value = d.avatar_url || '';
+  } catch(e) {
+    selectSkin(0);
+  }
+}
+
+async function saveAvatarSettings() {
+  const url = document.getElementById('avatar-url').value.trim();
+  await api('POST', '/admin/avatar-settings', { skin_tone: _currentSkinTone, avatar_url: url });
+  showToast('Avatar settings saved — reload the avatar page to apply');
+}
+
+async function resetAvatarSettings() {
+  document.getElementById('avatar-url').value = '';
+  selectSkin(0);
+  await api('POST', '/admin/avatar-settings', { skin_tone: 0, avatar_url: '' });
+  showToast('Reset to default');
+}
+
+function navigate(el) {
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  el.classList.add('active');
+  const sec = el.dataset.section;
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.getElementById('section-' + sec).classList.add('active');
+  document.getElementById('section-title').textContent = TITLES[sec] || sec;
+  // Lazy load
+  if (sec === 'config') loadConfig();
+  if (sec === 'prompt') loadPrompt();
+  if (sec === 'acl') loadAcl();
+  if (sec === 'avatar') loadAvatarSettings();
+  if (sec === 'sessions') loadSessions();
+  if (sec === 'dashboard') loadDashboard();
+  if (sec === 'logs' && logRunning) {}  // keep going
+}
+
+function refreshSection() {
+  const active = document.querySelector('.nav-item.active');
+  if (active) navigate(active);
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+
+let toastTimer;
+function toast(msg, type='ok') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'show ' + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = ''; }, 3000);
+}
+
+// ── API helpers ───────────────────────────────────────────────────────────────
+
+async function api(method, path, body) {
+  const opts = { method, headers: { 'X-API-Key': API_KEY } };
+  if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  const r = await fetch(path, opts);
+  if (!r.ok) { const t = await r.text(); throw new Error(t || r.statusText); }
+  return r.json();
+}
+
+// ── Health / Dashboard ────────────────────────────────────────────────────────
+
+async function pollHealth() {
+  try {
+    const d = await fetch('/health', { headers: { 'X-API-Key': API_KEY } }).then(r => r.json());
+    const dot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+    if (d.status === 'ok') { dot.className = 'ok'; statusText.textContent = 'Server OK'; }
+    else { dot.className = 'err'; statusText.textContent = 'Degraded'; }
+    if (document.querySelector('#section-dashboard.active')) renderHealth(d);
+  } catch {
+    document.getElementById('status-dot').className = 'err';
+    document.getElementById('status-text').textContent = 'Unreachable';
+  }
+}
+
+function renderHealth(d) {
+  const comp = d.components || {};
+  const map = { ollama:'h-ollama', whisper:'h-whisper', piper:'h-piper', home_assistant:'h-ha' };
+  for (const [k, eid] of Object.entries(map)) {
+    const el = document.getElementById(eid);
+    if (!el) continue;
+    const v = comp[k] || '—';
+    el.textContent = v;
+    el.className = 'stat-value ' + (v === 'reachable' || v === 'ready' ? 'ok' : v === 'loading' ? 'warn' : 'err');
+  }
+  document.getElementById('dash-version').textContent = d.version || '—';
+}
+
+async function loadDashboard() {
+  try {
+    const [health, sessions] = await Promise.all([
+      fetch('/health', { headers: { 'X-API-Key': API_KEY } }).then(r => r.json()),
+      api('GET', '/admin/sessions'),
+    ]);
+    renderHealth(health);
+    document.getElementById('dash-sessions').textContent = sessions.active_sessions ?? '—';
+  } catch(e) { console.warn(e); }
+}
+
+// ── Config ────────────────────────────────────────────────────────────────────
+
+const _CLOUD_MODELS = {
+  ollama:    [],
+  openai:    ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+  google:    ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-lite-001'],
+  anthropic: ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
+};
+
+const _FIELD_OPTIONS = {
+  LLM_PROVIDER:  ['ollama', 'openai', 'google', 'anthropic'],
+  WHISPER_MODEL: ['tiny', 'base', 'small', 'medium', 'large-v2', 'large-v3'],
+  LOG_LEVEL:     ['INFO', 'DEBUG', 'WARNING', 'ERROR'],
+};
+
+let _configMeta = {};
+
+function _buildSelect(key, val, options) {
+  const opts = options.map(o =>
+    `<option value="${esc(o)}"${o === val ? ' selected' : ''}>${esc(o)}</option>`
+  ).join('');
+  return `<select id="cfg-${key}" data-key="${key}">${opts}</select>`;
+}
+
+function _updateCloudModelDropdown(provider, currentVal) {
+  const wrapper = document.getElementById('cloud-model-wrapper');
+  if (!wrapper) return;
+  const models = _CLOUD_MODELS[provider] || [];
+  const val = currentVal !== undefined ? currentVal : (document.getElementById('cfg-CLOUD_MODEL')?.value || '');
+
+  if (models.length) {
+    const selected = models.includes(val) ? val : models[0];
+    wrapper.innerHTML = _buildSelect('CLOUD_MODEL', selected, models);
+  } else {
+    wrapper.innerHTML = `<input type="text" id="cfg-CLOUD_MODEL" data-key="CLOUD_MODEL" value="${esc(val)}" placeholder="e.g. llama3.1:8b-instruct-q4_K_M">`;
+  }
+}
+
+async function loadConfig() {
+  try {
+    const d = await api('GET', '/admin/config');
+    _configMeta = d.fields || {};
+    const grid = document.getElementById('config-fields');
+    grid.innerHTML = '';
+
+    for (const [key, [label, sensitive]] of Object.entries(_configMeta)) {
+      const val = (d.values || {})[key] || '';
+      const div = document.createElement('div');
+      div.className = 'field';
+
+      let input;
+      if (_FIELD_OPTIONS[key]) {
+        // Static dropdown
+        input = _buildSelect(key, val, _FIELD_OPTIONS[key]);
+      } else if (key === 'CLOUD_MODEL') {
+        // Rendered into a wrapper div so it can be swapped when provider changes
+        const provider = (d.values || {})['LLM_PROVIDER'] || 'ollama';
+        const models = _CLOUD_MODELS[provider] || [];
+        let inner;
+        if (models.length) {
+          const selected = models.includes(val) ? val : models[0];
+          inner = _buildSelect(key, selected, models);
+        } else {
+          inner = `<input type="text" id="cfg-${key}" data-key="${key}" value="${esc(val)}" placeholder="e.g. llama3.1:8b-instruct-q4_K_M">`;
+        }
+        input = `<div id="cloud-model-wrapper">${inner}</div>`;
+      } else if (sensitive) {
+        input = `<div class="input-reveal"><input type="password" id="cfg-${key}" data-key="${key}" value="${esc(val)}" autocomplete="off"><button onclick="toggleReveal('cfg-${key}',this)" tabindex="-1">&#128065;</button></div>`;
+      } else {
+        input = `<input type="text" id="cfg-${key}" data-key="${key}" value="${esc(val)}">`;
+      }
+
+      div.innerHTML = `<label for="cfg-${key}">${label}</label>${input}`;
+      grid.appendChild(div);
+    }
+
+    // Wire provider dropdown → rebuild cloud model dropdown
+    const providerEl = document.getElementById('cfg-LLM_PROVIDER');
+    if (providerEl) {
+      providerEl.addEventListener('change', () => {
+        _updateCloudModelDropdown(providerEl.value);
+      });
+    }
+    // Also run once on load to ensure correct initial state
+    if (providerEl) _updateCloudModelDropdown(providerEl.value, (d.values || {})['CLOUD_MODEL'] || '');
+  } catch(e) { toast('Failed to load config: ' + e.message, 'err'); }
+}
+
+async function saveConfig() {
+  const values = {};
+  document.querySelectorAll('#config-fields [data-key]').forEach(el => {
+    values[el.dataset.key] = el.value;
+  });
+  try {
+    await api('POST', '/admin/config', { values });
+    toast('Configuration saved', 'ok');
+  } catch(e) { toast('Save failed: ' + e.message, 'err'); }
+}
+
+// ── System Prompt ─────────────────────────────────────────────────────────────
+
+async function loadPrompt() {
+  try {
+    const d = await api('GET', '/admin/prompt');
+    document.getElementById('prompt-text').value = d.text || '';
+  } catch(e) { toast('Failed to load prompt: ' + e.message, 'err'); }
+}
+
+async function savePrompt() {
+  try {
+    await api('POST', '/admin/prompt', { text: document.getElementById('prompt-text').value });
+    toast('System prompt saved', 'ok');
+  } catch(e) { toast('Save failed: ' + e.message, 'err'); }
+}
+
+// ── ACL ───────────────────────────────────────────────────────────────────────
+
+async function loadAcl() {
+  try {
+    const d = await api('GET', '/admin/acl');
+    document.getElementById('acl-text').value = d.text || '';
+  } catch(e) { toast('Failed to load ACL: ' + e.message, 'err'); }
+}
+
+async function saveAcl() {
+  try {
+    await api('POST', '/admin/acl', { text: document.getElementById('acl-text').value });
+    toast('ACL saved', 'ok');
+  } catch(e) { toast('Save failed: ' + e.message, 'err'); }
+}
+
+// ── Live Logs ─────────────────────────────────────────────────────────────────
+
+function toggleLogs() {
+  if (logRunning) stopLogs(); else startLogs();
+}
+
+function startLogs() {
+  if (logEventSource) { logEventSource.close(); logEventSource = null; }
+  const url = `/admin/logs?api_key=${encodeURIComponent(API_KEY)}`;
+  logEventSource = new EventSource(url);
+  logRunning = true;
+  document.getElementById('log-toggle-btn').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Pause';
+  document.getElementById('log-status').textContent = 'Streaming...';
+
+  logEventSource.onmessage = (e) => appendLog(e.data);
+  logEventSource.onerror = () => {
+    document.getElementById('log-status').textContent = 'Disconnected';
+    logRunning = false;
+    document.getElementById('log-toggle-btn').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="5 3 19 12 5 21 5 3"/></svg> Resume';
+  };
+}
+
+function stopLogs() {
+  if (logEventSource) { logEventSource.close(); logEventSource = null; }
+  logRunning = false;
+  document.getElementById('log-toggle-btn').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="5 3 19 12 5 21 5 3"/></svg> Resume';
+  document.getElementById('log-status').textContent = 'Paused';
+}
+
+function appendLog(raw) {
+  const out = document.getElementById('log-output');
+  let text = raw;
+  let cls = 'lvl-info';
+  try {
+    const j = JSON.parse(raw);
+    const lvl = (j.level || j.log_level || '').toLowerCase();
+    if (lvl === 'warning' || lvl === 'warn') cls = 'lvl-warning';
+    else if (lvl === 'error') cls = 'lvl-error';
+    else if (lvl === 'debug') cls = 'lvl-debug';
+    else if (lvl === 'critical') cls = 'lvl-critical';
+    // Pretty print JSON log
+    const ts = j.timestamp || '';
+    const ev = j.event || j.message || '';
+    const rest = Object.entries(j).filter(([k]) => !['timestamp','level','log_level','event','message','logger'].includes(k));
+    text = [ts && `[${ts.slice(0,19).replace('T',' ')}]`, lvl && lvl.toUpperCase(), ev, ...rest.map(([k,v])=>`${k}=${JSON.stringify(v)}`)].filter(Boolean).join(' ');
+  } catch {}
+  const span = document.createElement('span');
+  span.className = 'log-line ' + cls;
+  span.textContent = text;
+  out.appendChild(span);
+  // Trim old lines
+  while (out.children.length > 2000) out.removeChild(out.firstChild);
+  if (document.getElementById('log-autoscroll').checked) {
+    out.scrollTop = out.scrollHeight;
+  }
+}
+
+function clearLogs() {
+  document.getElementById('log-output').innerHTML = '';
+}
+
+// ── Sessions ──────────────────────────────────────────────────────────────────
+
+async function loadSessions() {
+  try {
+    const d = await api('GET', '/admin/sessions');
+    const tbody = document.getElementById('sessions-tbody');
+    tbody.innerHTML = '';
+    const count = d.active_sessions || 0;
+    if (count === 0) {
+      tbody.innerHTML = '<tr><td colspan="2" style="color:var(--muted)">No active sessions</td></tr>';
+      return;
+    }
+    // The API only returns a count — show that info
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${count} active session(s)</td><td></td>`;
+    tbody.appendChild(tr);
+  } catch(e) { toast('Failed to load sessions: ' + e.message, 'err'); }
+}
+
+// ── Server restart ────────────────────────────────────────────────────────────
+
+async function restartServer() {
+  if (!confirm('Restart the avatar-backend service? The server will be briefly unavailable.')) return;
+  const btn = document.getElementById('restart-btn');
+  btn.disabled = true;
+  btn.textContent = 'Restarting...';
+  try {
+    await api('POST', '/admin/restart');
+    toast('Server is restarting…', 'warn');
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.49-4.72"/></svg> Restart';
+      pollHealth();
+    }, 8000);
+  } catch(e) {
+    toast('Restart failed: ' + e.message, 'err');
+    btn.disabled = false;
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.49-4.72"/></svg> Restart';
+  }
+}
+
+// ── Test announce ─────────────────────────────────────────────────────────────
+
+async function testAnnounce() {
+  const message  = document.getElementById('announce-msg').value.trim();
+  const priority = document.getElementById('announce-priority').value;
+  if (!message) { toast('Enter a message', 'warn'); return; }
+  try {
+    await api('POST', '/admin/announce/test', { message, priority });
+    toast('Announcement sent', 'ok');
+  } catch(e) { toast('Announce failed: ' + e.message, 'err'); }
+}
+
+// ── Util ──────────────────────────────────────────────────────────────────────
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>

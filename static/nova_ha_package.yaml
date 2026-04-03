@@ -1,0 +1,13 @@
+# Nova AI Avatar — Home Assistant Package
+# Save this file as /config/packages/nova.yaml
+# Replace <SERVER_IP>, <PORT>, and <API_KEY> with your actual values.
+# Add to configuration.yaml:  homeassistant: packages: !include_dir_named packages/
+
+rest_command:
+  nova_announce:
+    url: "http://<SERVER_IP>:<PORT>/announce"
+    method: POST
+    content_type: "application/json"
+    headers:
+      X-API-Key: "<API_KEY>"
+    payload: '{"message": "{{ message }}", "priority": "{{ priority | default(\"normal\") }}"}'
