@@ -33,14 +33,25 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     google_api_key: str = ""
     anthropic_api_key: str = ""
-    cloud_model: str = ""   # e.g. gpt-4o-mini, gemini-2.0-flash, claude-haiku-4-5-20251001
+    cloud_model: str = ""
 
     # STT / TTS
     whisper_model: str = "small"
     piper_voice: str = "en_US-lessac-medium"
 
-    # Speakers — comma-separated HA media_player entity IDs (Phase 5)
-    # Prefix with "alexa:" for Echo devices: "alexa:media_player.living_room"
+    # TTS provider: piper | elevenlabs
+    tts_provider: str = "piper"
+
+    # ElevenLabs TTS
+    elevenlabs_api_key: str = ""
+    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"  # Rachel (default)
+    elevenlabs_model: str = "eleven_monolingual_v1"
+
+    # AfroTTS (local Kokoro engine)
+    afrotts_voice: str = "af_heart"   # af_heart af_nicole af_sarah af_sky am_adam am_michael bf_emma bf_isabella bm_george bm_lewis
+    afrotts_speed: float = 1.0
+
+    # Speakers — comma-separated HA media_player entity IDs
     speakers: str = ""
 
     # TTS engine used for non-Alexa speakers (must be a tts.* entity in HA)
@@ -48,7 +59,6 @@ class Settings(BaseSettings):
 
     @property
     def speaker_list(self) -> list[str]:
-        """Return the speakers setting as a filtered list of entity IDs."""
         return [s.strip() for s in self.speakers.split(",") if s.strip()]
 
 

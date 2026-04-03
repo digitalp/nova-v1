@@ -17,7 +17,7 @@ from avatar_backend.services.llm_service import LLMService
 from avatar_backend.services.session_manager import SessionManager
 from avatar_backend.services.speaker_service import SpeakerService
 from avatar_backend.services.stt_service import STTService
-from avatar_backend.services.tts_service import TTSService
+from avatar_backend.services.tts_service import create_tts_service
 from avatar_backend.services.ws_manager import ConnectionManager
 from avatar_backend.routers import health, chat
 from avatar_backend.routers import voice, avatar_ws, announce
@@ -87,7 +87,8 @@ async def lifespan(app: FastAPI):
     )
 
     app.state.stt_service = STTService(model_name=settings.whisper_model)
-    app.state.tts_service = TTSService(voice_name=settings.piper_voice)
+    app.state.tts_service = create_tts_service(settings)
+    logger.info("tts_service.configured", provider=settings.tts_provider)
     app.state.ws_manager  = ConnectionManager()
 
     app.state.speaker_service = SpeakerService(

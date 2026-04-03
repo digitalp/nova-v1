@@ -1,50 +1,58 @@
 """
-Text-to-speech service using Piper TTS binary (subprocess).
+Text-to-speech service — supports Piper (local) and ElevenLabs (cloud).
 
-Downloads and caches the piper executable from GitHub releases.
-Uses the ONNX voice model to synthesise speech.
-Output is always 16-bit mono WAV bytes.
-
-Why subprocess instead of piper-tts Python package?
-  The piper-tts PyPI package requires piper-phonemize~=1.1.0 which has
-  no wheel for Python 3.12. The standalone binary works on all Python
-  versions and is the approach recommended by the Piper authors.
+Select provider via TTS_PROVIDER env var: "piper" (default) or "elevenlabs".
 """
 from __future__ import annotations
 import asyncio
+import base64
 import io
 import json
-import os
-import shutil
+import re
+import struct
 import subprocess
 import wave
+from abc import ABC, abstractmethod
 from pathlib import Path
 
+import httpx
 import structlog
 
 _LOGGER = structlog.get_logger()
 
-_VOICES_DIR   = Path("/opt/avatar-server/config/piper_voices")
-_PIPER_BIN    = Path("/opt/avatar-server/piper/piper")
-
-# Piper binary release download URL (Linux x86_64)
-_PIPER_RELEASE_URL = (
-    "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/"
-    "piper_linux_x86_64.tar.gz"
-)
+_VOICES_DIR = Path("/opt/avatar-server/config/piper_voices")
+_PIPER_BIN  = Path("/opt/avatar-server/piper/piper")
 
 
-class TTSService:
-    """Synthesises speech from text using the Piper CLI binary."""
+# ── Base ──────────────────────────────────────────────────────────────────────
+
+class BaseTTSService(ABC):
+    @abstractmethod
+    async def synthesise_with_timing(self, text: str) -> tuple[bytes, list[dict]]:
+        ...
+
+    @abstractmethod
+    async def synthesise(self, text: str) -> bytes:
+        ...
+
+    @property
+    @abstractmethod
+    def is_ready(self) -> bool:
+        ...
+
+
+# ── Piper ─────────────────────────────────────────────────────────────────────
+
+class PiperTTSService(BaseTTSService):
+    """Local TTS using the Piper binary."""
 
     def __init__(self, voice_name: str = "en_US-lessac-medium") -> None:
-        self._voice_name = voice_name
+        self._voice_name  = voice_name
         self._model_path  = str(_VOICES_DIR / f"{voice_name}.onnx")
         self._config_path = str(_VOICES_DIR / f"{voice_name}.onnx.json")
-        self._sample_rate: int = self._read_sample_rate()
+        self._sample_rate = self._read_sample_rate()
 
     def _read_sample_rate(self) -> int:
-        """Read sample rate from voice config JSON (default 22050)."""
         try:
             with open(self._config_path) as f:
                 data = json.load(f)
@@ -53,51 +61,20 @@ class TTSService:
             return 22050
 
     async def synthesise_with_timing(self, text: str) -> tuple[bytes, list[dict]]:
-        """
-        Synthesise speech and return (wav_bytes, word_timings).
-
-        word_timings is a list of {"word": str, "start_ms": int, "end_ms": int}
-        estimated proportionally from total audio duration and word lengths —
-        the same approach TalkMateAI uses for driving TalkingHead lip sync.
-        """
         wav_bytes = await self.synthesise(text)
-        timings   = _estimate_word_timings(text, wav_bytes)
-        return wav_bytes, timings
+        return wav_bytes, _estimate_word_timings(text, wav_bytes)
 
     async def synthesise(self, text: str) -> bytes:
-        """
-        Convert *text* to speech using the Piper binary.
-
-        Returns raw WAV bytes (RIFF header + PCM16 mono).
-        Raises RuntimeError if piper binary is not found.
-        """
         text = (text or "").strip()
         if not text:
             return _silent_wav(self._sample_rate)
-
         if not _PIPER_BIN.exists():
-            raise RuntimeError(
-                f"Piper binary not found at {_PIPER_BIN}. "
-                "Run scripts/download_piper.sh to install it."
-            )
+            raise RuntimeError(f"Piper binary not found at {_PIPER_BIN}.")
         if not Path(self._model_path).exists():
-            raise FileNotFoundError(
-                f"Piper voice model not found: {self._model_path}. "
-                "Run scripts/download_piper_voice.sh to download it."
-            )
-
-        try:
-            wav_bytes = await _run_piper(
-                piper_bin=str(_PIPER_BIN),
-                model_path=self._model_path,
-                text=text,
-            )
-            _LOGGER.info("tts.synthesised",
-                         chars=len(text), wav_bytes=len(wav_bytes))
-            return wav_bytes
-        except Exception as exc:
-            _LOGGER.error("tts.error", exc=str(exc))
-            raise
+            raise FileNotFoundError(f"Piper voice model not found: {self._model_path}.")
+        wav_bytes = await _run_piper(str(_PIPER_BIN), self._model_path, text)
+        _LOGGER.info("tts.piper.synthesised", chars=len(text), wav_bytes=len(wav_bytes))
+        return wav_bytes
 
     @property
     def is_ready(self) -> bool:
@@ -108,59 +85,253 @@ class TTSService:
         return self._sample_rate
 
 
+# ── ElevenLabs ────────────────────────────────────────────────────────────────
+
+_ELEVENLABS_BASE = "https://api.elevenlabs.io/v1"
+_EL_SAMPLE_RATE  = 22050  # matches pcm_22050 output format
+
+
+class ElevenLabsTTSService(BaseTTSService):
+    """Cloud TTS using the ElevenLabs API."""
+
+    def __init__(self, api_key: str, voice_id: str, model: str) -> None:
+        self._api_key  = api_key
+        self._voice_id = voice_id
+        self._model    = model
+
+    async def synthesise_with_timing(self, text: str) -> tuple[bytes, list[dict]]:
+        text = (text or "").strip()
+        if not text:
+            return _silent_wav(_EL_SAMPLE_RATE), []
+
+        url = f"{_ELEVENLABS_BASE}/text-to-speech/{self._voice_id}/with-timestamps"
+        payload = {
+            "text": text,
+            "model_id": self._model,
+            "output_format": "pcm_22050",
+        }
+        headers = {
+            "xi-api-key": self._api_key,
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"ElevenLabs API error {resp.status_code}: {resp.text[:200]}"
+            )
+
+        data       = resp.json()
+        pcm_bytes  = base64.b64decode(data["audio_base64"])
+        wav_bytes  = _pcm_to_wav(pcm_bytes, _EL_SAMPLE_RATE)
+        alignment  = data.get("alignment") or {}
+        word_timings = _el_alignment_to_word_timings(alignment)
+
+        if not word_timings:
+            word_timings = _estimate_word_timings(text, wav_bytes)
+
+        _LOGGER.info("tts.elevenlabs.synthesised",
+                     chars=len(text), wav_bytes=len(wav_bytes),
+                     words=len(word_timings))
+        return wav_bytes, word_timings
+
+    async def synthesise(self, text: str) -> bytes:
+        wav_bytes, _ = await self.synthesise_with_timing(text)
+        return wav_bytes
+
+    @property
+    def is_ready(self) -> bool:
+        return bool(self._api_key)
+
+
+
+# ── AfroTTS (Kokoro) ──────────────────────────────────────────────────────────
+
+class AfroTTSService(BaseTTSService):
+    """Local high-quality TTS using the Kokoro engine.
+
+    Runs fully on-device (CPU) so it does not compete with the GPU LLM.
+    Voice IDs: af_heart, af_nicole, af_sarah, af_sky, am_adam, am_michael,
+               bf_emma, bf_isabella, bm_george, bm_lewis
+    """
+
+    def __init__(self, voice: str = 'af_heart', speed: float = 1.0) -> None:
+        self._voice       = voice
+        self._speed       = speed
+        self._pipeline    = None   # lazy-loaded on first use
+        self._sample_rate = 24000  # Kokoro native output rate
+
+    def _get_pipeline(self):
+        if self._pipeline is None:
+            from kokoro import KPipeline  # type: ignore[import]
+            # lang_code 'a' = American English, 'b' = British English
+            lang = 'a' if self._voice[:1].lower() == 'a' else 'b'
+            self._pipeline = KPipeline(lang_code=lang, device='cpu')
+            _LOGGER.info('tts.afrotts.pipeline_loaded', voice=self._voice, lang=lang)
+        return self._pipeline
+
+    async def synthesise_with_timing(self, text: str) -> tuple[bytes, list[dict]]:
+        wav_bytes = await self.synthesise(text)
+        return wav_bytes, _estimate_word_timings(text, wav_bytes)
+
+    async def synthesise(self, text: str) -> bytes:
+        text = (text or '').strip()
+        if not text:
+            return _silent_wav(self._sample_rate)
+        loop = asyncio.get_event_loop()
+        wav_bytes = await loop.run_in_executor(None, self._synthesise_sync, text)
+        _LOGGER.info('tts.afrotts.synthesised', chars=len(text), wav_bytes=len(wav_bytes))
+        return wav_bytes
+
+    def _synthesise_sync(self, text: str) -> bytes:
+        import io as _io
+        import wave as _wave
+        import numpy as np
+        pipeline = self._get_pipeline()
+        chunks: list = []
+        for _, _, audio in pipeline(text, voice=self._voice, speed=self._speed):
+            if audio is not None:
+                chunks.append(audio)
+        if not chunks:
+            return _silent_wav(self._sample_rate)
+        audio_np = np.concatenate(chunks) if len(chunks) > 1 else chunks[0]
+        pcm16 = np.clip(audio_np * 32767, -32768, 32767).astype(np.int16)
+        buf = _io.BytesIO()
+        with _wave.open(buf, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(self._sample_rate)
+            wf.writeframes(pcm16.tobytes())
+        return buf.getvalue()
+
+    @property
+    def is_ready(self) -> bool:
+        return True  # Kokoro downloads model weights on first use
+
+def create_tts_service(settings) -> BaseTTSService:
+    """Return the configured TTS service based on settings.tts_provider."""
+    provider = (settings.tts_provider or "piper").lower().strip()
+    if provider == "elevenlabs":
+        _LOGGER.info("tts.provider", provider="elevenlabs",
+                     voice_id=settings.elevenlabs_voice_id)
+        return ElevenLabsTTSService(
+            api_key=settings.elevenlabs_api_key,
+            voice_id=settings.elevenlabs_voice_id,
+            model=settings.elevenlabs_model,
+        )
+    if provider == "afrotts":
+        _LOGGER.info("tts.provider", provider="afrotts",
+                     voice=settings.afrotts_voice)
+        return AfroTTSService(
+            voice=settings.afrotts_voice,
+            speed=settings.afrotts_speed,
+        )
+    _LOGGER.info("tts.provider", provider="piper", voice=settings.piper_voice)
+    return PiperTTSService(voice_name=settings.piper_voice)
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _el_alignment_to_word_timings(alignment: dict) -> list[dict]:
+    """Convert ElevenLabs character-level alignment to word-level timings."""
+    chars       = alignment.get("characters", [])
+    starts      = alignment.get("character_start_times_seconds", [])
+    ends        = alignment.get("character_end_times_seconds", [])
+
+    if not chars or len(chars) != len(starts):
+        return []
+
+    timings: list[dict] = []
+    word_chars: list[str] = []
+    word_start: float | None = None
+
+    for ch, s, e in zip(chars, starts, ends):
+        if ch in (" ", "\t", "\n"):
+            if word_chars and word_start is not None:
+                timings.append({
+                    "word":     "".join(word_chars),
+                    "start_ms": round(word_start * 1000),
+                    "end_ms":   round(e * 1000),
+                })
+            word_chars = []
+            word_start = None
+        else:
+            if word_start is None:
+                word_start = s
+            word_chars.append(ch)
+
+    if word_chars and word_start is not None:
+        timings.append({
+            "word":     "".join(word_chars),
+            "start_ms": round(word_start * 1000),
+            "end_ms":   round(ends[-1] * 1000),
+        })
+
+    return timings
+
+
+def _pcm_to_wav(pcm_bytes: bytes, sample_rate: int = 22050) -> bytes:
+    """Wrap raw 16-bit mono PCM bytes in a RIFF WAV header."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm_bytes)
+    return buf.getvalue()
+
+
 async def _run_piper(piper_bin: str, model_path: str, text: str) -> bytes:
-    """Run the Piper binary asynchronously, return WAV bytes."""
     proc = await asyncio.create_subprocess_exec(
         piper_bin,
         "--model", model_path,
-        "--output_file", "-",  # write WAV to stdout
+        "--output_file", "-",
         "--quiet",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     stdout, stderr = await proc.communicate(input=text.encode("utf-8"))
-
     if proc.returncode != 0:
-        raise RuntimeError(
-            f"Piper exited {proc.returncode}: {stderr.decode()[:200]}"
-        )
+        raise RuntimeError(f"Piper exited {proc.returncode}: {stderr.decode()[:200]}")
+    return stdout
 
+
+async def _mp3_to_wav(mp3_bytes: bytes, sample_rate: int = 22050) -> bytes:
+    """Convert MP3 bytes to 16-bit mono WAV via ffmpeg."""
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-i", "pipe:0",
+        "-ar", str(sample_rate), "-ac", "1",
+        "-f", "wav", "pipe:1",
+        "-loglevel", "error",
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate(input=mp3_bytes)
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg MP3→WAV failed: {stderr.decode()[:200]}")
     return stdout
 
 
 def _estimate_word_timings(text: str, wav_bytes: bytes) -> list[dict]:
-    """
-    Estimate per-word start/end times from WAV duration + word character lengths.
-
-    Algorithm mirrors TalkMateAI's approach: distribute total speech duration
-    proportionally across words, weighted by character count, with a small
-    inter-word pause. Accurate enough to drive TalkingHead lip sync.
-    """
-    import re
-
-    words = [w for w in re.split(r'\s+', text.strip()) if w]
+    words = [w for w in re.split(r"\s+", text.strip()) if w]
     if not words:
         return []
-
-    # Get total audio duration from WAV header
     try:
-        with wave.open(io.BytesIO(wav_bytes), 'rb') as wf:
+        with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
             duration_ms = wf.getnframes() / wf.getframerate() * 1000
     except Exception:
-        duration_ms = len(words) * 300.0  # rough fallback
-
-    # Reserve ~80 ms lead-in silence + 80 ms trail, and 40 ms inter-word gap
+        duration_ms = len(words) * 300.0
     lead_ms   = 80.0
     trail_ms  = 80.0
     gap_ms    = 40.0
     total_gap = gap_ms * (len(words) - 1)
     speech_ms = max(duration_ms - lead_ms - trail_ms - total_gap, len(words) * 50.0)
-
-    # Weight by cleaned word length (strip punctuation, minimum 1)
-    weights   = [max(len(re.sub(r'[^\w]', '', w)), 1) for w in words]
+    weights   = [max(len(re.sub(r"[^\w]", "", w)), 1) for w in words]
     total_wt  = sum(weights)
-
     timings: list[dict] = []
     cursor = lead_ms
     for word, wt in zip(words, weights):
@@ -171,12 +342,10 @@ def _estimate_word_timings(text: str, wav_bytes: bytes) -> list[dict]:
             "end_ms":   round(cursor + word_ms),
         })
         cursor += word_ms + gap_ms
-
     return timings
 
 
 def _silent_wav(sample_rate: int = 22050, duration_ms: int = 100) -> bytes:
-    """Return a short silent WAV (for empty input)."""
     n_samples = int(sample_rate * duration_ms / 1000)
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
@@ -185,3 +354,7 @@ def _silent_wav(sample_rate: int = 22050, duration_ms: int = 100) -> bytes:
         wf.setframerate(sample_rate)
         wf.writeframes(b"\x00\x00" * n_samples)
     return buf.getvalue()
+
+
+# Back-compat alias
+TTSService = PiperTTSService
