@@ -51,9 +51,13 @@ class Settings(BaseSettings):
     afrotts_voice: str = "af_heart"   # af_heart af_nicole af_sarah af_sky am_adam am_michael bf_emma bf_isabella bm_george bm_lewis
     afrotts_speed: float = 1.0
 
-    # Public URL of this server (used to serve TTS audio to HA media players)
+    # Public URL of this server (used to serve TTS audio to non-Alexa media players)
     # e.g. http://192.168.0.249:8001  — leave blank to use HA TTS engine instead
     public_url: str = "http://192.168.0.249:8001"
+
+    # Nabu Casa external URL — used to serve audio to Alexa/Echo devices via Amazon cloud
+    # e.g. https://xxxxx.ui.nabu.casa  — leave blank to fall back to Alexa TTS voice
+    nabu_casa_url: str = ""
 
     # Speakers — comma-separated HA media_player entity IDs
     speakers: str = ""

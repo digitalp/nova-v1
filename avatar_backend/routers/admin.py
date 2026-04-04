@@ -53,6 +53,7 @@ _CONFIG_FIELDS = {
     "AFROTTS_VOICE":        ("AfroTTS Voice",                               False),
     "AFROTTS_SPEED":        ("AfroTTS Speed (0.5-2.0)",                      False),
     "PUBLIC_URL":           ("Server Public URL (for audio playback)",      False),
+    "NABU_CASA_URL":        ("Nabu Casa URL (for Echo/Alexa audio)",          False),
     "SPEAKERS":             ("Speakers",                                    False),
     "TTS_ENGINE":           ("TTS Engine (Sonos)",                          False),
     "LOG_LEVEL":            ("Log Level",                                   False),

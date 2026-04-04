@@ -101,16 +101,27 @@ async def announce_handler(body: AnnounceRequest, request: Request):
     })
     await ws_mgr.broadcast_to_voice_bytes(wav_bytes)
 
-    # 5. Play on HA speakers — non-Alexa use synthesised audio, Echo uses Alexa TTS
+    # 5. Play on HA speakers — serve synthesised audio; Echo uses Nabu Casa URL
     if speaker and speaker.is_configured:
         try:
             from avatar_backend.config import get_settings
-            public_url = (get_settings().public_url or "").rstrip("/")
+            settings = get_settings()
+            public_url  = (settings.public_url  or "").rstrip("/")
+            nabu_url    = (settings.nabu_casa_url or "").rstrip("/")
+            ha_url      = (settings.ha_url or "").rstrip("/")
+
             if public_url:
                 token = uuid.uuid4().hex
                 request.app.state.audio_cache[token] = wav_bytes
-                audio_url = f"{public_url}/tts/audio/{token}"
-                await speaker.speak_wav(text, audio_url)
+                nova_audio_url = f"{public_url}/tts/audio/{token}"
+
+                # Save to HA www so Nabu Casa can serve it to Echo
+                nabu_audio_url = None
+                if nabu_url:
+                    nabu_audio_url = await _save_wav_to_ha(wav_bytes, token, ha_url, nabu_url)
+
+                await speaker.speak_wav(text, nova_audio_url,
+                                        nabu_casa_url=nabu_audio_url)
             else:
                 await speaker.speak(text)
         except Exception as exc:
@@ -130,6 +141,55 @@ async def announce_handler(body: AnnounceRequest, request: Request):
         elapsed_ms=elapsed_ms,
     )
 
+
+
+
+async def _save_wav_to_ha(wav_bytes: bytes, token: str,
+                           ha_url: str, nabu_url: str) -> str | None:
+    """SCP WAV to HA /config/www/nova_tts/ and return the Nabu Casa public URL."""
+    import asyncio as _aio, os, tempfile, subprocess
+
+    ha_ip = ha_url.replace("http://", "").replace("https://", "").split(":")[0]
+    remote_path = f"/config/www/nova_tts/{token}.wav"
+    public_url  = f"{nabu_url}/local/nova_tts/{token}.wav"
+
+    def _scp():
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(wav_bytes)
+            tmp = f.name
+        try:
+            r = subprocess.run(
+                ["scp", "-o", "StrictHostKeyChecking=no",
+                 "-o", "BatchMode=yes",
+                 "-i", "/home/penn/.ssh/id_ed25519",
+                 tmp, f"root@{ha_ip}:{remote_path}"],
+                capture_output=True, timeout=10,
+            )
+            return r.returncode == 0
+        finally:
+            os.unlink(tmp)
+
+    loop = _aio.get_event_loop()
+    try:
+        ok = await loop.run_in_executor(None, _scp)
+        if ok:
+            _LOGGER.info("announce.ha_audio_saved", url=public_url)
+
+            async def _cleanup():
+                await _aio.sleep(60)
+                def _rm():
+                    subprocess.run(
+                        ["ssh", "-o", "StrictHostKeyChecking=no",
+                         "-o", "BatchMode=yes",
+                         "-i", "/home/penn/.ssh/id_ed25519",
+                         f"root@{ha_ip}", f"rm -f {remote_path}"],
+                        capture_output=True)
+                await loop.run_in_executor(None, _rm)
+            _aio.create_task(_cleanup())
+            return public_url
+    except Exception as exc:
+        _LOGGER.warning("announce.ha_audio_save_failed", exc=str(exc))
+    return None
 
 
 @router.get(
