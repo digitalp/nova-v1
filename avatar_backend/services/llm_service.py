@@ -195,6 +195,21 @@ class _OllamaBackend:
         _log("ollama", self._model, t0, text, tools)
         return text, tools
 
+    async def generate_text(self, prompt: str, timeout_s: float = 180.0) -> str:
+        payload: dict[str, Any] = {
+            "model":   self._model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream":  False,
+            "options": {"temperature": 0.2, "num_ctx": 8192},
+        }
+        t0 = time.monotonic()
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
+            resp = await client.post(f"{self._base_url}/api/chat", json=payload)
+            resp.raise_for_status()
+        text = (resp.json().get("message", {}).get("content") or "").strip()
+        _log("ollama", self._model, t0, text, [])
+        return text
+
     @property
     def model_name(self) -> str:
         return self._model
@@ -237,6 +252,21 @@ class _OpenAICompatBackend:
         tools   = _parse_tool_calls_openai(message.get("tool_calls") or [])
         _log("openai", self._model, t0, text, tools)
         return text, tools
+
+    async def generate_text(self, prompt: str, timeout_s: float = 180.0) -> str:
+        payload: dict[str, Any] = {
+            "model":       self._model,
+            "messages":    [{"role": "user", "content": prompt}],
+            "temperature": 0.2,
+        }
+        headers = {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
+        t0 = time.monotonic()
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
+            resp = await client.post(f"{self._base_url}/chat/completions", json=payload, headers=headers)
+            resp.raise_for_status()
+        text = (resp.json().get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+        _log("openai", self._model, t0, text, [])
+        return text
 
     @property
     def model_name(self) -> str:
@@ -343,6 +373,24 @@ class _GeminiBackend:
         _log("google", self._model, t0, text, tools)
         return text, tools
 
+    async def generate_text(self, prompt: str, timeout_s: float = 180.0) -> str:
+        payload: dict[str, Any] = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.2},
+        }
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models"
+            f"/{self._model}:generateContent?key={self._api_key}"
+        )
+        t0 = time.monotonic()
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
+            resp = await client.post(url, json=payload, headers={"Content-Type": "application/json"})
+            resp.raise_for_status()
+        parts = (resp.json().get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+        text = " ".join(p.get("text", "") for p in parts if "text" in p).strip()
+        _log("google", self._model, t0, text, [])
+        return text
+
     @property
     def model_name(self) -> str:
         return self._model
@@ -390,6 +438,26 @@ class _AnthropicBackend:
         tools   = _parse_tool_calls_anthropic(content)
         _log("anthropic", self._model, t0, text, tools)
         return text, tools
+
+    async def generate_text(self, prompt: str, timeout_s: float = 180.0) -> str:
+        payload: dict[str, Any] = {
+            "model":      self._model,
+            "max_tokens": 8192,
+            "messages":   [{"role": "user", "content": prompt}],
+        }
+        headers = {
+            "x-api-key":         self._api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type":      "application/json",
+        }
+        t0 = time.monotonic()
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
+            resp = await client.post("https://api.anthropic.com/v1/messages", json=payload, headers=headers)
+            resp.raise_for_status()
+        content = resp.json().get("content", [])
+        text = " ".join(b.get("text", "") for b in content if b.get("type") == "text").strip()
+        _log("anthropic", self._model, t0, text, [])
+        return text
 
     @property
     def model_name(self) -> str:
@@ -498,6 +566,21 @@ class LLMService:
                     "google": settings.google_api_key,
                     "anthropic": settings.anthropic_api_key}
         return bool(key_map.get(provider, ""))
+
+    async def generate_text(self, prompt: str, timeout_s: float = 180.0) -> str:
+        """
+        Simple text-in / text-out generation using the active provider.
+        Uses a longer timeout than chat() — suitable for large one-shot tasks
+        like system prompt updates. No tools, temperature 0.2.
+        """
+        try:
+            return await self._backend.generate_text(prompt, timeout_s=timeout_s)
+        except httpx.TimeoutException:
+            raise RuntimeError(f"LLM inference timed out after {timeout_s}s") from None
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"LLM HTTP {exc.response.status_code}: {exc.response.text[:200]}"
+            ) from exc
 
     async def describe_image(self, image_bytes: bytes) -> str:
         """Describe a camera image using vision capability of the active LLM provider."""

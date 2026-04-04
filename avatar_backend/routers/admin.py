@@ -422,24 +422,7 @@ async def sync_prompt(request: Request):
     )
 
     try:
-        from avatar_backend.config import get_settings as _get_settings
-        import httpx as _httpx2
-        _s = _get_settings()
-        _api_key = _s.google_api_key
-        _model = _s.cloud_model or 'gemini-2.5-flash'
-        _payload = {
-            'contents': [{'role': 'user', 'parts': [{'text': integration_request}]}],
-            'generationConfig': {'temperature': 0.2},
-        }
-        _url = (
-            f'https://generativelanguage.googleapis.com/v1beta/models'
-            f'/{_model}:generateContent?key={_api_key}'
-        )
-        async with _httpx2.AsyncClient(timeout=_httpx2.Timeout(180.0)) as _client:
-            _resp = await _client.post(_url, json=_payload, headers={'Content-Type': 'application/json'})
-            _resp.raise_for_status()
-        _parts = (_resp.json().get('candidates') or [{}])[0].get('content', {}).get('parts', [])
-        updated_prompt = ' '.join(p.get('text', '') for p in _parts if 'text' in p).strip()
+        updated_prompt = await llm.generate_text(integration_request, timeout_s=180.0)
     except Exception as exc:
         _LOGGER.error('sync_prompt.llm_failed', exc=str(exc))
         raise HTTPException(status_code=503, detail=f'LLM call failed: {exc}')
