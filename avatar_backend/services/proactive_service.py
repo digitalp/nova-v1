@@ -32,26 +32,7 @@ _LOGGER = structlog.get_logger()
 # Motion sensor → camera mapping.
 # When a motion sensor fires, Nova fetches the associated camera and describes what it sees.
 # Duplicate sensors for the same camera share the same camera cooldown.
-_MOTION_CAMERA_MAP: dict[str, str] = {
-    "binary_sensor.tangu_home_outdoor1_motion":      "camera.tangu_home_outdoor1",
-    "binary_sensor.tangu_home_door_bell_motion":     "camera.tangu_home_door_bell",
-    "binary_sensor.tangu_home_outdoor_2_motion":     "camera.tangu_home_outdoor_2",
-    "binary_sensor.tangu_home_sitting_room_motion":  "camera.tangu_home_sitting_room",
-    "binary_sensor.tangu_home_kitchen_motion":       "camera.tangu_home_kitchen",
-    "binary_sensor.tangu_home_hallway_motion":       "camera.tangu_home_hallway",
-    "binary_sensor.rlc_1224a_motion":                "camera.rlc_1224a_fluent",
-    "binary_sensor.rlc_410w_motion":                 "camera.rlc_410w_fluent",
-    "binary_sensor.reolink_video_doorbell_poe_motion": "camera.reolink_video_doorbell_poe_fluent",
-    "binary_sensor.reolink_motion_alarm":            "camera.reolink_profile000_mainstream",
-    "binary_sensor.reolink_cell_motion_detection":   "camera.reolink_profile000_mainstream",
-    "binary_sensor.reolink_living_room_motion_alarm":          "camera.reolink_living_room_profile000_mainstream",
-    "binary_sensor.reolink_living_room_cell_motion_detection": "camera.reolink_living_room_profile000_mainstream",
-    "binary_sensor.reolink_living_room_motion_alarm_2":        "camera.reolink_living_room_profile000_mainstream",
-    "binary_sensor.outdoor2_motion_alarm":           "camera.outdoor2_profile000_mainstream",
-    "binary_sensor.outdoor2_cell_motion_detection":  "camera.outdoor2_profile000_mainstream",
-    "binary_sensor.outdoor2_motion_alarm_2":         "camera.outdoor2_profile000_mainstream",
-    "binary_sensor.outdoor2_cell_motion_detection_2": "camera.outdoor2_profile000_mainstream",
-}
+_MOTION_CAMERA_MAP: dict[str, str] = {}  # disabled — entries removed
 
 # Domains monitored for batch triage announcements.
 # 'sensor' excluded — numeric sensors emit constant updates and threshold alerts
