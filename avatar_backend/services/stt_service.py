@@ -30,7 +30,9 @@ class STTService:
         if device == "auto":
             try:
                 import ctranslate2
-                device = "cuda" if "cuda" in ctranslate2.get_supported_compute_types("cuda") else "cpu"
+                # get_supported_compute_types("cuda") returns a set of compute type
+                # strings (e.g. {"int8", "float32"}) — non-empty means CUDA works.
+                device = "cuda" if ctranslate2.get_supported_compute_types("cuda") else "cpu"
             except Exception:
                 device = "cpu"
         return device
@@ -102,7 +104,7 @@ class STTService:
             return ""
 
         segments, info = self._wake_model.transcribe(
-            audio_f32, language="en", beam_size=1, vad_filter=False,
+            audio_f32, language="en", beam_size=1, vad_filter=True,
         )
         transcript = " ".join(seg.text.strip() for seg in segments).strip()
         _LOGGER.info("stt.wake_transcribed",

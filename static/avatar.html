@@ -580,7 +580,7 @@ async function startWakeWordVAD() {
     };
 
     mr.start(200);
-    setTimeout(() => { if (mr.state === 'recording') mr.stop(); }, 2000);
+    setTimeout(() => { if (mr.state === 'recording') mr.stop(); }, 1200);
   }
 
   scheduleChunk();
