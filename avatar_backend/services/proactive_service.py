@@ -4,7 +4,7 @@ asks the LLM if anything warrants a proactive announcement.
 
 Flow:
   HA WS state_changed events
-    → filter to interesting domains + non-trivial state changes
+    → filter to important domains + non-trivial state changes
     → batch for BATCH_WINDOW_S seconds
     → LLM triage (generate_text, 30 s timeout)
     → if LLM says announce → call announce_fn(message, priority)
@@ -23,16 +23,16 @@ from websockets.exceptions import ConnectionClosed, WebSocketException
 
 _LOGGER = structlog.get_logger()
 
-# Domains monitored for proactive announcements
+# Domains monitored for proactive announcements.
+# NOTE: 'sensor' is intentionally excluded — numeric sensors emit constant updates
+# and threshold-based alerts are already handled by dedicated HA automations.
 _WATCH_DOMAINS = {
     "binary_sensor",
-    "sensor",
     "lock",
     "cover",
     "alarm_control_panel",
     "person",
     "device_tracker",
-    "climate",
     "input_boolean",
 }
 
@@ -42,11 +42,14 @@ _NOISE_STATES = {"unavailable", "unknown", "none"}
 # Minimum seconds before re-announcing the same entity
 _COOLDOWN_S = 600  # 10 minutes
 
+# Minimum seconds between ANY proactive announcements (global rate limit)
+_GLOBAL_ANNOUNCE_COOLDOWN_S = 300  # 5 minutes
+
 # Collect changes for this many seconds before triaging
-_BATCH_WINDOW_S = 30
+_BATCH_WINDOW_S = 60  # increased from 30s to reduce triage frequency
 
 # Max changes passed to LLM per batch
-_MAX_CHANGES = 25
+_MAX_CHANGES = 20
 
 
 class ProactiveService:
@@ -69,6 +72,7 @@ class ProactiveService:
         self._announce = announce_fn
         self._system_prompt = system_prompt
         self._cooldowns: dict[str, float] = {}
+        self._last_announce_time: float = 0.0
         self._queue: list[dict] = []
         self._task: asyncio.Task | None = None
 
@@ -189,23 +193,26 @@ class ProactiveService:
         if new_val in _NOISE_STATES or old_val in _NOISE_STATES:
             return
 
+        # For binary_sensor: only queue transitions TO "on" — "off" transitions
+        # are rarely actionable and generate most of the noise.
+        if domain == "binary_sensor" and new_val != "on":
+            return
+
         # Cooldown check
         if time.monotonic() - self._cooldowns.get(entity_id, 0) < _COOLDOWN_S:
             return
 
         friendly = new_state.get("attributes", {}).get("friendly_name", entity_id)
-        unit = new_state.get("attributes", {}).get("unit_of_measurement", "")
-        new_display = f"{new_val} {unit}".strip()
 
         self._queue.append({
             "entity_id": entity_id,
             "friendly": friendly,
             "old": old_val,
-            "new": new_display,
+            "new": new_val,
         })
         _LOGGER.debug(
             "proactive.event_queued",
-            entity_id=entity_id, old=old_val, new=new_display,
+            entity_id=entity_id, old=old_val, new=new_val,
         )
 
     # ── Batch triage ──────────────────────────────────────────────────────
@@ -226,6 +233,16 @@ class ProactiveService:
 
     async def _triage(self, changes: list[dict]) -> None:
         """Ask the LLM if any of these state changes warrant a spoken announcement."""
+
+        # Global rate limit — don't announce if we just announced recently
+        since_last = time.monotonic() - self._last_announce_time
+        if since_last < _GLOBAL_ANNOUNCE_COOLDOWN_S:
+            _LOGGER.debug(
+                "proactive.global_cooldown_active",
+                seconds_remaining=int(_GLOBAL_ANNOUNCE_COOLDOWN_S - since_last),
+            )
+            return
+
         lines = "\n".join(
             f"- {c['friendly']} ({c['entity_id']}): {c['old']} → {c['new']}"
             for c in changes
@@ -236,16 +253,25 @@ class ProactiveService:
         prompt_ctx = self._system_prompt[:3000]
 
         prompt = (
-            "You are Nova's proactive home monitor. Review these recent Home Assistant "
-            "state changes and decide if any warrant a spoken announcement to the household.\n\n"
-            f"Home context (from your system prompt):\n{prompt_ctx}\n\n"
-            f"Recent state changes:\n{lines}\n\n"
-            "Rules:\n"
-            "- ANNOUNCE: safety events, thresholds crossed (power >1000 W), "
-            "unexpected motion, lock/door changes, alarm state, low battery, car issues\n"
-            "- DO NOT ANNOUNCE: routine sensor polling, minor temperature drift, "
-            "media player changes, every light toggle, keep-alive updates\n"
-            "- Speak as Nova, naturally in first person\n\n"
+            "You are Nova's proactive home monitor. Review these Home Assistant state "
+            "changes and decide if any warrant a spoken announcement.\n\n"
+            f"Home context:\n{prompt_ctx}\n\n"
+            f"State changes:\n{lines}\n\n"
+            "STRICT RULES — the default answer is NO. Only announce if the event:\n"
+            "  • Is a genuine safety or security concern (alarm triggered, unexpected "
+            "door/lock change, smoke/CO detector, flood)\n"
+            "  • Requires immediate human action (door left open, critical alert)\n"
+            "  • Is a clear exception or anomaly that the household would want to know "
+            "RIGHT NOW and could not figure out themselves\n\n"
+            "DO NOT ANNOUNCE any of the following — return {\"announce\": false}:\n"
+            "  • Motion sensors, presence sensors, occupancy sensors detecting movement\n"
+            "  • Routine door open/close during normal waking hours\n"
+            "  • Any light, switch, or media player change\n"
+            "  • Person/device_tracker arriving or leaving home\n"
+            "  • Climate mode or setpoint changes\n"
+            "  • Any binary_sensor that is merely reporting a normal condition\n"
+            "  • Anything already handled by a dedicated HA automation\n\n"
+            "Speak as Nova, naturally in first person. Keep it brief.\n\n"
             "Reply with JSON only (no markdown fences):\n"
             '{"announce": true, "message": "...", "priority": "normal"}\n'
             "or\n"
@@ -284,8 +310,9 @@ class ProactiveService:
 
         _LOGGER.info("proactive.announcing", chars=len(message), priority=priority)
 
-        # Apply cooldown to all entities in this batch
+        # Apply cooldowns
         now = time.monotonic()
+        self._last_announce_time = now
         for c in changes:
             self._cooldowns[c["entity_id"]] = now
 
