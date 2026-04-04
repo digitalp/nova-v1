@@ -133,6 +133,75 @@ async def announce_handler(body: AnnounceRequest, request: Request):
 
 
 
+_DEFAULT_DOORBELL_CAMERA = "camera.reolink_video_doorbell_poe_fluent"
+
+
+class DoorbellAnnounceRequest(BaseModel):
+    camera_entity_id: str = _DEFAULT_DOORBELL_CAMERA
+
+
+class DoorbellAnnounceResponse(BaseModel):
+    status:      str
+    message:     str
+    camera_used: str
+    wav_bytes:   int = 0
+    elapsed_ms:  int = 0
+
+
+@router.post(
+    "/announce/doorbell",
+    response_model=DoorbellAnnounceResponse,
+    dependencies=[Depends(verify_api_key)],
+    summary="Doorbell alert — capture camera image and announce what Nova sees",
+)
+async def doorbell_announce_handler(body: DoorbellAnnounceRequest, request: Request):
+    """
+    Called when the doorbell rings. Nova:
+      1. Captures a snapshot from the doorbell camera
+      2. Describes what it sees using vision AI
+      3. Announces the result on all speakers with priority="alert"
+
+    Falls back to a generic "Someone is at the door" if the camera is unavailable.
+    """
+    t0 = time.monotonic()
+    ha  = request.app.state.ha_proxy
+    llm = request.app.state.llm_service
+
+    _LOGGER.info("doorbell.triggered", camera=body.camera_entity_id)
+
+    # 1. Fetch camera snapshot
+    image_bytes = await ha.fetch_camera_image(body.camera_entity_id)
+
+    if image_bytes:
+        try:
+            description = await llm.describe_image(image_bytes)
+            message = f"Someone is at the door. {description}"
+            _LOGGER.info("doorbell.described", chars=len(description))
+        except Exception as exc:
+            _LOGGER.warning("doorbell.describe_failed", exc=str(exc))
+            message = "Someone is at the door."
+    else:
+        _LOGGER.warning("doorbell.camera_unavailable", camera=body.camera_entity_id)
+        message = "Someone is at the door."
+
+    # 2. Announce via the standard announce flow
+    announce_resp = await announce_handler(
+        AnnounceRequest(message=message, priority="alert"),
+        request,
+    )
+
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    _LOGGER.info("doorbell.done", elapsed_ms=elapsed_ms, wav_bytes=announce_resp.wav_bytes)
+
+    return DoorbellAnnounceResponse(
+        status="ok",
+        message=message,
+        camera_used=body.camera_entity_id,
+        wav_bytes=announce_resp.wav_bytes,
+        elapsed_ms=elapsed_ms,
+    )
+
+
 @router.get(
     "/tts/audio/{token}",
     include_in_schema=False,
