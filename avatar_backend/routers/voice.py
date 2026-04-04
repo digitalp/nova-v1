@@ -224,6 +224,24 @@ async def _broadcast_state(ws_mgr: ConnectionManager, state: str) -> None:
 
 # ── Wake word check (fallback for browsers without SpeechRecognition) ─────────
 
+# Whisper sometimes mishears "Nova" as phonetically similar words.
+# This set covers observed misrecognitions so we don't miss a wake event.
+_WAKE_VARIANTS = {
+    "nova",
+    "noba",
+    "nobba",
+    "no va",
+    "nover",
+    "novah",
+    "novia",
+}
+
+
+def _is_wake_word(transcript: str) -> bool:
+    t = transcript.lower().strip().rstrip(".,!?")
+    return any(v in t for v in _WAKE_VARIANTS)
+
+
 @router.post("/stt/wake", dependencies=[Depends(verify_api_key)])
 async def check_wake_word(request: Request):
     """
@@ -238,6 +256,6 @@ async def check_wake_word(request: Request):
     except Exception as exc:
         _LOGGER.warning("stt.wake_check_error", exc=str(exc))
         return JSONResponse({"wake": False, "transcript": ""})
-    wake = "nova" in transcript.lower()
+    wake = _is_wake_word(transcript)
     _LOGGER.info("stt.wake_check", transcript=transcript[:60], wake=wake)
     return JSONResponse({"wake": wake, "transcript": transcript})

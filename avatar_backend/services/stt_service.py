@@ -52,7 +52,12 @@ class STTService:
         _LOGGER.info("stt.model_ready", model=self._model_name, device=device)
 
     def _load_wake_model(self):
-        """Load the tiny model used for low-latency wake word checks."""
+        """Load the base model used for low-latency wake word checks.
+
+        'base' is used instead of 'tiny' because Whisper tiny frequently
+        mishears single-word wake words (e.g. 'Nova' → 'Nobba'). On GPU
+        the latency difference is negligible (~100ms vs ~50ms).
+        """
         if self._wake_model is not None:
             return
         try:
@@ -61,8 +66,8 @@ class STTService:
             raise RuntimeError("faster-whisper not installed") from exc
 
         device = self._resolve_device()
-        _LOGGER.info("stt.loading_wake_model", model="tiny", device=device)
-        self._wake_model = WhisperModel("tiny", device=device, compute_type="int8")
+        _LOGGER.info("stt.loading_wake_model", model="base", device=device)
+        self._wake_model = WhisperModel("base", device=device, compute_type="int8")
         _LOGGER.info("stt.wake_model_ready", device=device)
 
     async def transcribe(self, audio_bytes: bytes, sample_rate: int = 16000) -> str:
