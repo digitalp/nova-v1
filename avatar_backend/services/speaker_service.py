@@ -80,14 +80,11 @@ class SpeakerService:
                 _LOGGER.warning("speaker.error",
                                 entity_id=entity_id, exc=str(result))
 
-    async def speak_wav(self, text: str, audio_url: str,
-                        wav_bytes: bytes | None = None,
-                        ha_audio_url: str | None = None) -> None:
+    async def speak_wav(self, text: str, audio_url: str) -> None:
         """Play synthesised audio on all speakers.
 
-        Non-Alexa (Sonos etc.) → play_media with Nova server URL (local network).
-        Alexa/Echo → play_media with HA-hosted URL (same LAN, avoids Amazon cloud),
-                     falls back to TTS notify if no HA URL provided.
+        Non-Alexa (Sonos, Google Home, etc.) → media_player.play_media with Nova URL.
+        Alexa/Echo → notify.alexa_media TTS (Echo cannot stream arbitrary audio URLs).
         """
         if not self._speakers:
             return
@@ -95,10 +92,7 @@ class SpeakerService:
         tasks = []
         for entity_id, alexa in self._speakers:
             if alexa:
-                if ha_audio_url:
-                    tasks.append(self._play_media(entity_id, ha_audio_url))
-                else:
-                    tasks.append(self._speak_on(entity_id, text, alexa=True))
+                tasks.append(self._speak_on(entity_id, text, alexa=True))
             else:
                 tasks.append(self._play_media(entity_id, audio_url))
 
