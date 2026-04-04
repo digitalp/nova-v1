@@ -241,6 +241,8 @@ async def stream_logs(request: Request, api_key: str = ""):
                     if line.strip():
                         yield f"data: {line}\n\n"
 
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
 
 # ── Avatar settings ────────────────────────────────────────────────────────────
 

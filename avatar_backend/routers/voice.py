@@ -164,6 +164,22 @@ async def _process_audio(
         _LOGGER.error("voice_ws.llm_error", exc=err)
         if "timed out" in err.lower():
             fallback_text = _LLM_TIMEOUT_MSG
+        elif "HTTP 400" in err:
+            # Corrupt conversation history (e.g. orphaned tool call after session
+            # reconnect). Clear the session and retry once with a clean slate.
+            _LOGGER.warning("voice_ws.clearing_corrupt_session", session_id=session_id)
+            await app.state.session_manager.clear(session_id)
+            try:
+                result = await run_chat(
+                    session_id=session_id,
+                    user_text=transcript,
+                    llm=app.state.llm_service,
+                    sm=app.state.session_manager,
+                    ha=app.state.ha_proxy,
+                )
+            except Exception as retry_exc:
+                _LOGGER.error("voice_ws.llm_retry_failed", exc=str(retry_exc))
+                fallback_text = _LLM_OFFLINE_MSG
         else:
             fallback_text = _LLM_OFFLINE_MSG
     except Exception as exc:
