@@ -209,7 +209,7 @@ function applySkinTone() {
 }
 
 // ── VAD config ───────────────────────────────────────────────────────────────
-const VAD_THRESHOLD  = 0.012;  // RMS energy — above = speech
+const VAD_THRESHOLD  = 0.020;  // RMS energy — above = speech (raised from 0.012 to filter ambient noise)
 const VAD_SILENCE_MS = 1800;   // stop after this much post-speech silence
 const VAD_MIN_MS     = 400;    // don't send clips shorter than this
 const VAD_MAX_MS     = 14000;  // hard cap

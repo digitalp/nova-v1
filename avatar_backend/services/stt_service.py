@@ -98,14 +98,20 @@ class STTService:
 
     async def transcribe_wake(self, audio_bytes: bytes, sample_rate: int = 16000) -> str:
         """
-        Fast wake-word transcription using the tiny model (beam_size=1).
-        ~5-10x faster than the main transcribe() — acceptable accuracy for
-        single-word detection ('nova').
+        Fast wake-word transcription using the base model (beam_size=1).
+        'base' is used over 'tiny' for better single-word accuracy on GPU.
         """
         self._load_wake_model()
 
         audio_f32, src_rate = _decode_audio(audio_bytes, sample_rate)
         if audio_f32 is None or len(audio_f32) == 0:
+            return ""
+
+        # Skip Whisper entirely for very quiet audio — background noise typically
+        # has RMS < 0.008; genuine speech is usually > 0.015.
+        rms = float(np.sqrt(np.mean(audio_f32 ** 2)))
+        if rms < 0.010:
+            _LOGGER.debug("stt.wake_skipped_quiet", rms=round(rms, 5))
             return ""
 
         segments, info = self._wake_model.transcribe(

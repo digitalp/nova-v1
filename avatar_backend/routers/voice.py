@@ -234,11 +234,17 @@ _WAKE_VARIANTS = {
     "nover",
     "novah",
     "novia",
+    "noah",   # Whisper base mishears "Nova" as "Noah"
 }
 
 
 def _is_wake_word(transcript: str) -> bool:
     t = transcript.lower().strip().rstrip(".,!?")
+    # Reject long phrases — a wake word utterance is never more than 3 words.
+    # This prevents ambient speech like "I'm so sick of this" from ever matching
+    # even if a variant substring happened to appear in it.
+    if len(t.split()) > 3:
+        return False
     return any(v in t for v in _WAKE_VARIANTS)
 
 
