@@ -196,10 +196,14 @@ def _decode_av(data: bytes) -> tuple[Optional[np.ndarray], int]:
         audio = np.concatenate(frames)
         return audio, src_rate
     except Exception as exc:
-        if len(data) < 2048:
-            _LOGGER.debug("stt.av_decode_error_small", size=len(data), exc=str(exc))
+        # Only warn if the blob starts with the WebM EBML magic bytes.
+        # Blobs without EBML magic are unrecognisable fragments (e.g. a
+        # too-small header chunk from FKB) -- log at DEBUG only.
+        _WEBM_MAGIC = bytes([0x1A, 0x45, 0xDF, 0xA3])
+        if len(data) >= 4 and data[:4] == _WEBM_MAGIC:
+            _LOGGER.warning("stt.av_decode_error", size=len(data), exc=str(exc))
         else:
-            _LOGGER.warning("stt.av_decode_error", exc=str(exc))
+            _LOGGER.debug("stt.av_decode_error_unrecognised", size=len(data), exc=str(exc))
         return None, 0
 
 
@@ -208,7 +212,7 @@ def _decode_pcm(data: bytes, sample_rate: int) -> Optional[np.ndarray]:
         samples = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
         return _resample(samples, sample_rate)
     except Exception as exc:
-        _LOGGER.warning("stt.pcm_decode_error", exc=str(exc))
+        _LOGGER.debug("stt.pcm_decode_error", exc=str(exc))
         return None
 
 

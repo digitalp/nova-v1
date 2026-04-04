@@ -543,7 +543,8 @@ async function startWakeWordVAD() {
     if (!e.data || e.data.size === 0 || !wakeVadActive) return;
 
     // The very first chunk is the WebM init/header segment — keep it separate.
-    if (!headerChunk) { headerChunk = e.data; return; }
+    if (!headerChunk) { if (e.data.size < 32) return; // too small to be a valid EBML header
+    headerChunk = e.data; return; }
 
     rollingChunks.push(e.data);
     if (rollingChunks.length > ROLL_SIZE) rollingChunks.shift();
