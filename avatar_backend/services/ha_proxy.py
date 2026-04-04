@@ -270,7 +270,21 @@ class HAProxy:
             ha_status_code=resp.status_code,
         )
 
-    # ── Diagnostics ───────────────────────────────────────────────────────
+    async def fetch_camera_image(self, entity_id: str) -> bytes | None:
+        """Fetch a camera snapshot from HA. Returns raw image bytes or None on failure."""
+        url = f"{self._ha_url}/api/camera_proxy/{entity_id}"
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url, headers=self._headers)
+                if resp.status_code == 200:
+                    return resp.content
+                logger.warning("ha_proxy.camera_fetch_failed", entity_id=entity_id, status=resp.status_code)
+                return None
+        except Exception as exc:
+            logger.error("ha_proxy.camera_error", entity_id=entity_id, exc=str(exc))
+            return None
+
+        # ── Diagnostics ───────────────────────────────────────────────────────
 
     async def is_connected(self) -> bool:
         """True if HA is reachable AND the token is valid."""

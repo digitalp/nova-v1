@@ -90,6 +90,26 @@ HA_TOOLS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "describe_camera",
+            "description": (
+                "Capture a snapshot from a Home Assistant camera and describe what it sees. "
+                "Use get_entities('camera') first if you don't know the entity_id."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entity_id": {
+                        "type": "string",
+                        "description": "The camera entity ID, e.g. camera.front_door.",
+                    },
+                },
+                "required": ["entity_id"],
+            },
+        },
+    },
 ]
 
 # Anthropic uses a slightly different tool schema format
@@ -376,6 +396,51 @@ class _AnthropicBackend:
         return self._model
 
 
+# ── Vision helpers ───────────────────────────────────────────────────────────
+
+async def _gemini_describe_image(image_bytes: bytes, api_key: str, model: str) -> str:
+    import base64 as _b64
+    b64 = _b64.b64encode(image_bytes).decode()
+    payload = {
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {"inline_data": {"mime_type": "image/jpeg", "data": b64}},
+                {"text": "Describe what you see in this security camera image in 2-3 sentences. Focus on people, vehicles, objects, and any notable activity."},
+            ],
+        }],
+    }
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+        resp = await client.post(url, json=payload, headers={"Content-Type": "application/json"})
+        resp.raise_for_status()
+    data = resp.json()
+    parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+    return " ".join(p.get("text", "") for p in parts if "text" in p).strip()
+
+
+async def _openai_describe_image(image_bytes: bytes, api_key: str, model: str) -> str:
+    import base64 as _b64
+    b64 = _b64.b64encode(image_bytes).decode()
+    payload = {
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                {"type": "text", "text": "Describe what you see in this security camera image in 2-3 sentences. Focus on people, vehicles, objects, and any notable activity."},
+            ],
+        }],
+        "max_tokens": 300,
+    }
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+        resp = await client.post("https://api.openai.com/v1/chat/completions",
+                                  json=payload,
+                                  headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"].strip()
+
+
 # ── Public service ────────────────────────────────────────────────────────────
 
 class LLMService:
@@ -395,6 +460,7 @@ class LLMService:
             self._backend = _AnthropicBackend(settings)
         else:
             self._backend = _OllamaBackend(settings)
+        self._provider = provider
         logger.info("llm.provider", provider=provider, model=self._backend.model_name)
 
     async def chat(
@@ -432,6 +498,19 @@ class LLMService:
                     "google": settings.google_api_key,
                     "anthropic": settings.anthropic_api_key}
         return bool(key_map.get(provider, ""))
+
+    async def describe_image(self, image_bytes: bytes) -> str:
+        """Describe a camera image using vision capability of the active LLM provider."""
+        try:
+            if self._provider == "google":
+                return await _gemini_describe_image(image_bytes, self._backend._api_key, self._backend._model)
+            if self._provider == "openai":
+                return await _openai_describe_image(image_bytes, self._backend._api_key, self._backend._model)
+            return "Camera vision is not supported with the current LLM provider. Switch to Google Gemini or OpenAI."
+        except Exception as exc:
+            _log_struct = structlog.get_logger()
+            _log_struct.error("llm.describe_image_error", exc=str(exc))
+            return "I couldn't analyze the camera image right now."
 
     @property
     def model_name(self) -> str:

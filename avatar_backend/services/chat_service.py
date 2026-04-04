@@ -88,7 +88,16 @@ async def run_chat(
         await sm.add_message(session_id, "assistant", text or "", tool_calls=raw_tcs)
 
         for tc in tool_calls:
-            result: ToolResult = await ha.execute_tool_call(tc)
+            if tc.function_name == "describe_camera":
+                entity_id = tc.arguments.get("entity_id", "")
+                image_bytes = await ha.fetch_camera_image(entity_id)
+                if image_bytes:
+                    description = await llm.describe_image(image_bytes)
+                    result = ToolResult(success=True, message=description)
+                else:
+                    result = ToolResult(success=False, message=f"Could not capture image from {entity_id}. The camera may be offline.")
+            else:
+                result = await ha.execute_tool_call(tc)
             tc.acl_status = "allowed" if result.success else "denied"
             tc.acl_reason = result.message if not result.success else ""
             all_tool_calls.append(tc)
