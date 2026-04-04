@@ -55,10 +55,6 @@ class Settings(BaseSettings):
     # e.g. http://192.168.0.249:8001  — leave blank to use HA TTS engine instead
     public_url: str = "http://192.168.0.249:8001"
 
-    # Nabu Casa external URL — used to serve audio to Alexa/Echo devices via Amazon cloud
-    # e.g. https://xxxxx.ui.nabu.casa  — leave blank to fall back to Alexa TTS voice
-    nabu_casa_url: str = ""
-
     # Speakers — comma-separated HA media_player entity IDs
     speakers: str = ""
 

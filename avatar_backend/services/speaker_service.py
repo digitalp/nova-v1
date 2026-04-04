@@ -80,13 +80,11 @@ class SpeakerService:
                 _LOGGER.warning("speaker.error",
                                 entity_id=entity_id, exc=str(result))
 
-    async def speak_wav(self, text: str, audio_url: str,
-                        nabu_casa_url: str | None = None) -> None:
+    async def speak_wav(self, text: str, audio_url: str) -> None:
         """Play synthesised audio on all speakers.
 
         Non-Alexa (Sonos, etc.) → media_player.play_media with Nova server URL.
-        Alexa/Echo + nabu_casa_url → media_player.play_media with Nabu Casa URL.
-        Alexa/Echo without nabu_casa_url → notify.alexa_media TTS (Alexa voice fallback).
+        Alexa/Echo → notify.alexa_media TTS (Echo does not support custom audio streaming).
         """
         if not self._speakers:
             return
@@ -94,10 +92,7 @@ class SpeakerService:
         tasks = []
         for entity_id, alexa in self._speakers:
             if alexa:
-                if nabu_casa_url:
-                    tasks.append(self._play_media(entity_id, nabu_casa_url))
-                else:
-                    tasks.append(self._speak_on(entity_id, text, alexa=True))
+                tasks.append(self._speak_on(entity_id, text, alexa=True))
             else:
                 tasks.append(self._play_media(entity_id, audio_url))
 
