@@ -170,8 +170,9 @@ def _log(provider, model, t0, text, tools):
 
 class _OllamaBackend:
     def __init__(self, settings) -> None:
-        self._base_url = settings.ollama_url.rstrip("/")
-        self._model    = settings.ollama_model
+        self._base_url     = settings.ollama_url.rstrip("/")
+        self._model        = settings.ollama_model
+        self._vision_model = settings.ollama_vision_model
 
     async def chat(self, messages: list[dict], use_tools: bool) -> tuple[str, list[ToolCall]]:
         payload: dict[str, Any] = {
@@ -608,7 +609,7 @@ class LLMService:
             if self._provider == "openai":
                 return await _openai_describe_image(image_bytes, self._backend._api_key, self._backend._model)
             if self._provider == "ollama":
-                return await _ollama_describe_image(image_bytes, self._backend._base_url, self._backend._model)
+                return await _ollama_describe_image(image_bytes, self._backend._base_url, self._backend._vision_model)
             return "Camera vision is not supported with the current LLM provider."
         except Exception as exc:
             _log_struct = structlog.get_logger()

@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     # Ollama (used when llm_provider=ollama)
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b-instruct-q4_K_M"
+    ollama_vision_model: str = "llama3.2-vision:11b-instruct-q4_K_M"
 
     # Cloud LLM — API keys and model name (used when llm_provider != ollama)
     openai_api_key: str = ""
