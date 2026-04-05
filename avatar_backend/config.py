@@ -56,11 +56,20 @@ class Settings(BaseSettings):
     # e.g. http://192.168.0.249:8001  — leave blank to use HA TTS engine instead
     public_url: str = "http://192.168.0.249:8001"
 
+    # Allowed CORS origins — comma-separated list of every scheme+host+port
+    # combination used to reach this server (HTTP direct + HTTPS via nginx).
+    # Set CORS_ORIGINS in .env to override.
+    cors_origins: str = "http://192.168.0.249:8001,https://192.168.0.249:8443"
+
     # Speakers — comma-separated HA media_player entity IDs
     speakers: str = ""
 
     # TTS engine used for non-Alexa speakers (must be a tts.* entity in HA)
     tts_engine: str = "tts.google_translate_en_com"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
     def speaker_list(self) -> list[str]:
