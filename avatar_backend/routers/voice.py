@@ -16,7 +16,8 @@ Server → Client (all text, JSON):
   Binary frames: WAV audio of the assistant's spoken reply
 
 Authentication:
-  ?api_key=<key>  query parameter
+  POST /ws/token  (X-API-Key header) → returns {"token": "<short-lived>"}
+  ?token=<token>  use returned token in WebSocket URL (single-use, 30s TTL)
 
 Usage notes:
   - The client sends ONE audio chunk per turn (full utterance, not streaming).
@@ -32,9 +33,7 @@ import structlog
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
-from avatar_backend.middleware.auth import verify_api_key
-
-from avatar_backend.middleware.auth import verify_api_key_ws
+from avatar_backend.middleware.auth import verify_api_key, verify_api_key_ws, issue_ws_token
 from avatar_backend.services.chat_service import run_chat
 from avatar_backend.services.speaker_service import SpeakerService
 from avatar_backend.services.stt_service import STTService
@@ -44,6 +43,17 @@ from avatar_backend.services.ws_manager import ConnectionManager
 _LOGGER = structlog.get_logger()
 
 router = APIRouter()
+
+
+@router.post("/ws/token", dependencies=[Depends(verify_api_key)])
+async def get_ws_token() -> dict:
+    """
+    Exchange a permanent API key for a short-lived single-use WebSocket token.
+    The token must be used within 30 seconds and is consumed on first connection.
+    Use: POST /ws/token with X-API-Key header → connect WS with ?token=<token>
+    """
+    return {"token": issue_ws_token(), "ttl_seconds": 30}
+
 
 _IDLE      = "idle"
 _LISTENING = "listening"

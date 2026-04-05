@@ -174,8 +174,7 @@ const params  = new URLSearchParams(location.search);
 const API_KEY = params.get('api_key')    || '';
 const SESSION = params.get('session_id') || 'avatar';
 const SERVER  = (params.get('server') || location.origin).replace(/\/$/, '');
-const WS_URL  = SERVER.replace(/^http/, 'ws')
-              + `/ws/voice?api_key=${encodeURIComponent(API_KEY)}&session_id=${encodeURIComponent(SESSION)}`;
+const WS_BASE = SERVER.replace(/^http/, 'ws') + `/ws/voice?session_id=${encodeURIComponent(SESSION)}`;
 let AVATAR_URL = `${SERVER}/static/avatars/brunette.glb`;
 let _skinToneIndex = 0;
 
@@ -357,8 +356,13 @@ async function initHead() {
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
-function connectWs() {
-  ws = new WebSocket(WS_URL);
+async function connectWs() {
+  let wsUrl = WS_BASE;
+  try {
+    const r = await fetch(`${SERVER}/ws/token`, { method: 'POST', headers: { 'X-API-Key': API_KEY } });
+    if (r.ok) { const d = await r.json(); wsUrl += `&token=${encodeURIComponent(d.token)}`; }
+  } catch (_) {}
+  ws = new WebSocket(wsUrl);
   ws.binaryType = 'arraybuffer';
 
   ws.onopen = () => {
@@ -565,9 +569,9 @@ async function startWakeWordVAD() {
     let wakeConfirmed = false;
     try {
       const res = await fetch(
-        `${SERVER}/stt/wake?api_key=${encodeURIComponent(API_KEY)}`,
+        `${SERVER}/stt/wake`,
         { method: 'POST', body: await blob.arrayBuffer(),
-          headers: { 'Content-Type': 'application/octet-stream' } }
+          headers: { 'Content-Type': 'application/octet-stream', 'X-API-Key': API_KEY } }
       );
       if (res.ok) {
         const data = await res.json();
