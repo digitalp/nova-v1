@@ -118,7 +118,7 @@ async def lifespan(app: FastAPI):
         acl=acl,
     )
 
-    app.state.audio_cache = {}  # token → wav_bytes for one-shot audio serving
+    app.state.audio_cache = {}  # token → (wav_bytes, expiry) for one-shot audio serving
     app.state.stt_service = STTService(model_name=settings.whisper_model)
     app.state.tts_service = create_tts_service(settings)
     logger.info("tts_service.configured", provider=settings.tts_provider)
@@ -134,14 +134,6 @@ async def lifespan(app: FastAPI):
         logger.info("speaker_service.configured", speakers=settings.speaker_list)
     else:
         logger.info("speaker_service.disabled")
-
-    if settings.ha_url.startswith("http://"):
-        logger.warning(
-            "ha_proxy.insecure_url",
-            ha_url=settings.ha_url,
-            detail="HA_URL uses plain HTTP — credentials and data are sent unencrypted. "
-                   "Set HA_URL to https:// in .env to enable TLS.",
-        )
 
     if settings.ha_url.startswith("http://"):
         logger.warning(

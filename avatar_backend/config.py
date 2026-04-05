@@ -56,16 +56,19 @@ class Settings(BaseSettings):
     # e.g. http://192.168.0.249:8001  — leave blank to use HA TTS engine instead
     public_url: str = "http://192.168.0.249:8001"
 
-    # Allowed CORS origins — comma-separated list of every scheme+host+port
-    # combination used to reach this server (HTTP direct + HTTPS via nginx).
-    # Set CORS_ORIGINS in .env to override.
-    cors_origins: str = "http://192.168.0.249:8001,https://192.168.0.249:8443"
-
     # Speakers — comma-separated HA media_player entity IDs
     speakers: str = ""
 
     # TTS engine used for non-Alexa speakers (must be a tts.* entity in HA)
     tts_engine: str = "tts.google_translate_en_com"
+
+    # Allowed CORS origins (comma-separated URLs)
+    cors_origins: str = "http://192.168.0.249:8001,https://192.168.0.249:8443"
+
+    # Milliseconds to delay browser audio after starting HA speaker playback,
+    # so the avatar lip-sync roughly aligns with what you hear from the room.
+    # Start with 1500 and tune up/down until they feel in sync. Default 0 = no delay.
+    speaker_audio_offset_ms: int = 0
 
     @property
     def cors_origins_list(self) -> list[str]:

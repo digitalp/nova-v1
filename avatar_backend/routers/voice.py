@@ -211,16 +211,28 @@ async def _process_audio(
     if reply_text:
         await _send_state(ws, ws_mgr, _SPEAKING)
         try:
+            from avatar_backend.config import get_settings as _get_settings
+            offset_s = _get_settings().speaker_audio_offset_ms / 1000.0
+
             wav_bytes, word_timings = await tts.synthesise_with_timing(reply_text)
-            # Send word timings before the audio so the client can attach them
+
+            # Start speaker first so it has a head start before browser audio
+            speaker_task = None
+            if speaker and speaker.is_configured:
+                speaker_task = asyncio.create_task(speaker.speak(reply_text))
+
+            if offset_s > 0 and speaker_task is not None:
+                await asyncio.sleep(offset_s)
+
+            # Send word timings then audio to the browser client
             await ws.send_text(json.dumps({
                 "type":         "word_timings",
                 "word_timings": word_timings,
             }))
-            tasks = [_send_wav(ws, wav_bytes)]
-            if speaker and speaker.is_configured:
-                tasks.append(speaker.speak(reply_text))
-            await asyncio.gather(*tasks, return_exceptions=True)
+            await _send_wav(ws, wav_bytes)
+
+            if speaker_task is not None:
+                await speaker_task
         except Exception as exc:
             _LOGGER.error("voice_ws.tts_error", exc=str(exc))
             await ws.send_text(json.dumps({"type": "error", "detail": f"TTS failed: {exc}"}))

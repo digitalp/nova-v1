@@ -57,6 +57,7 @@ _CONFIG_FIELDS = {
     "CORS_ORIGINS":         ("Allowed CORS Origins (comma-separated URLs)",  False),
     "SPEAKERS":             ("Speakers",                                     False),
     "TTS_ENGINE":           ("TTS Engine (Sonos)",                           False),
+    "SPEAKER_AUDIO_OFFSET_MS": ("Speaker Audio Delay ms (delay browser audio to sync with room speakers, 0 = off)", False),
     "LOG_LEVEL":            ("Log Level",                                    False),
     "HOST":                 ("Bind Host",                                    False),
     "PORT":                 ("Bind Port",                                    False),

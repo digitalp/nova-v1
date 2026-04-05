@@ -94,20 +94,15 @@ async def announce_handler(body: AnnounceRequest, request: Request):
     if body.priority == "alert":
         await ws_mgr.broadcast_json({"type": "avatar_state", "state": "speaking"})
 
-    # 4. Push word timings then audio to connected browser voice clients
-    await ws_mgr.broadcast_to_voice_json({
-        "type":         "announce",
-        "text":         text,
-        "priority":     body.priority,
-        "word_timings": word_timings,
-    })
-    await ws_mgr.broadcast_to_voice_bytes(wav_bytes)
+    # 4. Start HA speaker first, then delay browser audio so lip-sync aligns
+    from avatar_backend.config import get_settings as _get_settings
+    _settings = _get_settings()
+    offset_s = _settings.speaker_audio_offset_ms / 1000.0
 
-    # 5. Play on HA speakers — non-Alexa get synthesised audio; Echo gets Alexa TTS
+    speaker_task = None
     if speaker and speaker.is_configured:
         try:
-            from avatar_backend.config import get_settings
-            public_url = (get_settings().public_url or "").rstrip("/")
+            public_url = (_settings.public_url or "").rstrip("/")
             if public_url:
                 token = uuid.uuid4().hex
                 expiry = time.time() + _AUDIO_CACHE_TTL
@@ -118,9 +113,29 @@ async def announce_handler(body: AnnounceRequest, request: Request):
                     cache.pop(k, None)
                 cache[token] = (wav_bytes, expiry)
                 audio_url = f"{public_url}/tts/audio/{token}"
-                await speaker.speak_wav(text, audio_url)
+                speaker_task = asyncio.create_task(speaker.speak_wav(text, audio_url))
             else:
-                await speaker.speak(text)
+                speaker_task = asyncio.create_task(speaker.speak(text))
+        except Exception as exc:
+            _LOGGER.warning("announce.speaker_error", exc=str(exc))
+
+    # Wait so the speaker has a head start before the browser plays
+    if offset_s > 0 and speaker_task is not None:
+        await asyncio.sleep(offset_s)
+
+    # 5. Push word timings then audio to connected browser voice clients
+    await ws_mgr.broadcast_to_voice_json({
+        "type":         "announce",
+        "text":         text,
+        "priority":     body.priority,
+        "word_timings": word_timings,
+    })
+    await ws_mgr.broadcast_to_voice_bytes(wav_bytes)
+
+    # 6. Await speaker task
+    if speaker_task is not None:
+        try:
+            await speaker_task
         except Exception as exc:
             _LOGGER.warning("announce.speaker_error", exc=str(exc))
 
