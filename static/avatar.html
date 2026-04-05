@@ -295,7 +295,7 @@ $btnStart.addEventListener('click', async () => {
 
   // Load avatar settings (skin tone, custom avatar URL) before initialising
   try {
-    const s = await fetch(`${SERVER}/admin/avatar-settings`).then(r => r.json());
+    const s = await fetch(`${SERVER}/admin/avatar-settings`, { headers: { "X-API-Key": API_KEY } }).then(r => r.json());
     if (typeof s.skin_tone === 'number') _skinToneIndex = s.skin_tone;
     if (s.avatar_url) AVATAR_URL = s.avatar_url;
   } catch (_) {}
