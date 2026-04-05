@@ -355,8 +355,14 @@ class ProactiveService:
             parts = raw.split("```")
             raw = parts[1].lstrip("json").strip() if len(parts) > 1 else raw
 
+        # Extract first JSON object — llama3.1 often appends prose after the JSON
+        import re as _re
+        m = _re.search(r'\{.*?\}', raw, _re.DOTALL)
+        if not m:
+            _LOGGER.warning("proactive.bad_json", raw=raw[:300])
+            return
         try:
-            result = json.loads(raw)
+            result = json.loads(m.group())
         except json.JSONDecodeError:
             _LOGGER.warning("proactive.bad_json", raw=raw[:300])
             return
