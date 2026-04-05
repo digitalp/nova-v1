@@ -18,6 +18,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
+import secrets
+
 from avatar_backend.middleware.auth import verify_api_key
 
 _LOGGER = structlog.get_logger()
@@ -101,7 +103,7 @@ async def save_config(body: ConfigUpdate, request: Request):
             elif "=" in stripped:
                 k, _, v = stripped.partition("=")
                 existing[k.strip()] = v.strip()
-    existing.update({k: v for k, v in body.values.items() if v != ""})
+    existing.update({k: v for k, v in body.values.items() if v != "" and k in _CONFIG_FIELDS})
     lines = header_lines + [f"{k}={v}" for k, v in existing.items()]
     _ENV_FILE.write_text("\n".join(lines) + "\n")
     _LOGGER.info("admin.config_saved")
@@ -214,7 +216,7 @@ async def test_announce(body: AnnounceBody, request: Request):
 @router.get("/logs")
 async def stream_logs(request: Request, api_key: str = ""):
     from avatar_backend.config import get_settings
-    if api_key != get_settings().api_key:
+    if not api_key or not secrets.compare_digest(api_key.encode(), get_settings().api_key.encode()):
         from fastapi.responses import Response
         return Response(status_code=401)
 
@@ -249,7 +251,7 @@ async def stream_logs(request: Request, api_key: str = ""):
 _AVATAR_SETTINGS_FILE = _CONFIG_DIR / "avatar_settings.json"
 
 
-@router.get("/avatar-settings")
+@router.get("/avatar-settings", dependencies=[Depends(verify_api_key)])
 async def get_avatar_settings():
     import json as _json
     if _AVATAR_SETTINGS_FILE.exists():

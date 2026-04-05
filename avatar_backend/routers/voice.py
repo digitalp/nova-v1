@@ -107,7 +107,7 @@ async def voice_websocket(
     except Exception as exc:
         _LOGGER.exception("voice_ws.unhandled_error", exc=str(exc))
         try:
-            await ws.send_text(json.dumps({"type": "error", "detail": str(exc)}))
+            await ws.send_text(json.dumps({"type": "error", "detail": "An internal error occurred."}))
         except Exception:
             pass
     finally:

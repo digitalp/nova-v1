@@ -29,7 +29,7 @@ _INSTALL_DIR = Path("/opt/avatar-server")
 _CONFIG_DIR  = _INSTALL_DIR / "config"
 
 
-_LOG_FILE = Path("/tmp/avatar-backend.log")
+_LOG_FILE = _INSTALL_DIR / "logs" / "avatar-backend.log"
 _LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 MB per file
 _LOG_BACKUP_COUNT = 2
 
