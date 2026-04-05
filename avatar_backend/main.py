@@ -135,6 +135,22 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("speaker_service.disabled")
 
+    if settings.ha_url.startswith("http://"):
+        logger.warning(
+            "ha_proxy.insecure_url",
+            ha_url=settings.ha_url,
+            detail="HA_URL uses plain HTTP — credentials and data are sent unencrypted. "
+                   "Set HA_URL to https:// in .env to enable TLS.",
+        )
+
+    if settings.ha_url.startswith("http://"):
+        logger.warning(
+            "ha_proxy.insecure_url",
+            ha_url=settings.ha_url,
+            detail="HA_URL uses plain HTTP — credentials and data are sent unencrypted. "
+                   "Set HA_URL to https:// in .env to enable TLS.",
+        )
+
     if await app.state.ha_proxy.is_connected():
         logger.info("ha_proxy.connected", ha_url=settings.ha_url)
     else:

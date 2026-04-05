@@ -21,6 +21,8 @@ import asyncio
 import time
 from typing import Literal
 
+_AUDIO_CACHE_TTL = 60  # seconds before an unplayed cache entry expires
+
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
@@ -108,7 +110,13 @@ async def announce_handler(body: AnnounceRequest, request: Request):
             public_url = (get_settings().public_url or "").rstrip("/")
             if public_url:
                 token = uuid.uuid4().hex
-                request.app.state.audio_cache[token] = wav_bytes
+                expiry = time.time() + _AUDIO_CACHE_TTL
+                cache = request.app.state.audio_cache
+                # Prune expired entries before inserting
+                expired = [k for k, (_, exp) in cache.items() if time.time() > exp]
+                for k in expired:
+                    cache.pop(k, None)
+                cache[token] = (wav_bytes, expiry)
                 audio_url = f"{public_url}/tts/audio/{token}"
                 await speaker.speak_wav(text, audio_url)
             else:
@@ -283,7 +291,10 @@ async def motion_announce_handler(body: MotionAnnounceRequest, request: Request)
 async def serve_tts_audio(token: str, request: Request):
     """Serve a pre-synthesised WAV to HA media players then delete it from cache."""
     cache: dict = getattr(request.app.state, "audio_cache", {})
-    data = cache.pop(token, None)
-    if data is None:
+    entry = cache.pop(token, None)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Audio not found or already played")
+    data, expiry = entry
+    if time.time() > expiry:
         raise HTTPException(status_code=404, detail="Audio not found or already played")
     return Response(content=data, media_type="audio/wav")

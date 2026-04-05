@@ -353,13 +353,14 @@ class _GeminiBackend:
 
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models"
-            f"/{self._model}:generateContent?key={self._api_key}"
+            f"/{self._model}:generateContent"
         )
 
         t0 = time.monotonic()
         async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
             resp = await client.post(url, json=payload,
-                                     headers={"Content-Type": "application/json"})
+                                     headers={"Content-Type": "application/json",
+                                              "X-goog-api-key": self._api_key})
             resp.raise_for_status()
 
         data  = resp.json()
@@ -383,11 +384,13 @@ class _GeminiBackend:
         }
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models"
-            f"/{self._model}:generateContent?key={self._api_key}"
+            f"/{self._model}:generateContent"
         )
         t0 = time.monotonic()
         async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
-            resp = await client.post(url, json=payload, headers={"Content-Type": "application/json"})
+            resp = await client.post(url, json=payload,
+                                     headers={"Content-Type": "application/json",
+                                              "X-goog-api-key": self._api_key})
             resp.raise_for_status()
         parts = (resp.json().get("candidates") or [{}])[0].get("content", {}).get("parts", [])
         text = " ".join(p.get("text", "") for p in parts if "text" in p).strip()
@@ -499,9 +502,11 @@ async def _gemini_describe_image(image_bytes: bytes, api_key: str, model: str) -
             ],
         }],
     }
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
-        resp = await client.post(url, json=payload, headers={"Content-Type": "application/json"})
+        resp = await client.post(url, json=payload,
+                                 headers={"Content-Type": "application/json",
+                                          "X-goog-api-key": api_key})
         resp.raise_for_status()
     data = resp.json()
     parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])

@@ -359,6 +359,11 @@ class HAProxy:
     async def fetch_camera_image(self, entity_id: str) -> bytes | None:
         """Fetch a camera snapshot from HA. Returns raw image bytes or None on failure."""
         entity_id = self._CAMERA_ALIASES.get(entity_id, entity_id)
+        # ACL gate — treat camera reads as domain=camera, service=get_image
+        if self._acl is not None and not self._acl.is_allowed("camera", "get_image", entity_id):
+            reason = self._acl.deny_reason("camera", "get_image", entity_id)
+            logger.warning("ha_proxy.camera_acl_denied", entity_id=entity_id, reason=reason)
+            return None
         url = f"{self._ha_url}/api/camera_proxy/{entity_id}"
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:

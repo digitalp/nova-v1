@@ -30,7 +30,7 @@ import asyncio
 import json
 
 import structlog
-from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from avatar_backend.middleware.auth import verify_api_key, verify_api_key_ws, issue_ws_token
@@ -69,7 +69,7 @@ _LLM_OFFLINE_MSG  = "I can't reach my brain right now. Please check that Ollama 
 @router.websocket("/ws/voice")
 async def voice_websocket(
     ws: WebSocket,
-    session_id: str = "voice_default",
+    session_id: str = Query(default="voice_default", max_length=128),
     _: None = Depends(verify_api_key_ws),
 ):
     """Full-duplex voice pipeline: audio in → transcript → LLM → TTS → audio out."""

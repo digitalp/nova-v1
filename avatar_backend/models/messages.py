@@ -13,7 +13,7 @@ class ToolCall(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    session_id: str
+    session_id: str = Field(..., max_length=128)
     text: str
     # Optional context injected by HA automations (time, room, active devices, etc.)
     context: dict[str, Any] | None = None

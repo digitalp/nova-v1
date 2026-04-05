@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 import time
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 import structlog
@@ -51,8 +52,17 @@ async def chat(body: ChatRequest, request: Request) -> ChatResponse:
     # Optionally inject HA context (time, room, active devices, etc.)
     user_text = body.text
     if body.context:
-        ctx_lines = "\n".join(f"  {k}: {v}" for k, v in body.context.items())
-        user_text = f"{body.text}\n\n[Home context]\n{ctx_lines}"
+        _CTX_KEY_RE  = re.compile(r'^[a-zA-Z0-9_\-\.]{1,64}$')
+        _CTX_MAX_VAL = 256
+        sanitized: dict = {}
+        for k, v in body.context.items():
+            if not isinstance(k, str) or not _CTX_KEY_RE.match(k):
+                continue
+            safe_v = str(v).replace("\n", " ").replace("\r", " ")[:_CTX_MAX_VAL]
+            sanitized[k] = safe_v
+        if sanitized:
+            ctx_lines = "\n".join(f"  {k}: {v}" for k, v in sanitized.items())
+            user_text = f"{body.text}\n\n[Home context]\n{ctx_lines}"
 
     logger.info("chat.request", session_id=body.session_id, text_len=len(user_text))
     await sm.add_message(body.session_id, "user", user_text)
