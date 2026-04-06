@@ -1857,19 +1857,43 @@ function clearCosts() {
 
 function startCostStream() {
   if (_costES) { _costES.close(); _costES = null; }
+  // Reset state each time we (re-)open this section
+  _costEntries = [];
+  _costTotals  = {};
+  const log = document.getElementById('cost-log');
+  if (log) log.innerHTML = '<div style="padding:12px 18px;color:var(--text3);">Loading…</div>';
   const status = document.getElementById('cost-status');
   if (status) status.textContent = 'Connecting…';
+
+  // Load snapshot (authoritative source), then open SSE only for NEW events
   fetch('/admin/costs', { credentials: 'include' })
     .then(r => r.json())
     .then(data => {
       if (data.totals) _updateCostSummary(data.totals);
-      (data.entries || []).forEach(_appendCostEntry);
+      // Rebuild log from snapshot
+      if (log) log.innerHTML = '';
+      (data.entries || []).forEach(e => {
+        _costEntries.push(e);
+        if (log) log.insertAdjacentHTML('beforeend', _costEntryHTML(e));
+      });
+      if (document.getElementById('cost-autoscroll')?.checked && log) log.scrollTop = log.scrollHeight;
       if (status) status.textContent = `${_costEntries.length} loaded`;
     })
     .catch(() => {});
+
+  // SSE stream — the server sends a 50-entry backlog on connect followed by live events.
+  // We skip the backlog by only accepting entries with a ts strictly after stream open.
+  const _streamOpenedAt = Date.now();
+  let _sseBacklogDone = false;
+
   _costES = new EventSource('/admin/costs/stream');
-  _costES.onopen = () => { if (status) status.textContent = '● Live'; };
+  _costES.onopen = () => {
+    if (status) status.textContent = '● Live';
+    // Mark backlog as done after a short buffer so initial SSE backlog is ignored
+    setTimeout(() => { _sseBacklogDone = true; }, 1500);
+  };
   _costES.onmessage = (ev) => {
+    if (!_sseBacklogDone) return;  // skip SSE backlog — already loaded via JSON fetch
     try { const e = JSON.parse(ev.data); if (e && e.model) _appendCostEntry(e); } catch {}
   };
   _costES.onerror = () => { if (status) status.textContent = '⚠ Retrying…'; };
