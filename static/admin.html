@@ -1944,18 +1944,27 @@ function clearDecisions() {
 
 function startDecisionStream() {
   if (_decES) { _decES.close(); _decES = null; }
+  _decEntries = [];
+  const decLog = document.getElementById('dec-log');
+  if (decLog) decLog.innerHTML = '<div style="padding:12px 18px;color:var(--text3);">Loading…</div>';
   const status = document.getElementById('dec-status');
   if (status) status.textContent = 'Connecting…';
   fetch('/admin/decisions', { credentials:'include' })
     .then(r => r.json())
     .then(data => {
+      if (decLog) decLog.innerHTML = '';
       (data.decisions || []).forEach(_appendDecEntry);
       if (status) status.textContent = `${_decEntries.length} loaded`;
     })
     .catch(() => {});
+  let _sseDecBacklogDone = false;
   _decES = new EventSource('/admin/decisions/stream');
-  _decES.onopen = () => { if (status) status.textContent = '● Live'; };
+  _decES.onopen = () => {
+    if (status) status.textContent = '● Live';
+    setTimeout(() => { _sseDecBacklogDone = true; }, 1500);
+  };
   _decES.onmessage = (ev) => {
+    if (!_sseDecBacklogDone) return;
     try { const e = JSON.parse(ev.data); if (e && e.kind) _appendDecEntry(e); } catch {}
   };
   _decES.onerror = () => { if (status) status.textContent = '⚠ Retrying…'; };
