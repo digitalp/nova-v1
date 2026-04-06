@@ -17,8 +17,10 @@ import structlog
 
 from avatar_backend.config import get_settings
 from avatar_backend.models.messages import ToolCall
+from avatar_backend.services.cost_log import CostLog as _CostLog
 
 logger = structlog.get_logger()
+_cost_log: _CostLog | None = None
 
 # ── Tool schemas (OpenAI/Ollama format) ───────────────────────────────────────
 
@@ -157,15 +159,27 @@ def _parse_tool_calls_anthropic(content_blocks: list[dict]) -> list[ToolCall]:
     ]
 
 
-def _log(provider, model, t0, text, tools):
+def _log(provider, model, t0, text, tools, input_tokens=0, output_tokens=0, purpose="chat"):
+    elapsed = int((time.monotonic() - t0) * 1000)
     logger.info(
         "llm.response",
         provider=provider,
         model=model,
-        elapsed_ms=int((time.monotonic() - t0) * 1000),
+        elapsed_ms=elapsed,
         has_tool_calls=bool(tools),
         text_chars=len(text),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )
+    if _cost_log and (input_tokens or output_tokens):
+        _cost_log.record(
+            provider=provider,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            purpose=purpose,
+            elapsed_ms=elapsed,
+        )
 
 
 # ── Provider backends ─────────────────────────────────────────────────────────
@@ -195,7 +209,9 @@ class _OllamaBackend:
         message = data.get("message", {})
         text    = (message.get("content") or "").strip()
         tools   = _parse_tool_calls_openai(message.get("tool_calls") or [])
-        _log("ollama", self._model, t0, text, tools)
+        _log("ollama", self._model, t0, text, tools,
+             input_tokens=data.get("prompt_eval_count", 0),
+             output_tokens=data.get("eval_count", 0))
         return text, tools
 
     async def generate_text(self, prompt: str, timeout_s: float = 180.0) -> str:
@@ -209,8 +225,12 @@ class _OllamaBackend:
         async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
             resp = await client.post(f"{self._base_url}/api/chat", json=payload)
             resp.raise_for_status()
-        text = (resp.json().get("message", {}).get("content") or "").strip()
-        _log("ollama", self._model, t0, text, [])
+        _d = resp.json()
+        text = (_d.get("message", {}).get("content") or "").strip()
+        _log("ollama", self._model, t0, text, [],
+             input_tokens=_d.get("prompt_eval_count", 0),
+             output_tokens=_d.get("eval_count", 0),
+             purpose="proactive")
         return text
 
     @property
@@ -253,7 +273,10 @@ class _OpenAICompatBackend:
         message = choice.get("message", {})
         text    = (message.get("content") or "").strip()
         tools   = _parse_tool_calls_openai(message.get("tool_calls") or [])
-        _log("openai", self._model, t0, text, tools)
+        _usage  = data.get("usage", {})
+        _log("openai", self._model, t0, text, tools,
+             input_tokens=_usage.get("prompt_tokens", 0),
+             output_tokens=_usage.get("completion_tokens", 0))
         return text, tools
 
     async def generate_text(self, prompt: str, timeout_s: float = 180.0) -> str:
@@ -267,8 +290,13 @@ class _OpenAICompatBackend:
         async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
             resp = await client.post(f"{self._base_url}/chat/completions", json=payload, headers=headers)
             resp.raise_for_status()
-        text = (resp.json().get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
-        _log("openai", self._model, t0, text, [])
+        _d = resp.json()
+        text = (_d.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+        _u = _d.get("usage", {})
+        _log("openai", self._model, t0, text, [],
+             input_tokens=_u.get("prompt_tokens", 0),
+             output_tokens=_u.get("completion_tokens", 0),
+             purpose="proactive")
         return text
 
     @property
@@ -374,7 +402,10 @@ class _GeminiBackend:
             )
             for p in parts if "functionCall" in p
         ]
-        _log("google", self._model, t0, text, tools)
+        _um = data.get("usageMetadata", {})
+        _log("google", self._model, t0, text, tools,
+             input_tokens=_um.get("promptTokenCount", 0),
+             output_tokens=_um.get("candidatesTokenCount", 0))
         return text, tools
 
     async def generate_text(self, prompt: str, timeout_s: float = 180.0) -> str:
@@ -392,9 +423,14 @@ class _GeminiBackend:
                                      headers={"Content-Type": "application/json",
                                               "X-goog-api-key": self._api_key})
             resp.raise_for_status()
-        parts = (resp.json().get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+        _d = resp.json()
+        parts = (_d.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
         text = " ".join(p.get("text", "") for p in parts if "text" in p).strip()
-        _log("google", self._model, t0, text, [])
+        _um = _d.get("usageMetadata", {})
+        _log("google", self._model, t0, text, [],
+             input_tokens=_um.get("promptTokenCount", 0),
+             output_tokens=_um.get("candidatesTokenCount", 0),
+             purpose="proactive")
         return text
 
     @property
@@ -442,7 +478,10 @@ class _AnthropicBackend:
             b.get("text", "") for b in content if b.get("type") == "text"
         ).strip()
         tools   = _parse_tool_calls_anthropic(content)
-        _log("anthropic", self._model, t0, text, tools)
+        _au = data.get("usage", {})
+        _log("anthropic", self._model, t0, text, tools,
+             input_tokens=_au.get("input_tokens", 0),
+             output_tokens=_au.get("output_tokens", 0))
         return text, tools
 
     async def generate_text(self, prompt: str, timeout_s: float = 180.0) -> str:
@@ -460,9 +499,14 @@ class _AnthropicBackend:
         async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
             resp = await client.post("https://api.anthropic.com/v1/messages", json=payload, headers=headers)
             resp.raise_for_status()
-        content = resp.json().get("content", [])
+        _d = resp.json()
+        content = _d.get("content", [])
         text = " ".join(b.get("text", "") for b in content if b.get("type") == "text").strip()
-        _log("anthropic", self._model, t0, text, [])
+        _au = _d.get("usage", {})
+        _log("anthropic", self._model, t0, text, [],
+             input_tokens=_au.get("input_tokens", 0),
+             output_tokens=_au.get("output_tokens", 0),
+             purpose="proactive")
         return text
 
     @property
@@ -586,6 +630,10 @@ class LLMService:
             raise RuntimeError(
                 f"LLM HTTP {exc.response.status_code}: {exc.response.text[:200]}"
             ) from exc
+
+    def set_cost_log(self, log: _CostLog) -> None:
+        global _cost_log
+        _cost_log = log
 
     async def is_ready(self) -> bool:
         if isinstance(self._backend, _OllamaBackend):

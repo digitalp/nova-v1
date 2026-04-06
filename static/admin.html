@@ -253,6 +253,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
       Live Logs
     </div>
+    <div class="nav-item" data-section="costs" onclick="navigate(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/><path d="M9 2h6"/></svg>
+      LLM Cost
+    </div>
     <div class="nav-item" data-section="decisions" onclick="navigate(this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/><path d="M9.5 3.5L12 2l2.5 1.5"/><path d="M3.5 9.5L2 12l1.5 2.5"/><path d="M20.5 9.5L22 12l-1.5 2.5"/></svg>
       AI Decisions
@@ -439,6 +443,64 @@
     <!-- USERS (admin only) -->
 
     <!-- ── AI Decision Log ─────────────────────────────────────────── -->
+
+    <!-- ── LLM Cost Log ──────────────────────────────────────────────── -->
+    <div id="section-costs" class="section">
+
+      <!-- Summary cards row -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px;">
+        <div class="card" style="text-align:center;padding:16px 10px;">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Session Calls</div>
+          <div id="cost-calls" style="font-size:28px;font-weight:700;margin-top:4px;">0</div>
+        </div>
+        <div class="card" style="text-align:center;padding:16px 10px;">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Input Tokens</div>
+          <div id="cost-input-tok" style="font-size:28px;font-weight:700;margin-top:4px;">0</div>
+        </div>
+        <div class="card" style="text-align:center;padding:16px 10px;">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Output Tokens</div>
+          <div id="cost-output-tok" style="font-size:28px;font-weight:700;margin-top:4px;">0</div>
+        </div>
+        <div class="card" style="text-align:center;padding:16px 10px;">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Session Cost</div>
+          <div id="cost-total" style="font-size:28px;font-weight:700;color:#4ade80;margin-top:4px;">$0.000000</div>
+        </div>
+      </div>
+
+      <!-- Per-model breakdown -->
+      <div class="card" style="margin-bottom:16px;padding:0;overflow:hidden;">
+        <div style="padding:12px 20px;border-bottom:1px solid var(--border);font-weight:600;font-size:13px;">
+          Pricing &amp; Model Breakdown
+        </div>
+        <div id="cost-by-model" style="padding:8px 0;">
+          <div style="padding:4px 20px;color:var(--muted);font-size:13px;">No invocations yet.</div>
+        </div>
+      </div>
+
+      <!-- Invocation log -->
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border);">
+          <div>
+            <div class="card-title" style="margin:0;">Invocation Log</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px;">Live stream of every LLM call with token counts and cost</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer;">
+              <input type="checkbox" id="cost-autoscroll" checked style="cursor:pointer;"> Auto-scroll
+            </label>
+            <button class="btn btn-sm btn-outline" onclick="clearCosts()">Clear</button>
+            <span id="cost-status" style="font-size:11px;color:var(--muted);">Connecting…</span>
+          </div>
+        </div>
+        <div id="cost-log"
+             style="font-family:monospace;font-size:12px;line-height:1.7;
+                    height:500px;overflow-y:auto;padding:12px 0;
+                    background:var(--surface);">
+          <div style="padding:0 20px;color:var(--muted);">Waiting for LLM calls…</div>
+        </div>
+      </div>
+    </div>
+
     <div id="section-decisions" class="section">
       <div class="card" style="padding:0;overflow:hidden;">
         <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border);">
@@ -1218,6 +1280,136 @@ function esc(s) {
   window.navigate = function(el) {
     _origNavigate(el);
     if (el.dataset.section === 'decisions') startDecisionStream();
+  };
+
+
+  // ── LLM Cost Log ───────────────────────────────────────────────────────────
+  let _costES   = null;
+  let _costEntries = [];
+  let _costTotals = {};
+
+  const _purposeColor = {
+    chat:       '#7dd3fc',
+    proactive:  '#fcd34d',
+    triage:     '#fcd34d',
+    vision:     '#c084fc',
+  };
+
+  function _fmtTokens(n) {
+    if (n >= 1000000) return (n/1000000).toFixed(2) + 'M';
+    if (n >= 1000)    return (n/1000).toFixed(1) + 'K';
+    return String(n);
+  }
+
+  function _fmtCost(usd) {
+    if (usd === 0) return '<span style="color:#64748b;">$0 (local)</span>';
+    if (usd < 0.001) return `<span style="color:#4ade80;">$${usd.toFixed(6)}</span>`;
+    return `<span style="color:#4ade80;">$${usd.toFixed(4)}</span>`;
+  }
+
+  function _costEntryHTML(e) {
+    const col = _purposeColor[e.purpose] || '#e2e8f0';
+    const rate = e.price_in > 0
+      ? `<span style="color:#475569;font-size:10px;">${e.price_in}/$${e.price_out}/M</span>`
+      : '<span style="color:#475569;font-size:10px;">local</span>';
+    return `<div style="padding:3px 20px;border-bottom:1px solid rgba(255,255,255,.04);
+                        display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;">
+      <span style="color:#475569;min-width:60px;">${e.ts}</span>
+      <span style="background:#1e293b;color:${col};padding:1px 7px;border-radius:4px;font-size:10px;font-weight:700;">${(e.purpose||'chat').toUpperCase()}</span>
+      <span style="color:#a5b4fc;">${e.model}</span>
+      <span style="color:var(--muted);">in:${_fmtTokens(e.input_tokens)} out:${_fmtTokens(e.output_tokens)}</span>
+      ${_fmtCost(e.cost_usd)}
+      <span style="color:#475569;">${e.elapsed_ms}ms</span>
+      ${rate}
+    </div>`;
+  }
+
+  function _updateCostSummary(totals) {
+    _costTotals = totals;
+    const el = id => document.getElementById(id);
+    if (el('cost-calls'))      el('cost-calls').textContent = _fmtTokens(totals.session_calls || 0);
+    if (el('cost-input-tok'))  el('cost-input-tok').textContent = _fmtTokens(totals.session_input_tokens || 0);
+    if (el('cost-output-tok')) el('cost-output-tok').textContent = _fmtTokens(totals.session_output_tokens || 0);
+    if (el('cost-total'))      el('cost-total').textContent = '$' + (totals.session_cost_usd || 0).toFixed(6);
+
+    const bm = document.getElementById('cost-by-model');
+    if (!bm) return;
+    const models = Object.entries(totals.by_model || {});
+    if (models.length === 0) {
+      bm.innerHTML = '<div style="padding:4px 20px;color:var(--muted);font-size:13px;">No invocations yet.</div>';
+      return;
+    }
+    bm.innerHTML = models.map(([key, m]) => `
+      <div style="display:flex;align-items:center;gap:12px;padding:6px 20px;border-bottom:1px solid rgba(255,255,255,.04);">
+        <span style="color:#a5b4fc;min-width:200px;">${key}</span>
+        <span style="color:var(--muted);font-size:12px;">${m.calls} calls</span>
+        <span style="color:var(--muted);font-size:12px;">in:${_fmtTokens(m.input_tokens)} out:${_fmtTokens(m.output_tokens)}</span>
+        <span style="font-size:12px;">${_fmtCost(m.cost_usd)}</span>
+        <span style="color:#475569;font-size:11px;">$${m.price_in}/$${m.price_out} per M</span>
+      </div>
+    `).join('');
+  }
+
+  function _appendCostEntry(e) {
+    _costEntries.push(e);
+    if (_costEntries.length > 500) _costEntries.shift();
+    const log = document.getElementById('cost-log');
+    if (!log) return;
+    if (log.querySelector('div[style*="Waiting"]')) log.innerHTML = '';
+    log.insertAdjacentHTML('beforeend', _costEntryHTML(e));
+    if (document.getElementById('cost-autoscroll')?.checked) {
+      log.scrollTop = log.scrollHeight;
+    }
+    // Recompute running totals from entries
+    let si=0, so=0, sc=0;
+    _costEntries.forEach(x => { si += x.input_tokens; so += x.output_tokens; sc += x.cost_usd; });
+    _updateCostSummary({
+      session_calls: _costEntries.length,
+      session_input_tokens: si,
+      session_output_tokens: so,
+      session_cost_usd: sc,
+      by_model: _costTotals.by_model || {},
+    });
+  }
+
+  function clearCosts() {
+    _costEntries = [];
+    const log = document.getElementById('cost-log');
+    if (log) log.innerHTML = '<div style="padding:0 20px;color:var(--muted);">Log cleared.</div>';
+  }
+
+  function startCostStream() {
+    if (_costES) { _costES.close(); _costES = null; }
+    const status = document.getElementById('cost-status');
+    if (status) status.textContent = 'Connecting…';
+
+    fetch('/admin/costs', { credentials: 'include' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.totals) _updateCostSummary(data.totals);
+        (data.entries || []).forEach(_appendCostEntry);
+        if (status) status.textContent = `${_costEntries.length} entries loaded`;
+      })
+      .catch(() => {});
+
+    _costES = new EventSource('/admin/costs/stream');
+    _costES.onopen = () => { if (status) status.textContent = '● Live'; };
+    _costES.onmessage = (ev) => {
+      try {
+        const e = JSON.parse(ev.data);
+        if (e && e.model) _appendCostEntry(e);
+      } catch {}
+    };
+    _costES.onerror = () => {
+      if (status) status.textContent = '⚠ Disconnected — retrying…';
+    };
+  }
+
+  // Hook into navigate()
+  const _origNavigateCost = window.navigate;
+  window.navigate = function(el) {
+    _origNavigateCost(el);
+    if (el.dataset.section === 'costs') startCostStream();
   };
 
 </script>

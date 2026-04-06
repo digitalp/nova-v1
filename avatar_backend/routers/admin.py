@@ -606,6 +606,47 @@ async def sync_prompt(request: Request):
 
 # ── AI Decision Log (SSE + snapshot) ─────────────────────────────────────────
 
+
+# ── LLM Cost Log (SSE + snapshot) ────────────────────────────────────────────
+
+@router.get("/costs")
+async def get_costs(request: Request):
+    """Return recent LLM cost entries + session totals as JSON."""
+    if not _get_session(request):
+        return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+    log = getattr(request.app.state, "cost_log", None)
+    if not log:
+        return {"entries": [], "totals": {}}
+    return {"entries": log.recent(200), "totals": log.totals()}
+
+
+@router.get("/costs/stream")
+async def stream_costs(request: Request):
+    """SSE stream — pushes each new LLM cost event as it happens."""
+    if not _get_session(request):
+        return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+    log = getattr(request.app.state, "cost_log", None)
+
+    async def generate():
+        import json as _json
+        if not log:
+            yield "data: {}\n\n"
+            return
+        q = log.subscribe()
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    entry = await asyncio.wait_for(q.get(), timeout=20.0)
+                    yield f"data: {_json.dumps(entry)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+        finally:
+            log.unsubscribe(q)
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
 @router.get("/decisions")
 async def get_decisions(request: Request):
     """Return the last 200 AI decision events as JSON."""
