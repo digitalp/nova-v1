@@ -55,6 +55,11 @@ class CostLog:
         self._entries: list[dict] = []
         self._subscribers: list[asyncio.Queue] = []
         self._session_cost: float = 0.0
+        self._db = None  # MetricsDB — set via set_db()
+
+    def set_db(self, db) -> None:
+        """Attach a MetricsDB instance for persistent storage."""
+        self._db = db
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -84,6 +89,20 @@ class CostLog:
         }
         self._entries.append(entry)
         self._session_cost += cost
+        if self._db is not None:
+            try:
+                self._db.insert_invocation({
+                    "provider":     provider,
+                    "model":        model,
+                    "purpose":      purpose,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cost_usd":     cost,
+                    "elapsed_ms":   elapsed_ms,
+                })
+            except Exception as _exc:
+                import logging as _logging
+                _logging.getLogger(__name__).warning("cost_log.db_write_error: %s", _exc)
         if len(self._entries) > _MAX_ENTRIES:
             self._entries.pop(0)
         dead: list[asyncio.Queue] = []

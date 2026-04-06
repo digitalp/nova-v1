@@ -6,6 +6,215 @@
 <title>Nova Admin</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js">
+// ── Format helpers ────────────────────────────────────────────────────────────
+function _fmtBytes(b) {
+  if (b == null) return '—';
+  if (b >= 1e12) return (b/1e12).toFixed(2) + ' TB';
+  if (b >= 1e9)  return (b/1e9).toFixed(2)  + ' GB';
+  if (b >= 1e6)  return (b/1e6).toFixed(1)  + ' MB';
+  return (b/1e3).toFixed(0) + ' KB';
+}
+
+function _pct(used, total) { return total ? Math.round(used / total * 100) : 0; }
+
+function _barColor(pct) {
+  if (pct > 85) return 'red';
+  if (pct > 65) return 'yellow';
+  return 'green';
+}
+
+// ── Chart defaults ────────────────────────────────────────────────────────────
+Chart.defaults.color           = '#64748b';
+Chart.defaults.borderColor     = 'rgba(255,255,255,.05)';
+Chart.defaults.font.family     = 'Inter, sans-serif';
+Chart.defaults.font.size       = 11;
+
+function _lineDataset(label, data, color, fill=false) {
+  return {
+    label, data,
+    borderColor: color,
+    backgroundColor: fill ? color.replace(')',', 0.12)').replace('rgb','rgba') : 'transparent',
+    borderWidth: 2,
+    pointRadius: 2,
+    pointHoverRadius: 4,
+    tension: 0.35,
+    fill,
+  };
+}
+
+function _barDataset(label, data, color) {
+  return {
+    label, data,
+    backgroundColor: color,
+    borderRadius: 4,
+    borderWidth: 0,
+  };
+}
+
+const _chartRegistry = {};
+
+function _getOrCreate(id, cfg) {
+  if (_chartRegistry[id]) { _chartRegistry[id].destroy(); }
+  const ctx = document.getElementById(id);
+  if (!ctx) return null;
+  const c = new Chart(ctx, cfg);
+  _chartRegistry[id] = c;
+  return c;
+}
+
+// ── System Metrics ────────────────────────────────────────────────────────────
+let _metricsES = null;
+
+function _applyGauges(s) {
+  if (!s) return;
+  const _b = id => document.getElementById(id);
+
+  // CPU
+  const cpu = s.cpu_pct ?? 0;
+  _b('m-cpu-val') && (_b('m-cpu-val').textContent = cpu.toFixed(1) + '%');
+  _b('m-cpu-pct') && (_b('m-cpu-pct').textContent = '');
+  const cpuBar = _b('m-cpu-bar');
+  if (cpuBar) { cpuBar.style.width = Math.min(cpu,100) + '%'; cpuBar.className = 'gauge-bar-fill ' + _barColor(cpu); }
+
+  // RAM
+  const rp = _pct(s.ram_used, s.ram_total);
+  _b('m-ram-val') && (_b('m-ram-val').textContent = _fmtBytes(s.ram_used));
+  _b('m-ram-pct') && (_b('m-ram-pct').textContent = rp + '%');
+  _b('m-ram-sub') && (_b('m-ram-sub').textContent = 'of ' + _fmtBytes(s.ram_total));
+  const ramBar = _b('m-ram-bar');
+  if (ramBar) { ramBar.style.width = rp + '%'; ramBar.className = 'gauge-bar-fill ' + _barColor(rp); }
+
+  // Disk
+  const dp = _pct(s.disk_used, s.disk_total);
+  _b('m-disk-val') && (_b('m-disk-val').textContent = _fmtBytes(s.disk_used));
+  _b('m-disk-pct') && (_b('m-disk-pct').textContent = dp + '%');
+  _b('m-disk-sub') && (_b('m-disk-sub').textContent = 'of ' + _fmtBytes(s.disk_total));
+  const diskBar = _b('m-disk-bar');
+  if (diskBar) { diskBar.style.width = dp + '%'; diskBar.className = 'gauge-bar-fill ' + _barColor(dp); }
+
+  // GPU
+  const gpu = s.gpu_util ?? null;
+  const gmp = s.gpu_mem_used != null ? _pct(s.gpu_mem_used, s.gpu_mem_total) : null;
+  _b('m-gpu-val') && (_b('m-gpu-val').textContent = gpu != null ? gpu.toFixed(0) + '%' : 'N/A');
+  _b('m-gpu-pct') && (_b('m-gpu-pct').textContent = gpu != null ? gpu.toFixed(0) + '%' : '');
+  _b('m-gpu-sub') && (_b('m-gpu-sub').textContent = s.gpu_mem_used != null ? _fmtBytes(s.gpu_mem_used) + ' / ' + _fmtBytes(s.gpu_mem_total) : '');
+  const gpuBar = _b('m-gpu-bar');
+  if (gpuBar && gpu != null) { gpuBar.style.width = gpu + '%'; gpuBar.className = 'gauge-bar-fill ' + _barColor(gpu); }
+}
+
+function _buildMetricsCharts(history) {
+  const labels = history.map(h => h.hour ? h.hour.slice(11,16) : '');
+  const cpus   = history.map(h => h.cpu_pct != null ? +h.cpu_pct.toFixed(1) : null);
+  const rams   = history.map(h => (h.ram_used != null && h.ram_total) ? +(h.ram_used / h.ram_total * 100).toFixed(1) : null);
+  const gpus   = history.map(h => h.gpu_util != null ? +h.gpu_util.toFixed(1) : null);
+
+  _getOrCreate('chart-cpu-ram', {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        _lineDataset('CPU %', cpus, '#22d3ee', true),
+        _lineDataset('RAM %', rams, '#818cf8', false),
+      ],
+    },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: true, position: 'top' } },
+      scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } }, x: { ticks: { maxTicksLimit: 12 } } },
+    },
+  });
+
+  _getOrCreate('chart-gpu', {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [_lineDataset('GPU %', gpus, '#10b981', true)],
+    },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } }, x: { ticks: { maxTicksLimit: 12 } } },
+    },
+  });
+}
+
+async function loadMetrics() {
+  try {
+    const d = await api('GET', '/admin/metrics');
+    _applyGauges(d.latest);
+    if (d.history && d.history.length) _buildMetricsCharts(d.history);
+  } catch(e) { console.warn('metrics load err', e); }
+
+  // SSE live updates
+  if (_metricsES) { _metricsES.close(); _metricsES = null; }
+  _metricsES = new EventSource('/admin/metrics/stream');
+  _metricsES.onmessage = (ev) => {
+    try { const s = JSON.parse(ev.data); if (s.cpu_pct != null) { _applyGauges(s); _applyGaugeDash(s); } } catch {}
+  };
+}
+
+// Stop metrics SSE when leaving section
+const _origNavigateMetrics = window.navigate;
+window.navigate = function(el) {
+  _origNavigateMetrics(el);
+  if (el.dataset.section !== 'metrics' && _metricsES) {
+    _metricsES.close(); _metricsES = null;
+  }
+  if (el.dataset.section === 'metrics') loadMetrics();
+};
+
+// ── Persistent LLM Cost Chart ─────────────────────────────────────────────────
+let _costPeriod = 'month';
+
+function selectCostPeriod(btn) {
+  _costPeriod = btn.dataset.period;
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadCostHistory(_costPeriod);
+}
+
+function _buildCostChart(byDay) {
+  const labels = byDay.map(r => r.day || r.month || '');
+  const costs  = byDay.map(r => +(r.cost_usd || 0).toFixed(6));
+  _getOrCreate('chart-cost', {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [_barDataset('Cost (USD)', costs, 'rgba(16,185,129,.7)')],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { ticks: { callback: v => '$' + (v < 0.001 ? v.toFixed(6) : v.toFixed(4)) } },
+        x: { ticks: { maxTicksLimit: 14, maxRotation: 45 } },
+      },
+    },
+  });
+}
+
+async function loadCostHistory(period='month') {
+  try {
+    const d = await api('GET', '/admin/costs/history?period=' + period);
+    const s = d.summary || {};
+    const cost = s.cost_usd || 0;
+    document.getElementById('cost-db-calls') && (document.getElementById('cost-db-calls').textContent = _fmtTokens(s.calls || 0));
+    document.getElementById('cost-db-in')    && (document.getElementById('cost-db-in').textContent    = _fmtTokens(s.input_tokens || 0));
+    document.getElementById('cost-db-out')   && (document.getElementById('cost-db-out').textContent   = _fmtTokens(s.output_tokens || 0));
+    document.getElementById('cost-db-total') && (document.getElementById('cost-db-total').textContent = '$' + (cost < 0.01 ? cost.toFixed(6) : cost.toFixed(4)));
+
+    const chartData = period === 'year' ? (d.monthly || []) : (d.by_day || []);
+    if (chartData.length) _buildCostChart(chartData);
+  } catch(e) { console.warn('cost history err', e); }
+}
+
+// Hook into cost section navigation to also load DB history
+const _origNavigateCostHist = window.navigate;
+window.navigate = function(el) {
+  _origNavigateCostHist(el);
+  if (el.dataset.section === 'costs') loadCostHistory(_costPeriod);
+};
+
+</script>
 <style>
 /* ── Design tokens ──────────────────────────────────────────────────────────── */
 :root {
@@ -650,6 +859,55 @@ tr:hover td { background: rgba(255,255,255,.02); color: var(--text); }
   font-size: 13px;
   color: var(--text3);
 }
+
+/* ── Charts ──────────────────────────────────────────────────────────────────── */
+.chart-wrap { position: relative; height: 220px; }
+.chart-wrap-sm { position: relative; height: 160px; }
+.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+@media (max-width: 720px) { .chart-grid { grid-template-columns: 1fr; } }
+
+/* ── Gauge bars ──────────────────────────────────────────────────────────────── */
+.gauge-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.gauge-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  transition: border-color .2s;
+}
+.gauge-card:hover { border-color: var(--border2); }
+.gauge-label { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; display:flex; justify-content: space-between; }
+.gauge-val { font-size: 18px; font-weight: 700; color: var(--text); }
+.gauge-sub { font-size: 11px; color: var(--text3); margin-top: 2px; }
+.gauge-bar-track { height: 4px; background: rgba(255,255,255,.06); border-radius: 4px; margin-top: 8px; overflow: hidden; }
+.gauge-bar-fill { height: 4px; border-radius: 4px; transition: width .6s ease; }
+.gauge-bar-fill.green  { background: var(--green); }
+.gauge-bar-fill.yellow { background: var(--yellow); }
+.gauge-bar-fill.red    { background: var(--red); }
+.gauge-bar-fill.cyan   { background: var(--cyan); }
+.gauge-bar-fill.accent { background: var(--accent); }
+
+/* ── Period filter bar ───────────────────────────────────────────────────────── */
+.period-bar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.period-btn {
+  padding: 4px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--border2);
+  color: var(--text3);
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all .15s;
+}
+.period-btn:hover { border-color: var(--accent); color: var(--accent); }
+.period-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+
+/* ── Dash mini stat ──────────────────────────────────────────────────────────── */
+.dash-sys-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 16px; }
+@media (max-width: 720px) { .dash-sys-grid { grid-template-columns: 1fr 1fr; } }
+
 </style>
 </head>
 <body>
@@ -706,6 +964,10 @@ tr:hover td { background: rgba(255,255,255,.02); color: var(--text); }
     <div class="nav-item" data-section="costs" onclick="navigate(this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
       LLM Cost
+    </div>
+    <div class="nav-item" data-section="metrics" onclick="navigate(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      System Metrics
     </div>
 
     <div class="nav-group-label" style="margin-top:4px;">Manage</div>
@@ -792,10 +1054,35 @@ tr:hover td { background: rgba(255,255,255,.02); color: var(--text); }
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <!-- System live gauges -->
+      <div class="dash-sys-grid">
+        <div class="stat-card">
+          <div class="stat-icon cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg></div>
+          <div class="stat-body"><div class="stat-label">CPU</div><div id="dash-cpu" class="stat-value">—</div></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon accent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 19v-3"/><path d="M10 19v-5"/><path d="M14 19v-8"/><path d="M18 19V4"/><path d="M3 19h18"/></svg></div>
+          <div class="stat-body"><div class="stat-label">RAM Used</div><div id="dash-ram" class="stat-value">—</div></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon yellow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></div>
+          <div class="stat-body"><div class="stat-label">Disk Used</div><div id="dash-disk" class="stat-value">—</div></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M5 12h14"/><line x1="12" y1="19" x2="12" y2="22"/></svg></div>
+          <div class="stat-body"><div class="stat-label">GPU Util</div><div id="dash-gpu" class="stat-value">—</div></div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
         <div class="card" style="margin-bottom:0;">
           <div class="card-title">Active Sessions</div>
           <div id="dash-sessions" style="font-size:36px;font-weight:700;color:var(--accent);margin-top:6px;">—</div>
+        </div>
+        <div class="card" style="margin-bottom:0;">
+          <div class="card-title">Month LLM Cost</div>
+          <div id="dash-month-cost" style="font-size:28px;font-weight:700;color:var(--green);margin-top:6px;">—</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px;" id="dash-month-calls">— calls this month</div>
         </div>
         <div class="card" style="margin-bottom:0;">
           <div class="card-title">Server Version</div>
@@ -963,9 +1250,43 @@ tr:hover td { background: rgba(255,255,255,.02); color: var(--text); }
     <div id="section-costs" class="section">
       <div class="page-header">
         <div class="page-title">LLM Cost</div>
-        <div class="page-sub">Real-time token usage and cost tracking per invocation</div>
+        <div class="page-sub">Persistent token usage and cost tracking — survives restarts</div>
       </div>
 
+      <!-- Persistent DB summary (period-filtered) -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header" style="margin-bottom:12px;">
+          <div class="card-title-lg">Cost Summary</div>
+          <div class="period-bar">
+            <button class="period-btn" data-period="day"   onclick="selectCostPeriod(this)">Day</button>
+            <button class="period-btn" data-period="week"  onclick="selectCostPeriod(this)">Week</button>
+            <button class="period-btn active" data-period="month" onclick="selectCostPeriod(this)">Month</button>
+            <button class="period-btn" data-period="year"  onclick="selectCostPeriod(this)">Year</button>
+          </div>
+        </div>
+        <div class="metric-row" style="margin-bottom:16px;">
+          <div class="metric-card">
+            <div class="metric-label">Calls</div>
+            <div id="cost-db-calls" class="metric-value">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Input Tokens</div>
+            <div id="cost-db-in" class="metric-value">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Output Tokens</div>
+            <div id="cost-db-out" class="metric-value">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Total Cost</div>
+            <div id="cost-db-total" class="metric-value green">$0.00</div>
+          </div>
+        </div>
+        <!-- Cost chart -->
+        <div class="chart-wrap-sm"><canvas id="chart-cost"></canvas></div>
+      </div>
+
+      <!-- Session (in-memory) live totals -->
       <div class="metric-row">
         <div class="metric-card">
           <div class="metric-label">Session Calls</div>
@@ -1010,6 +1331,65 @@ tr:hover td { background: rgba(255,255,255,.02); color: var(--text); }
              style="font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.8;
                     height:460px;overflow-y:auto;padding:8px 0;background:var(--bg);">
           <div style="padding:12px 18px;color:var(--text3);">Waiting for LLM calls…</div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ══════════════ SYSTEM METRICS ══════════════ -->
+    <div id="section-metrics" class="section">
+      <div class="page-header">
+        <div class="page-title">System Metrics</div>
+        <div class="page-sub">Real-time CPU, RAM, disk and GPU monitoring with historical data</div>
+      </div>
+
+      <!-- Live gauges -->
+      <div class="gauge-row">
+        <div class="gauge-card">
+          <div class="gauge-label">CPU <span id="m-cpu-pct">—</span></div>
+          <div id="m-cpu-val" class="gauge-val">—</div>
+          <div class="gauge-sub">utilisation</div>
+          <div class="gauge-bar-track"><div id="m-cpu-bar" class="gauge-bar-fill cyan" style="width:0%"></div></div>
+        </div>
+        <div class="gauge-card">
+          <div class="gauge-label">RAM <span id="m-ram-pct">—</span></div>
+          <div id="m-ram-val" class="gauge-val">—</div>
+          <div id="m-ram-sub" class="gauge-sub">of total</div>
+          <div class="gauge-bar-track"><div id="m-ram-bar" class="gauge-bar-fill accent" style="width:0%"></div></div>
+        </div>
+        <div class="gauge-card">
+          <div class="gauge-label">Disk <span id="m-disk-pct">—</span></div>
+          <div id="m-disk-val" class="gauge-val">—</div>
+          <div id="m-disk-sub" class="gauge-sub">of total</div>
+          <div class="gauge-bar-track"><div id="m-disk-bar" class="gauge-bar-fill yellow" style="width:0%"></div></div>
+        </div>
+        <div class="gauge-card">
+          <div class="gauge-label">GPU Util <span id="m-gpu-pct">—</span></div>
+          <div id="m-gpu-val" class="gauge-val">—</div>
+          <div id="m-gpu-sub" class="gauge-sub">VRAM</div>
+          <div class="gauge-bar-track"><div id="m-gpu-bar" class="gauge-bar-fill green" style="width:0%"></div></div>
+        </div>
+      </div>
+
+      <!-- History charts -->
+      <div class="chart-grid">
+        <div class="card" style="margin-bottom:0;">
+          <div class="card-header">
+            <div>
+              <div class="card-title-lg">CPU &amp; RAM History</div>
+              <div class="card-sub">Last 24 hours (hourly avg)</div>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-cpu-ram"></canvas></div>
+        </div>
+        <div class="card" style="margin-bottom:0;">
+          <div class="card-header">
+            <div>
+              <div class="card-title-lg">GPU Utilisation</div>
+              <div class="card-sub">Last 24 hours (hourly avg)</div>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-gpu"></canvas></div>
         </div>
       </div>
     </div>
@@ -1150,7 +1530,7 @@ const TITLES = {
   dashboard:'Dashboard', config:'Configuration', prompt:'System Prompt',
   acl:'ACL Rules', logs:'Live Logs', sessions:'Sessions',
   avatar:'Avatar', tools:'Tools', users:'Users',
-  decisions:'AI Decisions', costs:'LLM Cost',
+  decisions:'AI Decisions', costs:'LLM Cost', metrics:'System Metrics',
 };
 
 const SKIN_LABELS = ['Porcelain','Light','Medium','Dark','Deep'];
@@ -1209,6 +1589,7 @@ function navigate(el) {
   if (sec === 'sessions')  loadSessions();
   if (sec === 'dashboard') loadDashboard();
   if (sec === 'users')     loadUsers();
+  if (sec === 'metrics')   loadMetrics();
 }
 
 function refreshSection() {
@@ -1274,13 +1655,35 @@ function renderHealth(d) {
 
 async function loadDashboard() {
   try {
-    const [health, sessions] = await Promise.all([
+    const [health, sessions, monthCost, metricsNow] = await Promise.all([
       fetch('/health').then(r => r.json()),
       api('GET', '/admin/sessions'),
+      api('GET', '/admin/costs/history?period=month').catch(() => null),
+      api('GET', '/admin/metrics').catch(() => null),
     ]);
     renderHealth(health);
     document.getElementById('dash-sessions').textContent = sessions.active_sessions ?? '—';
+    if (monthCost && monthCost.summary) {
+      const s = monthCost.summary;
+      const cost = s.cost_usd || 0;
+      document.getElementById('dash-month-cost').textContent = '$' + cost.toFixed(cost < 0.01 ? 6 : 4);
+      document.getElementById('dash-month-calls').textContent = (s.calls || 0) + ' calls this month';
+    }
+    if (metricsNow && metricsNow.latest) _applyGaugeDash(metricsNow.latest);
   } catch(e) { console.warn(e); }
+}
+
+function _applyGaugeDash(s) {
+  if (!s) return;
+  const _b = id => document.getElementById(id);
+  if (s.cpu_pct != null) _b('dash-cpu') && (_b('dash-cpu').textContent = s.cpu_pct.toFixed(1) + '%');
+  if (s.ram_used != null && s.ram_total) {
+    _b('dash-ram') && (_b('dash-ram').textContent = _fmtBytes(s.ram_used));
+  }
+  if (s.disk_used != null && s.disk_total) {
+    _b('dash-disk') && (_b('dash-disk').textContent = _fmtBytes(s.disk_used));
+  }
+  if (s.gpu_util != null) _b('dash-gpu') && (_b('dash-gpu').textContent = s.gpu_util.toFixed(0) + '%');
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────

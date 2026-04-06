@@ -22,6 +22,8 @@ from avatar_backend.services.stt_service import STTService
 from avatar_backend.services.tts_service import create_tts_service
 from avatar_backend.services.ws_manager import ConnectionManager
 from avatar_backend.services.proactive_service import ProactiveService
+from avatar_backend.services.metrics_db import MetricsDB
+from avatar_backend.services.system_metrics import SystemMetrics
 from avatar_backend.services.user_service import UserService
 from avatar_backend.routers import health, chat
 from avatar_backend.routers import voice, avatar_ws, announce
@@ -178,8 +180,18 @@ async def lifespan(app: FastAPI):
     decision_log = DecisionLog()
     app.state.decision_log = decision_log
 
+    # Persistent metrics DB (LLM costs + system samples)
+    metrics_db = MetricsDB()
+    app.state.metrics_db = metrics_db
+
+    # System metrics poller — CPU/RAM/disk/GPU every 5 s
+    sys_metrics = SystemMetrics(db=metrics_db, interval=5)
+    app.state.sys_metrics = sys_metrics
+    await sys_metrics.start()
+
     # Cost log — tracks token usage and cost per LLM call
     cost_log = CostLog()
+    cost_log.set_db(metrics_db)
     app.state.cost_log = cost_log
     app.state.llm_service.set_cost_log(cost_log)
     proactive = getattr(app.state, 'proactive_service', None)
@@ -191,6 +203,7 @@ async def lifespan(app: FastAPI):
 
     cleanup_task.cancel()
     await proactive.stop()
+    await app.state.sys_metrics.stop()
     logger.info("avatar_backend.stopped")
 
 

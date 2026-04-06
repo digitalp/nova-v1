@@ -13,3 +13,7 @@ piper/
 static/avatar.html.bak
 config/avatar_settings.json
 *.bak
+data/
+config/users.json
+config/*.swp
+logs/

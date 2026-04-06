@@ -705,3 +705,87 @@ async def list_ollama_models(request: Request):
         _LOGGER.warning("ollama_models.fetch_failed", error=str(exc))
         models = []
     return {"models": models}
+
+
+# ── Cost history (persistent DB) ──────────────────────────────────────────────
+
+@router.get("/costs/history")
+async def get_cost_history(request: Request, period: str = "month"):
+    """Return cost chart data filtered by period (day/week/month/year)."""
+    if not _get_session(request):
+        return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+    db = getattr(request.app.state, "metrics_db", None)
+    if not db:
+        return {"summary": {}, "by_day": [], "by_model": [], "monthly": []}
+
+    period = period if period in ("day", "week", "month", "year") else "month"
+    days_map = {"day": 1, "week": 7, "month": 30, "year": 365}
+
+    summary  = db.cost_summary(period)
+    by_day   = db.cost_by_day(days=days_map[period])
+    by_model = db.cost_by_model(period)
+    monthly  = db.monthly_totals(12)
+
+    return {
+        "summary":  summary,
+        "by_day":   by_day,
+        "by_model": by_model,
+        "monthly":  monthly,
+    }
+
+
+# ── System metrics ────────────────────────────────────────────────────────────
+
+@router.get("/metrics")
+async def get_metrics(request: Request):
+    """Return latest system sample + recent history."""
+    if not _get_session(request):
+        return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+    db       = getattr(request.app.state, "metrics_db", None)
+    sys_svc  = getattr(request.app.state, "sys_metrics", None)
+    latest   = sys_svc.latest() if sys_svc else (db.latest_sample() if db else None)
+    history  = db.hourly_averages(24) if db else []
+    return {"latest": latest, "history": history}
+
+
+@router.get("/metrics/stream")
+async def stream_metrics(request: Request):
+    """SSE stream — pushes a new system sample every 5 s."""
+    if not _get_session(request):
+        return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+    sys_svc = getattr(request.app.state, "sys_metrics", None)
+
+    async def generate():
+        import json as _json
+        if not sys_svc:
+            yield "data: {}\n\n"
+            return
+        latest = sys_svc.latest()
+        if latest:
+            yield f"data: {_json.dumps(latest)}\n\n"
+        q = sys_svc.subscribe()
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    sample = await asyncio.wait_for(q.get(), timeout=15.0)
+                    yield f"data: {_json.dumps(sample)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+        finally:
+            sys_svc.unsubscribe(q)
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.get("/metrics/history")
+async def get_metrics_history(request: Request, hours: int = 24):
+    """Return hourly averages for system metrics."""
+    if not _get_session(request):
+        return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+    db = getattr(request.app.state, "metrics_db", None)
+    if not db:
+        return {"averages": []}
+    hours = min(max(hours, 1), 168)  # cap at 1 week
+    return {"averages": db.hourly_averages(hours)}
