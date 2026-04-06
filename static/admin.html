@@ -697,6 +697,27 @@ function _updateTTSFields(provider) {
   });
 }
 
+let _ollamaModels = [];
+
+async function _fetchOllamaModels() {
+  try {
+    const d = await api('GET', '/admin/ollama-models');
+    _ollamaModels = d.models || [];
+  } catch(_) { _ollamaModels = []; }
+}
+
+function _updateOllamaModelDropdown(currentVal) {
+  const wrapper = document.getElementById('ollama-model-wrapper');
+  if (!wrapper) return;
+  const val = currentVal !== undefined ? currentVal : (document.getElementById('cfg-OLLAMA_MODEL')?.value || '');
+  if (_ollamaModels.length) {
+    const selected = _ollamaModels.includes(val) ? val : (_ollamaModels[0] || val);
+    wrapper.innerHTML = _buildSelect('OLLAMA_MODEL', selected, _ollamaModels);
+  } else {
+    wrapper.innerHTML = '<input type="text" id="cfg-OLLAMA_MODEL" data-key="OLLAMA_MODEL" value="' + esc(val) + '" placeholder="e.g. qwen2.5:7b">';
+  }
+}
+
 let _configMeta = {};
 
 function _buildSelect(key, val, options) {
@@ -736,6 +757,8 @@ async function loadConfig() {
       if (_FIELD_OPTIONS[key]) {
         // Static dropdown
         input = _buildSelect(key, val, _FIELD_OPTIONS[key]);
+      } else if (key === 'OLLAMA_MODEL') {
+        input = '<div id="ollama-model-wrapper"><input type="text" id="cfg-OLLAMA_MODEL" data-key="OLLAMA_MODEL" value="' + esc(val) + '" placeholder="e.g. qwen2.5:7b"></div>';
       } else if (key === 'CLOUD_MODEL') {
         // Rendered into a wrapper div so it can be swapped when provider changes
         const provider = (d.values || {})['LLM_PROVIDER'] || 'ollama';
@@ -767,6 +790,18 @@ async function loadConfig() {
     }
     // Also run once on load to ensure correct initial state
     if (providerEl) _updateCloudModelDropdown(providerEl.value, (d.values || {})['CLOUD_MODEL'] || '');
+
+    await _fetchOllamaModels();
+    _updateOllamaModelDropdown((d.values || {})['OLLAMA_MODEL'] || '');
+
+    if (providerEl) {
+      providerEl.addEventListener('change', async () => {
+        if (providerEl.value === 'ollama') {
+          await _fetchOllamaModels();
+          _updateOllamaModelDropdown();
+        }
+      });
+    }
 
     // Wire TTS_PROVIDER dropdown → show/hide provider-specific fields
     const ttsProviderEl = document.getElementById('cfg-TTS_PROVIDER');

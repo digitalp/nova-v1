@@ -278,6 +278,9 @@ let wakeTriggered  = false;
 let wakeVadActive  = false;
 let wakeVadStream  = null;
 let wakeVadChecking = false;  // true while a /stt/wake POST is in-flight
+let _wakeAnalyser  = null;   // AudioContext nodes — tracked for proper cleanup
+let _wakeSrc       = null;
+let _micSrcNode    = null;
 let wakeVadFallbackTimer = null;  // detects SR black-hole (starts but never fires events)
 
 // ── Start gate ───────────────────────────────────────────────────────────────
@@ -341,7 +344,7 @@ async function testMic() {
         let s = 0;
         for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
         maxRms = Math.max(maxRms, Math.sqrt(s / buf.length));
-        if (++ticks >= 15) { clearInterval(id); resolve(); }
+        if (++ticks >= 5) { clearInterval(id); resolve(); }
       }, 100);
     });
 
@@ -524,10 +527,14 @@ async function startWakeWordVAD() {
   $btnMic.textContent = '🎙 Or Hold to Talk';
 
   if (!audioCtx) audioCtx = new AudioContext();
-  const wakeAnalyser = audioCtx.createAnalyser();
-  wakeAnalyser.fftSize = 1024;
-  const wakeSrc = audioCtx.createMediaStreamSource(wakeVadStream);
-  wakeSrc.connect(wakeAnalyser);
+  if (audioCtx.state === "suspended") await audioCtx.resume();
+  if (_wakeAnalyser) { try { _wakeAnalyser.disconnect(); } catch(_){} _wakeAnalyser = null; }
+  if (_wakeSrc)      { try { _wakeSrc.disconnect();      } catch(_){} _wakeSrc = null; }
+  _wakeAnalyser = audioCtx.createAnalyser();
+  _wakeAnalyser.fftSize = 1024;
+  _wakeSrc = audioCtx.createMediaStreamSource(wakeVadStream);
+  _wakeSrc.connect(_wakeAnalyser);
+  const wakeAnalyser = _wakeAnalyser;
   const wakeBuf = new Float32Array(wakeAnalyser.fftSize);
 
   const mimeType = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','']
@@ -615,6 +622,8 @@ async function startWakeWordVAD() {
 function stopWakeWordVAD() {
   wakeVadActive = false;
   wakeVadChecking = false;
+  if (_wakeSrc)      { try { _wakeSrc.disconnect();      } catch(_){} _wakeSrc = null; }
+  if (_wakeAnalyser) { try { _wakeAnalyser.disconnect();  } catch(_){} _wakeAnalyser = null; }
   if (wakeVadStream) {
     wakeVadStream.getTracks().forEach(t => t.stop());
     wakeVadStream = null;
@@ -672,8 +681,8 @@ async function startRecording() {
   // ── AnalyserNode: reads energy for VAD (doesn't affect MediaRecorder) ──
   analyser = audioCtx.createAnalyser();
   analyser.fftSize = 1024;
-  const srcNode = audioCtx.createMediaStreamSource(micStream);
-  srcNode.connect(analyser);
+  _micSrcNode = audioCtx.createMediaStreamSource(micStream);
+  _micSrcNode.connect(analyser);
   // Do NOT connect analyser to destination — no speaker feedback
 
   const timeDomain = new Float32Array(analyser.fftSize);
@@ -723,8 +732,9 @@ function stopRecording(send) {
     if (send) sendAudio();
   }
 
+  if (_micSrcNode) { try { _micSrcNode.disconnect(); } catch(_){} _micSrcNode = null; }
+  if (analyser)    { try { analyser.disconnect();    } catch(_){} analyser = null; }
   if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
-  analyser = null;
   if (!send && wakeSupported) setTimeout(startWakeWord, 400);
 }
 

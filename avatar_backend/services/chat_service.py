@@ -6,6 +6,7 @@ and returns the final text response plus all ToolCall results.
 """
 from __future__ import annotations
 import time
+import time as _time_module
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -56,9 +57,10 @@ async def run_chat(
     await sm.add_message(session_id, "user", user_text)
     messages = await sm.get_messages(session_id)
 
-    # Inject current datetime into the system message so the LLM can answer
+    # Inject current datetime + timezone into the system message so the LLM can answer
     # time/date questions without needing a tool call.
-    now_str = datetime.now().strftime("%A, %d %B %Y %H:%M")
+    tz_name = _time_module.strftime("%Z")  # "BST" in summer, "GMT" in winter
+    now_str = datetime.now().strftime(f"%A, %d %B %Y %H:%M {tz_name}")
     messages = _inject_datetime(messages, now_str)
 
     final_text = ""
@@ -103,7 +105,7 @@ async def run_chat(
             all_tool_calls.append(tc)
             await sm.add_message(session_id, "tool", result.message)
 
-        messages = _inject_datetime(await sm.get_messages(session_id), now_str)
+        messages = _inject_datetime(await sm.get_messages(session_id), now_str)  # now_str already has tz
 
         if round_num == _MAX_TOOL_ROUNDS:
             _LOGGER.warning("chat.max_tool_rounds_reached",

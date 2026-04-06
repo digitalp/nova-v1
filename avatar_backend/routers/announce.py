@@ -193,11 +193,21 @@ async def doorbell_announce_handler(body: DoorbellAnnounceRequest, request: Requ
     _LOGGER.info("doorbell.triggered", camera=body.camera_entity_id)
 
     # 1. Fetch camera snapshot
+    from avatar_backend.services.llm_service import _DOORBELL_IMAGE_PROMPT
     image_bytes = await ha.fetch_camera_image(body.camera_entity_id)
 
     if image_bytes:
         try:
-            description = await llm.describe_image(image_bytes)
+            description = await llm.describe_image(image_bytes, prompt=_DOORBELL_IMAGE_PROMPT)
+            if description.strip().startswith("NO_PERSON"):
+                _LOGGER.info("doorbell.no_person_visible", camera=body.camera_entity_id)
+                return DoorbellAnnounceResponse(
+                    status="ok",
+                    message="no_person_visible",
+                    camera_used=body.camera_entity_id,
+                    wav_bytes=0,
+                    elapsed_ms=int((time.monotonic() - t0) * 1000),
+                )
             message = f"Someone is at the door. {description}"
             _LOGGER.info("doorbell.described", chars=len(description))
         except Exception as exc:

@@ -186,7 +186,25 @@ class HAProxy:
             return ToolResult(success=False, message=f"Could not reach Home Assistant: {exc}")
 
         if resp.status_code == 404:
-            return ToolResult(success=False, message=f"Entity '{entity_id}' not found.")
+            # Auto-discover: fetch all entities in the same domain to guide the LLM
+            domain = entity_id.split(".")[0] if "." in entity_id else ""
+            hint = ""
+            if domain:
+                try:
+                    disc = await self.get_entities(domain)
+                    if disc.success:
+                        hint = f"\nAvailable {domain} entities:\n{disc.message}"
+                except Exception:
+                    pass
+            logger.warning("ha_proxy.entity_not_found", entity_id=entity_id)
+            return ToolResult(
+                success=False,
+                message=(
+                    f"Entity '{entity_id}' not found. "
+                    f"Call get_entities('{domain}') to find the correct entity_id "
+                    f"-- do NOT guess another ID.{hint}"
+                ),
+            )
         if resp.status_code != 200:
             return ToolResult(success=False, message=f"Failed to fetch state for '{entity_id}'.")
 

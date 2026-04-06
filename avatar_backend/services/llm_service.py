@@ -181,7 +181,7 @@ class _OllamaBackend:
             "model":    self._model,
             "messages": messages,
             "stream":   False,
-            "options":  {"temperature": 0.7, "num_ctx": 4096},
+            "options":  {"temperature": 0.7, "num_ctx": 4096, "num_predict": 200},
         }
         if use_tools:
             payload["tools"] = HA_TOOLS
@@ -472,14 +472,28 @@ class _AnthropicBackend:
 
 # ── Vision helpers ───────────────────────────────────────────────────────────
 
-async def _ollama_describe_image(image_bytes: bytes, base_url: str, model: str) -> str:
+_DEFAULT_IMAGE_PROMPT = (
+    "Describe what you see in this security camera image in 2-3 sentences. "
+    "Focus on people, vehicles, objects, and any notable activity."
+)
+
+_DOORBELL_IMAGE_PROMPT = (
+    "This is a snapshot from a front-door security camera taken because the doorbell was just rung. "
+    "Is there a person clearly visible at or approaching the door? "
+    "If YES: describe them in one sentence — clothing colours and any items they are carrying only. "
+    "Do NOT mention age, race, gender, or any personal attributes. "
+    "If NO person is clearly visible, reply with exactly: NO_PERSON"
+)
+
+
+async def _ollama_describe_image(image_bytes: bytes, base_url: str, model: str, prompt: str = _DEFAULT_IMAGE_PROMPT) -> str:
     import base64 as _b64
     b64 = _b64.b64encode(image_bytes).decode()
     payload = {
         "model": model,
         "messages": [{
             "role": "user",
-            "content": "Describe what you see in this security camera image in 2-3 sentences. Focus on people, vehicles, objects, and any notable activity.",
+            "content": prompt,
             "images": [b64],
         }],
         "stream": False,
@@ -490,7 +504,7 @@ async def _ollama_describe_image(image_bytes: bytes, base_url: str, model: str) 
     return resp.json()["message"]["content"].strip()
 
 
-async def _gemini_describe_image(image_bytes: bytes, api_key: str, model: str) -> str:
+async def _gemini_describe_image(image_bytes: bytes, api_key: str, model: str, prompt: str = _DEFAULT_IMAGE_PROMPT) -> str:
     import base64 as _b64
     b64 = _b64.b64encode(image_bytes).decode()
     payload = {
@@ -498,7 +512,7 @@ async def _gemini_describe_image(image_bytes: bytes, api_key: str, model: str) -
             "role": "user",
             "parts": [
                 {"inline_data": {"mime_type": "image/jpeg", "data": b64}},
-                {"text": "Describe what you see in this security camera image in 2-3 sentences. Focus on people, vehicles, objects, and any notable activity."},
+                {"text": prompt},
             ],
         }],
     }
@@ -513,7 +527,7 @@ async def _gemini_describe_image(image_bytes: bytes, api_key: str, model: str) -
     return " ".join(p.get("text", "") for p in parts if "text" in p).strip()
 
 
-async def _openai_describe_image(image_bytes: bytes, api_key: str, model: str) -> str:
+async def _openai_describe_image(image_bytes: bytes, api_key: str, model: str, prompt: str = _DEFAULT_IMAGE_PROMPT) -> str:
     import base64 as _b64
     b64 = _b64.b64encode(image_bytes).decode()
     payload = {
@@ -522,7 +536,7 @@ async def _openai_describe_image(image_bytes: bytes, api_key: str, model: str) -
             "role": "user",
             "content": [
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                {"type": "text", "text": "Describe what you see in this security camera image in 2-3 sentences. Focus on people, vehicles, objects, and any notable activity."},
+                {"type": "text", "text": prompt},
             ],
         }],
         "max_tokens": 300,
@@ -608,15 +622,16 @@ class LLMService:
                 f"LLM HTTP {exc.response.status_code}: {exc.response.text[:200]}"
             ) from exc
 
-    async def describe_image(self, image_bytes: bytes) -> str:
+    async def describe_image(self, image_bytes: bytes, prompt: str | None = None) -> str:
         """Describe a camera image using vision capability of the active LLM provider."""
+        _prompt = prompt or _DEFAULT_IMAGE_PROMPT
         try:
             if self._provider == "google":
-                return await _gemini_describe_image(image_bytes, self._backend._api_key, self._backend._model)
+                return await _gemini_describe_image(image_bytes, self._backend._api_key, self._backend._model, _prompt)
             if self._provider == "openai":
-                return await _openai_describe_image(image_bytes, self._backend._api_key, self._backend._model)
+                return await _openai_describe_image(image_bytes, self._backend._api_key, self._backend._model, _prompt)
             if self._provider == "ollama":
-                return await _ollama_describe_image(image_bytes, self._backend._base_url, self._backend._vision_model)
+                return await _ollama_describe_image(image_bytes, self._backend._base_url, self._backend._vision_model, _prompt)
             return "Camera vision is not supported with the current LLM provider."
         except Exception as exc:
             _log_struct = structlog.get_logger()

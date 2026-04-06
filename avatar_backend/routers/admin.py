@@ -601,3 +601,23 @@ async def sync_prompt(request: Request):
     return SyncPromptResponse(status="ok", new_entities_found=new_count,
                                prompt_updated=True,
                                summary=f"Integrated {new_count} new entities into the system prompt.")
+
+
+@router.get("/ollama-models")
+async def list_ollama_models(request: Request):
+    """Return list of locally available Ollama model names."""
+    _require_session(request, min_role="viewer")
+    import httpx as _httpx
+    from avatar_backend.config import get_settings as _gs
+    settings = _gs()
+    ollama_url = getattr(settings, "OLLAMA_URL", "http://localhost:11434").rstrip("/")
+    try:
+        async with _httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{ollama_url}/api/tags")
+            resp.raise_for_status()
+            data = resp.json()
+        models = [m["name"] for m in data.get("models", [])]
+    except Exception as exc:
+        _LOGGER.warning("ollama_models.fetch_failed", error=str(exc))
+        models = []
+    return {"models": models}
