@@ -45,6 +45,14 @@ CREATE TABLE IF NOT EXISTS system_samples (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sys_ts ON system_samples(ts);
+
+CREATE TABLE IF NOT EXISTS decision_events (
+    id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts    TEXT NOT NULL,
+    kind  TEXT NOT NULL,
+    data  TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_dec_ts ON decision_events(ts);
 """
 
 
@@ -198,6 +206,40 @@ class MetricsDB:
                  GROUP BY hour ORDER BY hour"""
         with self._conn() as conn:
             return [dict(r) for r in conn.execute(sql, (since,)).fetchall()]
+
+    # ── Decision events ──────────────────────────────────────────────────────
+
+    def insert_decision(self, entry: dict) -> None:
+        import json as _json
+        data = dict(entry)
+        ts   = data.pop("ts", datetime.now(timezone.utc).strftime("%H:%M:%S"))
+        kind = data.pop("kind", "unknown")
+        full_ts = datetime.now(timezone.utc).isoformat()
+        with self._lock, self._conn() as conn:
+            conn.execute(
+                "INSERT INTO decision_events (ts, kind, data) VALUES (?, ?, ?)",
+                (full_ts, kind, _json.dumps(data)),
+            )
+
+    def recent_decisions(self, n: int = 200) -> list[dict]:
+        import json as _json
+        sql = ("SELECT ts, kind, data FROM decision_events "
+               "ORDER BY id DESC LIMIT ?")
+        with self._conn() as conn:
+            rows = conn.execute(sql, (n,)).fetchall()
+        out = []
+        for r in reversed(rows):
+            entry = _json.loads(r["data"])
+            entry["ts"]   = r["ts"][11:19]   # HH:MM:SS from ISO timestamp
+            entry["kind"] = r["kind"]
+            out.append(entry)
+        return out
+
+    def purge_old_decisions(self, keep_days: int = 30) -> int:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=keep_days)).isoformat()
+        with self._lock, self._conn() as conn:
+            cur = conn.execute("DELETE FROM decision_events WHERE ts < ?", (cutoff,))
+            return cur.rowcount
 
     def purge_old_samples(self, keep_days: int = 7) -> int:
         """Delete system samples older than keep_days. Returns rows deleted."""

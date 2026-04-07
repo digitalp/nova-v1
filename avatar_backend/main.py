@@ -194,6 +194,7 @@ async def lifespan(app: FastAPI):
     cost_log.set_db(metrics_db)
     app.state.cost_log = cost_log
     app.state.llm_service.set_cost_log(cost_log)
+    decision_log.set_db(metrics_db)  # persist decisions across restarts
     proactive = getattr(app.state, 'proactive_service', None)
     if proactive:
         proactive.set_decision_log(decision_log)

@@ -323,6 +323,8 @@ class ProactiveService:
                         )
                     else:
                         _LOGGER.debug("proactive.motion_camera_cooldown", entity_id=entity_id, camera=camera_id)
+                        if self._decision_log:
+                            self._decision_log.record("motion_cooldown", entity=entity_id, camera=camera_id)
                 else:
                     _LOGGER.debug("proactive.motion_no_camera", entity_id=entity_id,
                                   hint="add to _MOTION_CAMERA_MAP to enable vision description")
@@ -401,6 +403,8 @@ class ProactiveService:
 
         _LOGGER.info("proactive.motion_triggered", entity_id=entity_id, camera=camera_id,
                      bypass_global=bypass_global)
+        if self._decision_log:
+            self._decision_log.record("motion_triggered", entity=entity_id, camera=camera_id)
 
         try:
             image_bytes = await self._ha.fetch_camera_image(camera_id)
@@ -441,6 +445,9 @@ class ProactiveService:
                     )
                     _LOGGER.info("proactive.delivery_detected", camera=camera_id,
                                  company=delivery_company)
+                    if self._decision_log:
+                        self._decision_log.record("delivery_detected", camera=camera_id,
+                                                  company=delivery_company, scene=scene[:200])
                 else:
                     message = f"Motion on the driveway. {scene}"
 
@@ -448,6 +455,14 @@ class ProactiveService:
                              chars=len(raw_desc), delivery=is_delivery)
 
         self._last_motion_announce_time = time.monotonic()
+        if self._decision_log:
+            self._decision_log.record(
+                "motion_announce",
+                camera=camera_id,
+                priority=priority,
+                message=message[:300],
+                delivery=is_delivery,
+            )
         try:
             await self._announce(message, priority)
         except Exception as exc:
