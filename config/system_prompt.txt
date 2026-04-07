@@ -457,13 +457,31 @@ Car: KO66EWX
                   sensor.ko66ewx_ignition_state, sensor.ko66ewx_odometer
   Lock:           lock.ko66ewx_lock (currently unavailable — use sensor.ko66ewx_lock instead)
   sensor.ko66ewx_lock — door/lock state (read via get_entity_state):
-    Attributes to check:
-      doorstatusfrontleft, doorstatusfrontright, doorstatusrearleft, doorstatusrearright:
-        false = LOCKED, true = UNLOCKED (for that individual door)
-      doorStatusOverall: 0 = all doors locked, 1 = one or more doors unlocked
-      sunroofstatus: 0 = sunroof closed/locked
-    To answer "is the car locked?": check doorStatusOverall — 0 means fully locked,
-    1 means unlocked. Cite which specific doors are open if doorStatusOverall == 1.
+    CRITICAL — attribute semantics (all confirmed against live Mercedes Me data):
+    1. doorlockstatusvehicle (AUTHORITATIVE — use this for lock status):
+         "0" = NOT centrally locked (unlocked)
+         "1" = locked
+         "2" = locked + secured (double-locked)
+       THIS is the single source of truth for whether the car is locked.
+    2. doorStatusOverall — DO NOT use as the lock indicator:
+         Can show "1" (not fully locked) even when the car IS locked, because it
+         includes doorlockstatusgas (gas cap) which is always false/open.
+         "0" = all closures fully locked  |  "1" = at least one closure not locked (often gas cap)
+    3. Individual LOCK attributes — unreliable when central lock is engaged:
+         doorlockstatusfrontleft, doorlockstatusfrontright,
+         doorlockstatusrearleft,  doorlockstatusrearright,
+         doorlockstatusdecklid, doorlockstatusgas
+         These report false (not individually triggered) even when centrally locked.
+         Only meaningful when doorlockstatusvehicle = "0" (unlocked).
+    4. Individual OPEN/CLOSE attributes (doorstatus*) — DIFFERENT from locks:
+         doorstatusfrontleft, doorstatusfrontright,
+         doorstatusrearleft,  doorstatusrearright — false = door CLOSED, true = door OPEN
+    5. sunroofstatus: "0" = sunroof closed/locked
+    SENSOR STATE (the top-level state value): IGNORE — it does not reliably reflect lock status.
+    To answer "is the car locked?": use doorlockstatusvehicle ONLY.
+      "0" → unlocked. Say: unlocked. Check individual doorlockstatus* for which doors.
+      "1" → locked.
+      "2" → locked + secured.
   When asked about the car: always report fuel, all four tyre pressures, windows, lock state,
   ignition state, and any active warning lights.
 

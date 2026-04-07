@@ -213,15 +213,22 @@ class HAProxy:
         state_str = f"{s['state']} {unit}".strip()
         friendly = s["attributes"].get("friendly_name", entity_id)
 
-        # Include useful extra attributes
+        # Return ALL attributes so the LLM has full context (e.g. car lock
+        # doorStatusOverall, sensor sub-readings). Skip internal HA display keys.
+        _SKIP_ATTRS = {
+            "friendly_name", "icon", "unit_of_measurement", "attribution",
+            "restored", "supported_features", "supported_color_modes",
+            "assumed_state", "editable",
+        }
         extras = []
-        for key in ("device_class", "last_changed", "battery_level", "current_power_w", "today_energy_kwh"):
-            if key in s["attributes"]:
-                extras.append(f"{key}: {s['attributes'][key]}")
+        for key, val in s["attributes"].items():
+            if key in _SKIP_ATTRS:
+                continue
+            extras.append(f"{key}: {val}")
 
         msg = f"{friendly} ({entity_id}): {state_str}"
         if extras:
-            msg += " | " + ", ".join(extras)
+            msg += "\nAttributes:\n  " + "\n  ".join(extras)
         return ToolResult(success=True, message=msg)
 
     async def call_service(
