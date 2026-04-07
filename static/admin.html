@@ -1476,7 +1476,6 @@ async function uploadAvatar(input) {
   try {
     const resp = await fetch('/admin/avatars/upload', {
       method: 'POST',
-      headers: { 'X-API-Key': API_KEY },
       body: fd,
     });
     if (!resp.ok) { const t = await resp.text(); throw new Error(t); }
