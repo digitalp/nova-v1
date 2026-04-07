@@ -33,7 +33,11 @@ _LOGGER = structlog.get_logger()
 # Motion sensor → camera mapping.
 # When a motion sensor fires, Nova fetches the associated camera and describes what it sees.
 # Duplicate sensors for the same camera share the same camera cooldown.
-_MOTION_CAMERA_MAP: dict[str, str] = {}  # disabled — entries removed
+_MOTION_CAMERA_MAP: dict[str, str] = {
+    # Driveway camera — both general motion and AI-person triggers
+    "binary_sensor.rlc_1224a_motion": "camera.rlc_1224a_fluent",
+    "binary_sensor.rlc_1224a_person": "camera.rlc_1224a_fluent",
+}
 
 # binary_sensor device_classes that represent motion/presence.
 # These are excluded from batch triage — they're either handled by the camera
@@ -41,6 +45,27 @@ _MOTION_CAMERA_MAP: dict[str, str] = {}  # disabled — entries removed
 # Letting them reach the batch LLM produces unreliable "motion detected" blurts
 # that contain no camera description.
 _MOTION_DEVICE_CLASSES = {"motion", "occupancy", "presence", "moving"}
+
+# Cameras that bypass the global motion-announce cooldown.
+# Used for high-priority cameras (e.g. driveway delivery detection) that should
+# always announce regardless of how recently another motion event fired.
+_BYPASS_GLOBAL_MOTION_CAMERAS: set[str] = {"camera.rlc_1224a_fluent"}
+
+# Per-camera vision prompts — override _DEFAULT_IMAGE_PROMPT for specific cameras.
+_DRIVEWAY_IMAGE_PROMPT = (
+    "This is a security camera snapshot of a residential driveway. "
+    "Describe what you see in 1-2 sentences focusing on people, vehicles, and any packages or parcels. "
+    "Do NOT mention age, race, gender or personal attributes. "
+    "If you can see someone who appears to be making a delivery (carrying a parcel, wearing a "
+    "delivery uniform, or arriving in a liveried van), append a new line with EXACTLY this format:\n"
+    "DELIVERY: <company>\n"
+    "where <company> is one of: DHL, Royal Mail, Amazon, or Unknown. "
+    "Only include the DELIVERY line if you are confident a delivery is taking place."
+)
+
+_CAMERA_VISION_PROMPTS: dict[str, str] = {
+    "camera.rlc_1224a_fluent": _DRIVEWAY_IMAGE_PROMPT,
+}
 
 # Entity IDs to completely ignore — handled by dedicated HA automations or
 # too noisy to be useful in batch triage.
@@ -53,8 +78,8 @@ _EXCLUDE_ENTITIES: set[str] = {
     "binary_sensor.reolink_video_doorbell_poe_visitor",
     "binary_sensor.reolink_video_doorbell_poe_face",
     "binary_sensor.reolink_video_doorbell_poe_package",
-    # Outdoor cam 2 AI detections — handled by HA automation
-    "binary_sensor.rlc_1224a_person",
+    # Outdoor cam 2 (driveway) — handled via _MOTION_CAMERA_MAP / vision path
+    # binary_sensor.rlc_1224a_person — NOT excluded; wired to camera vision
     # Xbox Live / gaming sensors — not home relevant
     "binary_sensor.terminator5704",
     "binary_sensor.terminator5704_subscribed_to_xbox_game_pass",
@@ -364,12 +389,18 @@ class ProactiveService:
 
     async def _handle_motion_event(self, entity_id: str, friendly: str, camera_id: str) -> None:
         """Fetch a camera snapshot, describe it with vision, and announce."""
-        # Global motion rate limit
-        since_last = time.monotonic() - self._last_motion_announce_time
-        if since_last < _GLOBAL_MOTION_COOLDOWN_S:
-            _LOGGER.debug("proactive.motion_global_cooldown", seconds_remaining=int(_GLOBAL_MOTION_COOLDOWN_S - since_last))
-            return
-        _LOGGER.info("proactive.motion_triggered", entity_id=entity_id, camera=camera_id)
+        bypass_global = camera_id in _BYPASS_GLOBAL_MOTION_CAMERAS
+
+        # Global motion rate limit — skipped for bypass cameras (e.g. driveway)
+        if not bypass_global:
+            since_last = time.monotonic() - self._last_motion_announce_time
+            if since_last < _GLOBAL_MOTION_COOLDOWN_S:
+                _LOGGER.debug("proactive.motion_global_cooldown",
+                              seconds_remaining=int(_GLOBAL_MOTION_COOLDOWN_S - since_last))
+                return
+
+        _LOGGER.info("proactive.motion_triggered", entity_id=entity_id, camera=camera_id,
+                     bypass_global=bypass_global)
 
         try:
             image_bytes = await self._ha.fetch_camera_image(camera_id)
@@ -377,22 +408,73 @@ class ProactiveService:
             _LOGGER.warning("proactive.motion_camera_fetch_failed", camera=camera_id, exc=str(exc))
             image_bytes = None
 
+        is_delivery = False
+        delivery_company = ""
+        priority = "normal"
+        message = f"Motion detected by {friendly}."
+
         if image_bytes:
+            vision_prompt = _CAMERA_VISION_PROMPTS.get(camera_id)
             try:
-                description = await self._llm.describe_image(image_bytes)
-                message = f"Motion detected. {description}"
-                _LOGGER.info("proactive.motion_described", camera=camera_id, chars=len(description))
+                raw_desc = await self._llm.describe_image(image_bytes, prompt=vision_prompt)
             except Exception as exc:
                 _LOGGER.warning("proactive.motion_describe_failed", camera=camera_id, exc=str(exc))
-                message = f"Motion detected by {friendly}."
-        else:
-            message = f"Motion detected by {friendly}."
+                raw_desc = ""
+
+            if raw_desc:
+                # Parse delivery detection line  (format: "DELIVERY: <company>")
+                scene_lines, delivery_line = [], ""
+                for line in raw_desc.splitlines():
+                    if line.strip().upper().startswith("DELIVERY:"):
+                        delivery_line = line.strip()
+                    else:
+                        scene_lines.append(line)
+                scene = " ".join(scene_lines).strip()
+
+                if delivery_line:
+                    is_delivery = True
+                    delivery_company = delivery_line.split(":", 1)[1].strip()
+                    priority = "alert"
+                    company_label = delivery_company if delivery_company.lower() != "unknown" else "a courier"
+                    message = (
+                        f"Delivery alert! There's {company_label} delivery at the driveway. {scene}"
+                    )
+                    _LOGGER.info("proactive.delivery_detected", camera=camera_id,
+                                 company=delivery_company)
+                else:
+                    message = f"Motion on the driveway. {scene}"
+
+                _LOGGER.info("proactive.motion_described", camera=camera_id,
+                             chars=len(raw_desc), delivery=is_delivery)
 
         self._last_motion_announce_time = time.monotonic()
         try:
-            await self._announce(message, "normal")
+            await self._announce(message, priority)
         except Exception as exc:
             _LOGGER.warning("proactive.motion_announce_failed", exc=str(exc))
+
+        # For deliveries, also push to phones (user may be away from home)
+        if is_delivery:
+            title = f"Delivery – {delivery_company}" if delivery_company else "Delivery at driveway"
+            await self._notify_phones(title, message)
+
+    async def _notify_phones(self, title: str, message: str) -> None:
+        """Push a notification to both registered phones via HA."""
+        import httpx as _httpx
+        headers = {
+            "Authorization": f"Bearer {self._ha_token}",
+            "Content-Type": "application/json",
+        }
+        for svc in ("notify/mobile_app_pixel_7", "notify/mobile_app_pixel_9_pro_xl"):
+            url = f"{self._ha_url}/api/services/{svc}"
+            try:
+                async with _httpx.AsyncClient(timeout=10.0, verify=False) as client:
+                    resp = await client.post(url, headers=headers,
+                                             json={"title": title, "message": message})
+                    resp.raise_for_status()
+                _LOGGER.info("proactive.phone_notified", service=svc)
+            except Exception as exc:
+                _LOGGER.warning("proactive.phone_notify_failed", service=svc, exc=str(exc))
 
     # ── Weather monitoring ────────────────────────────────────────────────
 
