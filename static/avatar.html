@@ -250,7 +250,7 @@ function applySkinTone() {
 }
 
 // ── VAD config ───────────────────────────────────────────────────────────────
-const VAD_THRESHOLD  = 0.020;  // RMS energy — above = speech (raised from 0.012 to filter ambient noise)
+const VAD_THRESHOLD  = 0.030;  // RMS energy — above = speech (raised from 0.012 to filter ambient noise)
 const VAD_SILENCE_MS = 1800;   // stop after this much post-speech silence
 const VAD_MIN_MS     = 400;    // don't send clips shorter than this
 const VAD_MAX_MS     = 14000;  // hard cap
@@ -302,6 +302,7 @@ let wakeTriggered  = false;
 let wakeVadActive  = false;
 let wakeVadStream  = null;
 let wakeVadChecking = false;  // true while a /stt/wake POST is in-flight
+let wakeVadCooldown = false;   // post-check cooldown to prevent TV noise flood
 let _wakeAnalyser  = null;   // AudioContext nodes — tracked for proper cleanup
 let _wakeSrc       = null;
 let _micSrcNode    = null;
@@ -717,7 +718,7 @@ async function startWakeWordVAD() {
 
     // Only fire a check when energy was detected, we have enough audio,
     // and no check is already in-flight.
-    if (!hasSpeech || wakeVadChecking || recording || isBusy) return;
+    if (!hasSpeech || wakeVadChecking || wakeVadCooldown || recording || isBusy) return;
     if (rollingChunks.length < 3) return;   // < 600 ms — too short
 
     hasSpeech = false;
@@ -748,7 +749,11 @@ async function startWakeWordVAD() {
       return;
     }
 
-    if (wakeVadActive) setStatus('Say "Nova" to talk', 'dot-waking');
+    if (wakeVadActive) {
+      setStatus('Say "Nova" to talk', 'dot-waking');
+      wakeVadCooldown = true;
+      setTimeout(() => { wakeVadCooldown = false; }, 1500);
+    }
     wakeVadChecking = false;
   };
 
@@ -758,6 +763,7 @@ async function startWakeWordVAD() {
 function stopWakeWordVAD() {
   wakeVadActive = false;
   wakeVadChecking = false;
+  wakeVadCooldown = false;
   if (_wakeSrc)      { try { _wakeSrc.disconnect();      } catch(_){} _wakeSrc = null; }
   if (_wakeAnalyser) { try { _wakeAnalyser.disconnect();  } catch(_){} _wakeAnalyser = null; }
   if (wakeVadStream) {

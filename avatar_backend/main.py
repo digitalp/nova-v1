@@ -23,6 +23,7 @@ from avatar_backend.services.stt_service import STTService
 from avatar_backend.services.tts_service import create_tts_service
 from avatar_backend.services.ws_manager import ConnectionManager
 from avatar_backend.services.proactive_service import ProactiveService
+from avatar_backend.services.sensor_watch_service import SensorWatchService
 from avatar_backend.services.metrics_db import MetricsDB
 from avatar_backend.services.system_metrics import SystemMetrics
 from avatar_backend.services.user_service import UserService
@@ -174,6 +175,15 @@ async def lifespan(app: FastAPI):
     app.state.proactive_service = proactive
     await proactive.start()
 
+    sensor_watch = SensorWatchService(
+        ha_url=settings.ha_url,
+        ha_token=settings.ha_token,
+        ollama_url=settings.ollama_url,
+        announce_fn=_proactive_announce,
+    )
+    app.state.sensor_watch = sensor_watch
+    await sensor_watch.start()
+
     cleanup_task = asyncio.create_task(
         _session_cleanup_loop(app.state.session_manager)
     )
@@ -213,6 +223,7 @@ async def lifespan(app: FastAPI):
 
     cleanup_task.cancel()
     await proactive.stop()
+    await app.state.sensor_watch.stop()
     await app.state.sys_metrics.stop()
     logger.info("avatar_backend.stopped")
 
