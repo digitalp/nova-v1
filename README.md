@@ -23,6 +23,8 @@ No cloud required by default — everything runs on your own hardware.
 - **Home Assistant control** — turn on lights, adjust climate, play media, read sensor states — all via natural language
 - **ACL-gated HA access** — fine-grained entity access control so Nova only touches what you allow
 - **Proactive announcements** — HA automations can push alerts to Nova ("Someone is at the door")
+- **Sensor monitoring** — dedicated local Ollama LLM (gemma2:9b) watches all `sensor.*` entities; announces battery failures, extreme temperatures, fridge power loss, low fuel, bin collection reminders, and abnormal energy usage — without spending cloud LLM quota
+- **Ollama failover** — cloud providers (Gemini, GPT, Claude) automatically fall back to local Ollama `gemma2:9b` when unavailable
 - **Speaker broadcast** — plays responses on Amazon Echo and/or Sonos/Cast speakers simultaneously
 - **Admin panel** — full web UI to manage config, system prompt, ACL rules, live logs, and sessions — no SSH needed
 - **Skin tone customisation** — 5 skin tone presets applied directly to Three.js materials (skin only, not hair/clothing)
@@ -44,10 +46,14 @@ Home Assistant
 
 AI Server
         ├── FastAPI backend (port 8001)
-        │   ├── faster-whisper  (STT)
-        │   ├── Piper TTS       (speech synthesis + word timings)
-        │   └── LLM service     (Ollama / OpenAI / Gemini / Anthropic)
-        └── Ollama              (local LLM, Docker, GPU-accelerated)
+        │   ├── faster-whisper    (STT)
+        │   ├── Piper TTS         (speech synthesis + word timings)
+        │   ├── LLM service       (Ollama / OpenAI / Gemini / Anthropic + Ollama fallback)
+        │   ├── ProactiveService  (HA WS monitor → cloud LLM triage → announce)
+        │   └── SensorWatchService (HA WS sensor.* monitor → local Ollama only → announce)
+        └── Ollama                (local LLM, Docker, GPU-accelerated)
+            ├── Primary model     (llama3.1:8b or configured model)
+            └── gemma2:9b         (always-on: sensor watch + cloud fallback)
 ```
 
 ---
@@ -188,6 +194,36 @@ automation:
 
 ---
 
+## Proactive Intelligence
+
+Nova monitors your home autonomously via two independent services:
+
+### ProactiveService (cloud LLM triage)
+Watches structural state changes — locks, covers, alarms, binary sensors, climate — and batches them every 60 seconds. Asks the active LLM (Gemini / GPT / Claude / Ollama) to decide if anything warrants a spoken announcement. Also handles:
+- **Camera motion** — fetches a snapshot and describes what it sees (delivery detection, driveway alerts)
+- **Weather changes** — announces significant condition changes (rain, lightning, fog)
+- **Daily forecast** — morning weather briefing at 7 AM
+- **Heating control** — evaluates room temperatures and presence every 30 min, adjusts Hive boiler via HA tool calls
+
+### SensorWatchService (always-local Ollama)
+Watches `sensor.*` entities using **only the local Ollama `gemma2:9b` model** — never the active cloud LLM. Zero cloud cost.
+
+**Immediate threshold announcements:**
+
+| Sensor | Condition | Message |
+|--------|-----------|---------|
+| Any battery sensor | < 10% | Low battery alert |
+| Room temperature | > 32°C or < 10°C | Temperature warning |
+| Fridge compressor power | < 5 W (stopped) or > 400 W | Fridge fault alert |
+| Car fuel level | < 15% | Low fuel reminder |
+| Bin collection days | = 1 (tomorrow) | Bin reminder |
+
+**Periodic snapshot review (every 30 min):** Ollama receives a snapshot of all temperature, humidity, power, battery, energy, and monetary sensors and decides if anything is noteworthy — high daily energy cost, poor humidity, low batteries not yet caught by the immediate path, etc.
+
+Cooldowns: 2 h per entity, 15 min global, 1 h between snapshot-review announcements.
+
+---
+
 ## API Reference
 
 All endpoints (except `/health/public` and `/avatar`, `/admin`) require the `X-API-Key` header.
@@ -297,14 +333,16 @@ nova-avatar/
 │   │   ├── health.py             # GET /health
 │   │   └── voice.py              # WS /ws/voice
 │   ├── services/
-│   │   ├── chat_service.py       # LLM + tool call loop
-│   │   ├── ha_proxy.py           # HA REST client + ACL
-│   │   ├── llm_service.py        # Multi-provider LLM
-│   │   ├── session_manager.py    # Conversation history
-│   │   ├── speaker_service.py    # Echo + Sonos playback
-│   │   ├── stt_service.py        # faster-whisper STT
-│   │   ├── tts_service.py        # Piper TTS + word timings
-│   │   └── ws_manager.py         # WebSocket connection registry
+│   │   ├── chat_service.py         # LLM + tool call loop
+│   │   ├── ha_proxy.py             # HA REST client + ACL
+│   │   ├── llm_service.py          # Multi-provider LLM (Ollama/OpenAI/Gemini/Anthropic + fallback)
+│   │   ├── proactive_service.py    # HA state monitor → cloud LLM triage → announce
+│   │   ├── sensor_watch_service.py # sensor.* monitor → local Ollama only → announce
+│   │   ├── session_manager.py      # Conversation history
+│   │   ├── speaker_service.py      # Echo + Sonos playback
+│   │   ├── stt_service.py          # faster-whisper STT
+│   │   ├── tts_service.py          # Piper TTS + word timings
+│   │   └── ws_manager.py           # WebSocket connection registry
 │   ├── models/
 │   │   ├── acl.py                # ACL rule models
 │   │   ├── messages.py           # Pydantic message schemas

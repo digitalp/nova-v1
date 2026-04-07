@@ -50,6 +50,8 @@ if $UPDATE_ONLY; then
     "${INSTALL_DIR}/"
   info "Installing/updating Python dependencies…"
   "${INSTALL_DIR}/.venv/bin/pip" install -q -r "${INSTALL_DIR}/requirements.txt"
+  info "Ensuring gemma2:9b is available (sensor watch + fallback)…"
+  docker exec avatar_ollama ollama pull gemma2:9b 2>/dev/null || true
   info "Restarting service…"
   systemctl restart "${SERVICE_NAME}"
   success "Nova updated and restarted."
@@ -392,6 +394,8 @@ if [[ "$INPUT_LLM_PROVIDER" == "ollama" ]]; then
     OLLAMA_MODEL="llama3.1:8b-instruct-q4_K_M"
     info "Pulling LLM model ${OLLAMA_MODEL} (~5 GB, this may take a while)…"
     docker exec avatar_ollama ollama pull "$OLLAMA_MODEL" || warn "Could not pull model — run manually: docker exec avatar_ollama ollama pull ${OLLAMA_MODEL}"
+    info "Pulling gemma2:9b (~5 GB) — used for sensor monitoring and cloud LLM failover…"
+    docker exec avatar_ollama ollama pull "gemma2:9b" || warn "Could not pull gemma2:9b — run manually: docker exec avatar_ollama ollama pull gemma2:9b"
     success "Ollama ready"
   else
     warn "Docker not available — skipping Ollama setup. Install Docker and run: docker compose up -d"
