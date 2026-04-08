@@ -1,0 +1,140 @@
+# Nova V2 Implementation Progress
+
+This document tracks implementation status against the milestone tickets in [NOVA_V2_IMPLEMENTATION_PLAN.md](/opt/avatar-server/docs/NOVA_V2_IMPLEMENTATION_PLAN.md).
+
+Status legend:
+
+- `not_started`
+- `in_progress`
+- `completed`
+- `partial`
+
+## Milestone Status
+
+### Milestone 1: Shared Event Model
+
+| Ticket | Status | Notes |
+| --- | --- | --- |
+| `V2-001` | `not_started` | Canonical event schema and event bus not built yet. |
+| `V2-002` | `not_started` | Persistent event store not started. |
+
+### Milestone 2: Camera Event Unification
+
+| Ticket | Status | Notes |
+| --- | --- | --- |
+| `V2-010` | `not_started` | Doorbell still routes through `announce.py`; shared `CameraEventService` not extracted yet. |
+| `V2-011` | `not_started` | Package, outdoor motion, and driveway vehicle are routed to V2, but they do not yet share a canonical camera-event backend path. |
+
+### Milestone 3: Surface State and Event Delivery
+
+| Ticket | Status | Notes |
+| --- | --- | --- |
+| `V2-020` | `in_progress` | `SurfaceStateService` now exists as a compatibility-first registry for `avatar_state`, `active_event`, and `recent_events`, avatar/voice clients now receive `surface_state` snapshots alongside existing websocket payloads, and the V2 avatar client can restore the active popup plus a reopenable recent-events strip from those snapshots after reconnect. The avatar surface also supports server-backed dismiss/reactivate actions through `avatar_ws`, but a broader canonical event model and richer surface protocols are still missing. |
+| `V2-021` | `partial` | `static/avatar.html` now supports camera popups, gallery cards, turn-aware voice interruption handling, a lightweight recent-events strip backed by `surface_state`, and server-backed close/reopen behavior for the active/recent event stack. It is still not a full event console with acknowledgements, prioritization, and richer action controls. |
+
+### Milestone 4: Conversation and Realtime Voice
+
+| Ticket | Status | Notes |
+| --- | --- | --- |
+| `V2-030` | `in_progress` | `ConversationService` now exists as a compatibility-first coordinator, chat and voice are wired through it, it has a structured context builder plus an event-follow-up entrypoint, visual events persist `event_id` context for `/chat/followup-event`, the avatar voice websocket can carry active `event_id` context into the next spoken turn, and the avatar popup now exposes an explicit “Ask about this” follow-up action. Deeper conversation state and broader UI integration are still incomplete. |
+| `V2-031` | `in_progress` | `RealtimeVoiceService` exists and V2 now supports per-session turn state, interruption, `turn_started`, `turn_finished`, `turn_interrupted`, `audio_start`, and turn-aware client playback handling. Remaining work: streaming transport, deeper conversation integration, and provider-native realtime adapters. |
+
+### Milestone 5: Actions and Open Loops
+
+| Ticket | Status | Notes |
+| --- | --- | --- |
+| `V2-040` | `not_started` | `ActionService` and action APIs not started. |
+| `V2-041` | `not_started` | Open-loop tracking not started. |
+
+### Milestone 6: Admin, Metrics, and Productization
+
+| Ticket | Status | Notes |
+| --- | --- | --- |
+| `V2-050` | `not_started` | Admin event timeline and filters not started. |
+| `V2-051` | `partial` | Installer/runtime groundwork exists from runtime mapping and bootstrap work, but the V2-specific structured installer outputs in the plan are not complete. |
+
+## Completed or Landed Work
+
+### Parallel V2 Runtime
+
+Landed outside the milestone tickets but required for safe V2 development:
+
+- isolated app root at `/opt/nova-v2`
+- `nova-v2.service` on port `8011`
+- separate HTTPS proxy on `8444`
+- separate Home Assistant `nova_v2_*` REST commands
+- selective automation cutover to V2
+
+### `V2-031` Current Evidence
+
+Current landed pieces:
+
+- new [realtime_voice_service.py](/opt/avatar-server/avatar_backend/services/realtime_voice_service.py)
+- [voice.py](/opt/avatar-server/avatar_backend/routers/voice.py) delegates turn orchestration to `RealtimeVoiceService`
+- per-websocket session keys and current-turn tracking
+- explicit interruption via `turn_interrupted`
+- explicit lifecycle events via `turn_started` and `turn_finished`
+- explicit turn correlation via `turn_id`
+- explicit audio boundary via `audio_start`
+- [avatar.html](/opt/avatar-server/static/avatar.html) consumes interruption and turn-aware playback metadata
+- [test_realtime_voice_service.py](/opt/avatar-server/tests/test_realtime_voice_service.py) covers happy-path interruption behavior and turn metadata
+
+Still required before `V2-031` can be marked `completed`:
+
+- streaming input/output instead of one audio blob per turn
+- clean integration with a higher-level `ConversationService`
+- provider-adapter layer for future native realtime backends
+- stronger end-to-end validation beyond syntax checks
+
+### `V2-020` Current Evidence
+
+Current landed pieces:
+
+- new [surface_state_service.py](/opt/avatar-server/avatar_backend/services/surface_state_service.py)
+- [main.py](/opt/avatar-server/avatar_backend/main.py) wires `surface_state_service` into `app.state`
+- [announce.py](/opt/avatar-server/avatar_backend/routers/announce.py) now routes avatar-state changes and visual-event registration through `SurfaceStateService`
+- [realtime_voice_service.py](/opt/avatar-server/avatar_backend/services/realtime_voice_service.py) now routes avatar-state changes through `SurfaceStateService`
+- [avatar_ws.py](/opt/avatar-server/avatar_backend/routers/avatar_ws.py) now sends an initial `surface_state` snapshot alongside the legacy `avatar_state` message
+- [avatar.html](/opt/avatar-server/static/avatar.html) now consumes `surface_state` snapshots so the active event popup can recover from backend state after reconnect
+- [avatar.html](/opt/avatar-server/static/avatar.html) now renders a lightweight recent-events strip from `surface_state.recent_events`, allowing reconnect-safe reopening of recent camera and visual events
+- [surface_state_service.py](/opt/avatar-server/avatar_backend/services/surface_state_service.py) now supports server-backed `dismiss_active_event` and `activate_recent_event` transitions
+- [avatar_ws.py](/opt/avatar-server/avatar_backend/routers/avatar_ws.py) now accepts `surface_action` websocket messages and replies with `surface_action_ack`
+- [test_surface_state_service.py](/opt/avatar-server/tests/test_surface_state_service.py) and [test_avatar_ws.py](/opt/avatar-server/tests/test_avatar_ws.py) cover the compatibility slice
+
+Still required before `V2-020` can be marked `completed`:
+
+- canonical event-derived surface state instead of router-fed compatibility updates
+- richer surface protocol for recent-event stacks, acknowledgements, and action affordances
+- broader client adoption of `surface_state` beyond the avatar surface
+
+### `V2-030` Current Evidence
+
+Current landed pieces:
+
+- new [conversation_service.py](/opt/avatar-server/avatar_backend/services/conversation_service.py)
+- new [context_builder.py](/opt/avatar-server/avatar_backend/services/context_builder.py)
+- [chat.py](/opt/avatar-server/avatar_backend/routers/chat.py) now routes text turns through `ConversationService`
+- [chat.py](/opt/avatar-server/avatar_backend/routers/chat.py) now exposes `/chat/followup-event` to resolve stored visual-event context into `ConversationService.handle_event_followup()`
+- [realtime_voice_service.py](/opt/avatar-server/avatar_backend/services/realtime_voice_service.py) now routes voice turns through `ConversationService`
+- [realtime_voice_service.py](/opt/avatar-server/avatar_backend/services/realtime_voice_service.py) now accepts `turn_context` frames so the next voice turn can resolve stored event context into `ConversationService.handle_event_followup()`
+- [main.py](/opt/avatar-server/avatar_backend/main.py) wires `conversation_service` into `app.state`
+- [announce.py](/opt/avatar-server/avatar_backend/routers/announce.py) now assigns `event_id` to visual events and stores recent follow-up context for camera and visual flows
+- [avatar.html](/opt/avatar-server/static/avatar.html) now remembers the active visual-event `event_id`, sends it before the next recorded voice turn, and exposes an explicit “Ask about this” action on the popup
+- [test_conversation_service.py](/opt/avatar-server/tests/test_conversation_service.py) covers text context injection, raw voice-turn pass-through, and event-follow-up context shaping
+- [test_announce.py](/opt/avatar-server/tests/test_announce.py), [test_chat.py](/opt/avatar-server/tests/test_chat.py), and [test_realtime_voice_service.py](/opt/avatar-server/tests/test_realtime_voice_service.py) cover stored event context, `/chat/followup-event`, and event-linked voice follow-up routing
+
+Still required before `V2-030` can be marked `completed`:
+
+- event-linked follow-up flows connected to broader UI controls beyond the active avatar popup and next-turn voice context
+- richer structured context building beyond compatibility prompt shaping
+- clearer separation between short-term conversation state and event-linked state
+- broader end-to-end validation of chat and voice through the new coordinator
+
+## Next Recommended Ticket
+
+Highest-signal next build step:
+
+1. Continue `V2-031` until the transport is streaming-ready, or
+2. Start `V2-030` by introducing `ConversationService` as the coordinator above both chat and voice
+
+The better architectural move is `V2-030` next, because `RealtimeVoiceService` should hand turns to a conversation coordinator rather than calling `run_chat` directly.
