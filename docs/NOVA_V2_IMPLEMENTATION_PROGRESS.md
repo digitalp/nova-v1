@@ -29,8 +29,8 @@ Status legend:
 
 | Ticket | Status | Notes |
 | --- | --- | --- |
-| `V2-020` | `in_progress` | `SurfaceStateService` now exists as a compatibility-first registry for `avatar_state`, `active_event`, and `recent_events`, avatar/voice clients now receive `surface_state` snapshots alongside existing websocket payloads, and the V2 avatar client can restore the active popup plus a reopenable recent-events strip from those snapshots after reconnect. The avatar surface also supports server-backed dismiss/reactivate actions through `avatar_ws`, and recent entries now carry explicit `active`/`dismissed`/`acknowledged` status. A broader canonical event model and richer surface protocols are still missing. |
-| `V2-021` | `partial` | `static/avatar.html` now supports camera popups, gallery cards, turn-aware voice interruption handling, a lightweight recent-events strip backed by `surface_state`, server-backed close/reopen behavior for the active/recent event stack, visible status chips for active, dismissed, and acknowledged events, an explicit popup acknowledge action, and per-entry acknowledge/dismiss controls in the recent-events strip. It is still not a full event console with prioritization, richer action controls, and broader recent-event interaction patterns. |
+| `V2-020` | `in_progress` | `SurfaceStateService` now exists as a compatibility-first registry for `avatar_state`, `active_event`, and `recent_events`, avatar/voice clients now receive `surface_state` snapshots alongside existing websocket payloads, and the V2 avatar client can restore the active popup plus a reopenable recent-events strip from those snapshots after reconnect. The avatar surface also supports server-backed dismiss/reactivate actions through `avatar_ws`, and recent entries now carry explicit `active`/`dismissed`/`acknowledged`/`resolved` status. A broader canonical event model and richer surface protocols are still missing. |
+| `V2-021` | `partial` | `static/avatar.html` now supports camera popups, gallery cards, turn-aware voice interruption handling, a lightweight recent-events strip backed by `surface_state`, server-backed close/reopen behavior for the active/recent event stack, visible status chips for active, dismissed, acknowledged, and resolved events, explicit popup acknowledge/resolve actions, per-entry acknowledge/dismiss/resolve controls in the recent-events strip, and unresolved-first ordering with relative timestamps. It is still not a full event console with prioritization, richer action controls, and broader recent-event interaction patterns. |
 
 ### Milestone 4: Conversation and Realtime Voice
 
@@ -98,13 +98,17 @@ Current landed pieces:
 - [avatar.html](/opt/avatar-server/static/avatar.html) now consumes `surface_state` snapshots so the active event popup can recover from backend state after reconnect
 - [avatar.html](/opt/avatar-server/static/avatar.html) now renders a lightweight recent-events strip from `surface_state.recent_events`, allowing reconnect-safe reopening of recent camera and visual events
 - [surface_state_service.py](/opt/avatar-server/avatar_backend/services/surface_state_service.py) now supports server-backed `dismiss_active_event` and `activate_recent_event` transitions
-- [surface_state_service.py](/opt/avatar-server/avatar_backend/services/surface_state_service.py) now tags recent events with explicit `active`/`dismissed`/`acknowledged` status and preserves that status through dismiss/reactivate/acknowledge actions
+- [surface_state_service.py](/opt/avatar-server/avatar_backend/services/surface_state_service.py) now tags recent events with explicit `active`/`dismissed`/`acknowledged`/`resolved` status and preserves that status through dismiss/reactivate/acknowledge/resolve actions
 - [avatar_ws.py](/opt/avatar-server/avatar_backend/routers/avatar_ws.py) now accepts `surface_action` websocket messages and replies with `surface_action_ack`
 - [avatar.html](/opt/avatar-server/static/avatar.html) now renders status chips in the recent-events strip so active, dismissed, and acknowledged entries are visually distinct
 - [avatar.html](/opt/avatar-server/static/avatar.html) now exposes an explicit `Acknowledge` popup action that persists through backend surface-state updates
 - [surface_state_service.py](/opt/avatar-server/avatar_backend/services/surface_state_service.py) now supports per-entry `dismiss_recent_event` and `acknowledge_recent_event` transitions without forcing a reopen first
 - [avatar_ws.py](/opt/avatar-server/avatar_backend/routers/avatar_ws.py) now accepts `dismiss_recent_event` and `acknowledge_recent_event` actions with per-event acknowledgements
 - [avatar.html](/opt/avatar-server/static/avatar.html) now renders per-entry `Acknowledge` and `Dismiss` controls in the recent-events strip so recent events can be triaged without reopening them
+- [surface_state_service.py](/opt/avatar-server/avatar_backend/services/surface_state_service.py) now supports `resolve_active_event` and `resolve_recent_event` so acknowledged items can be closed out explicitly
+- [avatar_ws.py](/opt/avatar-server/avatar_backend/routers/avatar_ws.py) now accepts `resolve_active_event` and `resolve_recent_event` actions with acknowledgements
+- [avatar.html](/opt/avatar-server/static/avatar.html) now exposes `Resolve` in both the active popup and recent-events strip, and recent status chips now distinguish resolved entries visually
+- [avatar.html](/opt/avatar-server/static/avatar.html) now sorts recent events with unresolved items first and shows relative event ages so the strip behaves more like a triage queue than a raw append-only list
 - [test_surface_state_service.py](/opt/avatar-server/tests/test_surface_state_service.py) and [test_avatar_ws.py](/opt/avatar-server/tests/test_avatar_ws.py) cover the compatibility slice
 
 Still required before `V2-020` can be marked `completed`:
