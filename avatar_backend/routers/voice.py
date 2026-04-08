@@ -169,6 +169,7 @@ async def _process_audio(
             sm=app.state.session_manager,
             ha=app.state.ha_proxy,
             decision_log=getattr(app.state, "decision_log", None),
+            memory_service=getattr(app.state, "memory_service", None),
         )
     except RuntimeError as exc:
         err = str(exc)
@@ -188,6 +189,7 @@ async def _process_audio(
                     sm=app.state.session_manager,
                     ha=app.state.ha_proxy,
                     decision_log=getattr(app.state, "decision_log", None),
+                    memory_service=getattr(app.state, "memory_service", None),
                 )
             except Exception as retry_exc:
                 _LOGGER.error("voice_ws.llm_retry_failed", exc=str(retry_exc))

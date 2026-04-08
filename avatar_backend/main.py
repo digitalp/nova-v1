@@ -18,6 +18,7 @@ from avatar_backend.services.cost_log import CostLog
 from avatar_backend.services.decision_log import DecisionLog
 from avatar_backend.services.log_store import LogStore
 from avatar_backend.services.session_manager import SessionManager
+from avatar_backend.services.persistent_memory import PersistentMemoryService
 from avatar_backend.services.speaker_service import SpeakerService
 from avatar_backend.services.stt_service import STTService
 from avatar_backend.services.tts_service import create_tts_service
@@ -195,6 +196,7 @@ async def lifespan(app: FastAPI):
     # Persistent metrics DB (LLM costs + system samples)
     metrics_db = MetricsDB()
     app.state.metrics_db = metrics_db
+    app.state.memory_service = PersistentMemoryService(metrics_db)
 
     # System metrics poller — CPU/RAM/disk/GPU every 5 s
     sys_metrics = SystemMetrics(db=metrics_db, interval=5)

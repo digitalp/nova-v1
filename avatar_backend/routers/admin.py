@@ -384,6 +384,53 @@ async def clear_session(session_id: str, request: Request):
     return {"cleared": session_id}
 
 
+# ── Persistent memory ────────────────────────────────────────────────────────
+
+class MemoryBody(BaseModel):
+    summary: str
+    category: str = "general"
+    confidence: float = 0.9
+    pinned: bool = False
+
+
+@router.get("/memory")
+async def list_memory(request: Request, n: int = 200):
+    _require_session(request, min_role="viewer")
+    svc = request.app.state.memory_service
+    return {"memories": svc.list_memories(limit=max(1, min(n, 500)))}
+
+
+@router.post("/memory")
+async def create_memory(body: MemoryBody, request: Request):
+    _require_session(request, min_role="admin")
+    svc = request.app.state.memory_service
+    memory = svc.add_memory(
+        summary=body.summary,
+        category=body.category,
+        confidence=body.confidence,
+        pinned=body.pinned,
+    )
+    return {"memory": memory}
+
+
+@router.delete("/memory")
+async def clear_memory(request: Request):
+    _require_session(request, min_role="admin")
+    svc = request.app.state.memory_service
+    removed = svc.clear_memories()
+    return {"cleared": removed}
+
+
+@router.delete("/memory/{memory_id}")
+async def delete_memory(memory_id: int, request: Request):
+    _require_session(request, min_role="admin")
+    svc = request.app.state.memory_service
+    deleted = svc.delete_memory(memory_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"deleted": memory_id}
+
+
 # ── Test announce ─────────────────────────────────────────────────────────────
 
 class AnnounceBody(BaseModel):

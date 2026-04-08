@@ -18,6 +18,7 @@ from avatar_backend.models.tool_result import ToolResult
 from avatar_backend.services.decision_log import DecisionLog
 from avatar_backend.services.ha_proxy import HAProxy
 from avatar_backend.services.llm_service import LLMService
+from avatar_backend.services.persistent_memory import PersistentMemoryService
 from avatar_backend.services.session_manager import SessionManager
 
 _LOGGER = structlog.get_logger()
@@ -42,6 +43,7 @@ async def run_chat(
     sm: SessionManager,
     ha: HAProxy,
     decision_log: DecisionLog | None = None,
+    memory_service: PersistentMemoryService | None = None,
 ) -> ChatResult:
     """
     Full multi-round chat → tool execution loop.
@@ -58,6 +60,12 @@ async def run_chat(
 
     await sm.add_message(session_id, "user", user_text)
     messages = await sm.get_messages(session_id)
+
+    memory_ids: list[int] = []
+    if memory_service is not None:
+        memory_context, memory_ids = memory_service.build_context(user_text)
+        if memory_context:
+            messages = _inject_persistent_memory(messages, memory_context)
 
     # Inject current datetime + timezone into the system message so the LLM can answer
     # time/date questions without needing a tool call.
@@ -121,7 +129,12 @@ async def run_chat(
             all_tool_calls.append(tc)
             await sm.add_message(session_id, "tool", result.message)
 
-        messages = _inject_datetime(await sm.get_messages(session_id), now_str)  # now_str already has tz
+        messages = await sm.get_messages(session_id)
+        if memory_service is not None:
+            memory_context, memory_ids = memory_service.build_context(user_text)
+            if memory_context:
+                messages = _inject_persistent_memory(messages, memory_context)
+        messages = _inject_datetime(messages, now_str)  # now_str already has tz
         messages = _drop_dangling_tool_calls(messages)
 
         if round_num == _MAX_TOOL_ROUNDS:
@@ -133,6 +146,17 @@ async def run_chat(
             final_text = text2
 
     elapsed_ms = int((time.monotonic() - t_start) * 1000)
+
+    if memory_service is not None and memory_ids:
+        memory_service.mark_referenced(memory_ids)
+
+    if memory_service is not None and final_text:
+        memory_service.learn_from_exchange_async(
+            session_id=session_id,
+            user_text=user_text,
+            assistant_text=final_text,
+            llm=llm,
+        )
 
     if decision_log and (final_text or all_tool_calls):
         decision_log.record(
@@ -150,6 +174,20 @@ async def run_chat(
         model=llm.model_name,
         session_id=session_id,
     )
+
+
+def _inject_persistent_memory(messages: list[dict], memory_context: str) -> list[dict]:
+    """Append long-term household memory to the system message for this turn."""
+    if not messages or not memory_context:
+        return messages
+    result = list(messages)
+    sys_msg = dict(result[0])
+    original = sys_msg.get("content", "")
+    marker = "Long-term household memory."
+    if marker not in original:
+        sys_msg["content"] = f"{original}\n\n{memory_context}".strip()
+    result[0] = sys_msg
+    return result
 
 
 def _drop_dangling_tool_calls(messages: list[dict]) -> list[dict]:

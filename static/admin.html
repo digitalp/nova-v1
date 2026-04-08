@@ -798,6 +798,10 @@ tr:hover td { background: rgba(255,255,255,.02); color: var(--text); }
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       Sessions
     </div>
+    <div class="nav-item" data-section="memory" onclick="navigate(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3h6"/><path d="M10 9h4"/><path d="M12 3v18"/><rect x="4" y="5" width="16" height="16" rx="2"/></svg>
+      Memory
+    </div>
     <div class="nav-item" data-section="tools" onclick="navigate(this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
       Tools
@@ -1060,6 +1064,58 @@ tr:hover td { background: rgba(255,255,255,.02); color: var(--text); }
         <table>
           <thead><tr><th>Session ID</th><th style="width:120px;">Action</th></tr></thead>
           <tbody id="sessions-tbody"><tr><td colspan="2" style="color:var(--text3);">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══════════════ MEMORY ══════════════ -->
+    <div id="section-memory" class="section">
+      <div class="page-header">
+        <div class="page-title">Memory</div>
+        <div class="page-sub">Persistent household facts, preferences, routines, and pinned notes</div>
+      </div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="field-row">
+          <div class="field" style="flex:2;min-width:280px;">
+            <label for="memory-summary">Summary</label>
+            <textarea id="memory-summary" rows="3" placeholder="Example: Penn prefers concise morning briefings and hates duplicate alerts."></textarea>
+          </div>
+          <div class="field" style="min-width:180px;">
+            <label for="memory-category">Category</label>
+            <input id="memory-category" type="text" value="general" placeholder="general">
+          </div>
+          <div class="field" style="min-width:120px;">
+            <label for="memory-confidence">Confidence</label>
+            <input id="memory-confidence" type="number" min="0" max="1" step="0.05" value="0.90">
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap;margin-top:12px;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);cursor:pointer;">
+            <input id="memory-pinned" type="checkbox">
+            Pin this memory
+          </label>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="addMemory()">Save Memory</button>
+            <button class="btn btn-outline" onclick="loadMemory()">Refresh</button>
+            <button class="btn btn-outline" onclick="clearMemoryForm()">Reset Form</button>
+            <button class="btn btn-danger" onclick="clearAllMemory()">Clear All</button>
+          </div>
+        </div>
+      </div>
+      <div class="card card-flush">
+        <table>
+          <thead>
+            <tr>
+              <th>Summary</th>
+              <th style="width:120px;">Category</th>
+              <th style="width:110px;">Confidence</th>
+              <th style="width:100px;">Pinned</th>
+              <th style="width:90px;">Seen</th>
+              <th style="width:170px;">Updated</th>
+              <th style="width:110px;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="memory-tbody"><tr><td colspan="7" style="color:var(--text3);">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -1381,7 +1437,7 @@ init();
 
 const TITLES = {
   dashboard:'Dashboard', config:'Configuration', prompt:'System Prompt',
-  acl:'ACL Rules', sessions:'Sessions',
+  acl:'ACL Rules', sessions:'Sessions', memory:'Memory',
   avatar:'Avatar', tools:'Tools', users:'Users',
   decisions:'AI Decisions', costs:'LLM Cost', metrics:'System Metrics', pylog:'Server Logs',
 };
@@ -1539,6 +1595,7 @@ function navigate(el) {
   if (sec === 'acl')       loadAcl();
   if (sec === 'avatar')    loadAvatarSettings();
   if (sec === 'sessions')  loadSessions();
+  if (sec === 'memory')    loadMemory();
   if (sec === 'dashboard') loadDashboard();
   if (sec === 'users')     loadUsers();
   if (sec === 'metrics')   loadMetrics();
@@ -1841,6 +1898,103 @@ async function loadSessions() {
     tr.innerHTML = `<td>${count} active session(s)</td><td></td>`;
     tbody.appendChild(tr);
   } catch(e) { toast('Failed to load sessions: ' + e.message, 'err'); }
+}
+
+// ── Persistent memory ────────────────────────────────────────────────────────
+
+function clearMemoryForm() {
+  document.getElementById('memory-summary').value = '';
+  document.getElementById('memory-category').value = 'general';
+  document.getElementById('memory-confidence').value = '0.90';
+  document.getElementById('memory-pinned').checked = false;
+}
+
+function _escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function _fmtMemoryTs(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return ts;
+  return d.toLocaleString();
+}
+
+async function loadMemory() {
+  const tbody = document.getElementById('memory-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text3);">Loading…</td></tr>';
+  try {
+    const d = await api('GET', '/admin/memory?n=200');
+    const items = d.memories || [];
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text3);">No long-term memories stored yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map(m => `
+      <tr>
+        <td>
+          <div style="font-weight:500;color:var(--text1);white-space:pre-wrap;">${_escapeHtml(m.summary)}</div>
+          ${m.last_referenced_ts ? `<div style="font-size:11px;color:var(--text3);margin-top:4px;">Last used ${_fmtMemoryTs(m.last_referenced_ts)}</div>` : ''}
+        </td>
+        <td><span class="badge">${_escapeHtml(m.category || 'general')}</span></td>
+        <td>${Number(m.confidence || 0).toFixed(2)}</td>
+        <td>${m.pinned ? '<span class="badge" style="background:rgba(34,197,94,.16);color:#86efac;">Pinned</span>' : '<span style="color:var(--text3);">No</span>'}</td>
+        <td>${m.times_seen ?? 0}</td>
+        <td style="color:var(--text2);font-size:12px;">${_fmtMemoryTs(m.updated_ts || m.created_ts)}</td>
+        <td><button class="btn btn-outline" onclick="deleteMemory(${m.id})">Delete</button></td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="7" style="color:#fca5a5;">Failed to load memory.</td></tr>';
+    toast('Failed to load memory: ' + e.message, 'err');
+  }
+}
+
+async function addMemory() {
+  const summary = document.getElementById('memory-summary').value.trim();
+  const category = document.getElementById('memory-category').value.trim() || 'general';
+  const confidence = Number(document.getElementById('memory-confidence').value);
+  const pinned = document.getElementById('memory-pinned').checked;
+  if (!summary) return toast('Enter a memory summary first', 'warn');
+  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+    return toast('Confidence must be between 0 and 1', 'warn');
+  }
+  try {
+    await api('POST', '/admin/memory', { summary, category, confidence, pinned });
+    clearMemoryForm();
+    await loadMemory();
+    toast('Memory saved', 'ok');
+  } catch(e) {
+    toast('Failed to save memory: ' + e.message, 'err');
+  }
+}
+
+async function deleteMemory(id) {
+  if (!confirm('Delete this memory?')) return;
+  try {
+    await api('DELETE', '/admin/memory/' + id);
+    await loadMemory();
+    toast('Memory deleted', 'ok');
+  } catch(e) {
+    toast('Delete failed: ' + e.message, 'err');
+  }
+}
+
+async function clearAllMemory() {
+  if (!confirm('Delete all stored memories? This cannot be undone.')) return;
+  try {
+    await api('DELETE', '/admin/memory');
+    await loadMemory();
+    toast('All memories cleared', 'ok');
+  } catch(e) {
+    toast('Clear failed: ' + e.message, 'err');
+  }
 }
 
 // ── Server restart ────────────────────────────────────────────────────────────

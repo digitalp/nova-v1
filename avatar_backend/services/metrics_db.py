@@ -4,8 +4,10 @@ MetricsDB — SQLite persistence for LLM cost and system metrics.
 Tables:
   llm_invocations  — one row per LLM call (immutable)
   system_samples   — one row per metrics poll (CPU/RAM/disk/GPU) — kept 7 days
+  long_term_memories — stable household memories Nova can reuse across restarts
 """
 from __future__ import annotations
+import hashlib
 import sqlite3
 import threading
 from datetime import datetime, timezone, timedelta
@@ -64,6 +66,23 @@ CREATE TABLE IF NOT EXISTS server_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_log_ts    ON server_logs(ts);
 CREATE INDEX IF NOT EXISTS idx_log_level ON server_logs(level);
+
+CREATE TABLE IF NOT EXISTS long_term_memories (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_ts         TEXT NOT NULL,
+    updated_ts         TEXT NOT NULL,
+    last_referenced_ts TEXT,
+    category           TEXT NOT NULL DEFAULT 'general',
+    summary            TEXT NOT NULL,
+    source             TEXT NOT NULL DEFAULT 'chat',
+    confidence         REAL NOT NULL DEFAULT 0.5,
+    times_seen         INTEGER NOT NULL DEFAULT 1,
+    pinned             INTEGER NOT NULL DEFAULT 0,
+    fingerprint        TEXT NOT NULL UNIQUE
+);
+CREATE INDEX IF NOT EXISTS idx_mem_updated   ON long_term_memories(updated_ts);
+CREATE INDEX IF NOT EXISTS idx_mem_category  ON long_term_memories(category);
+CREATE INDEX IF NOT EXISTS idx_mem_referenced ON long_term_memories(last_referenced_ts);
 """
 
 
@@ -297,3 +316,92 @@ class MetricsDB:
         with self._lock, self._conn() as conn:
             cur = conn.execute("DELETE FROM system_samples WHERE ts < ?", (cutoff,))
             return cur.rowcount
+
+    # ── Persistent long-term memory ────────────────────────────────────────
+
+    @staticmethod
+    def _memory_fingerprint(summary: str, category: str) -> str:
+        normalized = " ".join(summary.lower().split())
+        return hashlib.sha1(f"{category}:{normalized}".encode("utf-8")).hexdigest()
+
+    def upsert_memory(
+        self,
+        *,
+        summary: str,
+        category: str = "general",
+        source: str = "chat",
+        confidence: float = 0.5,
+        pinned: bool = False,
+    ) -> dict:
+        summary = " ".join(summary.split()).strip()
+        category = (category or "general").strip().lower()[:40] or "general"
+        source = (source or "chat").strip().lower()[:40] or "chat"
+        confidence = max(0.0, min(float(confidence), 1.0))
+        now = datetime.now(timezone.utc).isoformat()
+        fp = self._memory_fingerprint(summary, category)
+
+        with self._lock, self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM long_term_memories WHERE fingerprint = ?",
+                (fp,),
+            ).fetchone()
+            if row:
+                merged_conf = max(float(row["confidence"] or 0.0), confidence)
+                conn.execute(
+                    """
+                    UPDATE long_term_memories
+                    SET updated_ts = ?,
+                        source = ?,
+                        confidence = ?,
+                        times_seen = times_seen + 1,
+                        pinned = CASE WHEN pinned = 1 OR ? THEN 1 ELSE 0 END
+                    WHERE fingerprint = ?
+                    """,
+                    (now, source, merged_conf, 1 if pinned else 0, fp),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO long_term_memories
+                    (created_ts, updated_ts, last_referenced_ts, category, summary, source,
+                     confidence, times_seen, pinned, fingerprint)
+                    VALUES (?, ?, NULL, ?, ?, ?, ?, 1, ?, ?)
+                    """,
+                    (now, now, category, summary, source, confidence, 1 if pinned else 0, fp),
+                )
+            out = conn.execute(
+                "SELECT * FROM long_term_memories WHERE fingerprint = ?",
+                (fp,),
+            ).fetchone()
+        return dict(out) if out else {}
+
+    def list_memories(self, limit: int = 200) -> list[dict]:
+        sql = """
+        SELECT * FROM long_term_memories
+        ORDER BY pinned DESC, updated_ts DESC, id DESC
+        LIMIT ?
+        """
+        with self._conn() as conn:
+            return [dict(r) for r in conn.execute(sql, (limit,)).fetchall()]
+
+    def delete_memory(self, memory_id: int) -> bool:
+        with self._lock, self._conn() as conn:
+            cur = conn.execute("DELETE FROM long_term_memories WHERE id = ?", (memory_id,))
+            return cur.rowcount > 0
+
+    def clear_memories(self) -> int:
+        with self._lock, self._conn() as conn:
+            cur = conn.execute("DELETE FROM long_term_memories")
+            return cur.rowcount
+
+    def mark_memories_referenced(self, memory_ids: list[int]) -> None:
+        ids = [int(i) for i in memory_ids if str(i).isdigit()]
+        if not ids:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        placeholders = ",".join("?" for _ in ids)
+        with self._lock, self._conn() as conn:
+            conn.execute(
+                f"UPDATE long_term_memories SET last_referenced_ts = ? WHERE id IN ({placeholders})",
+                (now, *ids),
+            )
