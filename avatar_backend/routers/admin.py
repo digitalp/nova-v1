@@ -20,18 +20,23 @@ import re as _re
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
+from avatar_backend.services.prompt_bootstrap import (
+    extract_known_entity_ids,
+    summarise_new_entities,
+)
+from avatar_backend.runtime_paths import config_dir, env_file, install_dir, logs_dir, static_dir
 
 _LOGGER = structlog.get_logger()
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-_INSTALL_DIR  = Path("/opt/avatar-server")
-_CONFIG_DIR   = _INSTALL_DIR / "config"
-_ENV_FILE     = _INSTALL_DIR / ".env"
+_INSTALL_DIR  = install_dir()
+_CONFIG_DIR   = config_dir()
+_ENV_FILE     = env_file()
 _PROMPT_FILE  = _CONFIG_DIR / "system_prompt.txt"
 _ACL_FILE     = _CONFIG_DIR / "acl.yaml"
-_LOG_FILE     = _INSTALL_DIR / "logs" / "avatar-backend.log"
-_STATIC_DIR   = _INSTALL_DIR / "static"
+_LOG_FILE     = logs_dir() / "avatar-backend.log"
+_STATIC_DIR   = static_dir()
 _COOKIE_NAME  = "nova_session"
 
 # Fields shown in the config editor (display label, sensitive flag)
@@ -566,60 +571,6 @@ async def delete_avatar(filename: str, request: Request):
 
 # ── Prompt sync ───────────────────────────────────────────────────────────────
 
-_SYNC_DOMAINS = {
-    "sensor", "binary_sensor", "light", "switch", "climate",
-    "media_player", "lock", "cover", "input_boolean", "input_select",
-    "input_number", "input_text", "person", "camera", "fan",
-    "vacuum", "humidifier", "water_heater", "number",
-}
-_SKIP_PREFIXES = (
-    "update.", "system.", "device_tracker.unifi_", "device_tracker.unknown_",
-    "sensor.sun_", "sensor.moon_",
-)
-_SKIP_NAME_FRAGMENTS = ("rssi", "lqi", "linkquality", "uptime", "firmware", "version", "reboot")
-
-
-def _extract_known_entity_ids(prompt_text: str) -> set[str]:
-    import re
-    return set(re.findall(r'\b\w+\.\w[\w_]*', prompt_text))
-
-
-def _summarise_new_entities(states: list[dict], known: set[str]) -> str:
-    from collections import defaultdict
-    groups: dict[str, list[str]] = defaultdict(list)
-    for s in states:
-        eid    = s["entity_id"]
-        domain = eid.split(".")[0]
-        if domain not in _SYNC_DOMAINS:
-            continue
-        if eid in known:
-            continue
-        if any(eid.startswith(p) for p in _SKIP_PREFIXES):
-            continue
-        if s["state"] in ("unavailable", "unknown", ""):
-            continue
-        name = s["attributes"].get("friendly_name", "")
-        if any(frag in name.lower() for frag in _SKIP_NAME_FRAGMENTS):
-            continue
-        unit         = s["attributes"].get("unit_of_measurement", "")
-        device_class = s["attributes"].get("device_class", "")
-        line = f"  {eid}"
-        if name and name != eid:
-            line += f" | {name}"
-        line += f" | {s['state']}"
-        if unit:
-            line += f" {unit}"
-        if device_class:
-            line += f" [{device_class}]"
-        groups[domain].append(line)
-    if not groups:
-        return ""
-    parts = []
-    for domain in sorted(groups):
-        parts.append(f"{domain} ({len(groups[domain])}):")
-        parts.extend(groups[domain][:40])
-    return "\n".join(parts)
-
 
 class SyncPromptResponse(BaseModel):
     status:             str
@@ -649,8 +600,8 @@ async def sync_prompt(request: Request):
         raise HTTPException(status_code=503, detail=f"Could not fetch HA states: {exc}")
 
     current_prompt = _PROMPT_FILE.read_text() if _PROMPT_FILE.exists() else ""
-    known          = _extract_known_entity_ids(current_prompt)
-    new_summary    = _summarise_new_entities(all_states, known)
+    known          = extract_known_entity_ids(current_prompt)
+    new_summary    = summarise_new_entities(all_states, known)
 
     if not new_summary:
         return SyncPromptResponse(status="ok", new_entities_found=0,
@@ -754,9 +705,56 @@ async def get_costs(request: Request):
     if not _get_session(request):
         return JSONResponse({"detail": "Not authenticated"}, status_code=401)
     log = getattr(request.app.state, "cost_log", None)
-    if not log:
-        return {"entries": [], "totals": {}}
-    return {"entries": log.recent(200), "totals": log.totals()}
+    db = getattr(request.app.state, "metrics_db", None)
+
+    entries = log.recent(200) if log else []
+    totals = log.totals() if log else {}
+
+    if not entries and db:
+        entries = db.recent_invocations(200)
+        if entries:
+            totals = _totals_from_entries(entries)
+
+    return {"entries": entries, "totals": totals}
+
+
+def _totals_from_entries(entries: list[dict]) -> dict:
+    by_model: dict[str, dict] = {}
+    total_input = 0
+    total_output = 0
+    total_cost = 0.0
+
+    for e in entries:
+        input_tokens = int(e.get("input_tokens", 0) or 0)
+        output_tokens = int(e.get("output_tokens", 0) or 0)
+        cost_usd = float(e.get("cost_usd", 0.0) or 0.0)
+        total_input += input_tokens
+        total_output += output_tokens
+        total_cost += cost_usd
+        key = f"{e.get('provider', '')}/{e.get('model', '')}"
+        bucket = by_model.setdefault(key, {
+            "calls": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cost_usd": 0.0,
+            "price_in": 0.0,
+            "price_out": 0.0,
+        })
+        bucket["calls"] += 1
+        bucket["input_tokens"] += input_tokens
+        bucket["output_tokens"] += output_tokens
+        bucket["cost_usd"] += cost_usd
+
+    for bucket in by_model.values():
+        bucket["cost_usd"] = round(bucket["cost_usd"], 6)
+
+    return {
+        "session_calls": len(entries),
+        "session_input_tokens": total_input,
+        "session_output_tokens": total_output,
+        "session_cost_usd": round(total_cost, 6),
+        "by_model": by_model,
+    }
 
 
 @router.get("/costs/stream")

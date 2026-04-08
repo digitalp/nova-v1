@@ -13,8 +13,9 @@ import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
+from avatar_backend.runtime_paths import data_dir
 
-_DB_PATH = Path("/opt/avatar-server/data/metrics.db")
+_DB_PATH = data_dir() / "metrics.db"
 _SCHEMA  = """
 PRAGMA journal_mode=WAL;
 
@@ -190,6 +191,24 @@ class MetricsDB:
                  GROUP BY month ORDER BY month"""
         with self._conn() as conn:
             return [dict(r) for r in conn.execute(sql, (since,)).fetchall()]
+
+    def recent_invocations(self, n: int = 200) -> list[dict]:
+        """Return the most recent persisted LLM invocation rows."""
+        sql = """SELECT ts, provider, model, purpose, input_tokens, output_tokens,
+                        cost_usd, elapsed_ms
+                 FROM llm_invocations
+                 ORDER BY id DESC
+                 LIMIT ?"""
+        with self._conn() as conn:
+            rows = conn.execute(sql, (n,)).fetchall()
+        out: list[dict] = []
+        for row in reversed(rows):
+            entry = dict(row)
+            ts = entry.get("ts", "")
+            if isinstance(ts, str) and len(ts) >= 19:
+                entry["ts"] = ts[11:19]
+            out.append(entry)
+        return out
 
     # ── System samples ────────────────────────────────────────────────────────
 
