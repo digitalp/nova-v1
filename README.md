@@ -146,6 +146,8 @@ Prefix Echo devices with `alexa:` to force Alexa notify mode. Devices with "echo
 
 ## Home Assistant Integration
 
+For a high-level explanation of how Nova fits into a real Home Assistant deployment, see [docs/HA_INTEGRATION_OVERVIEW.md](docs/HA_INTEGRATION_OVERVIEW.md).
+
 ### 1. Copy the custom component
 
 ```bash
