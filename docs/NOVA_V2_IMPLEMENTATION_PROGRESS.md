@@ -18,8 +18,8 @@ Status legend:
 | `Milestone 3` | Surface state and event delivery | `63%` | Surface snapshots, recent-event recovery, statuses, action acks, related-camera opens, and snooze all work, but this is still compatibility-first rather than canonical. |
 | `Milestone 4` | Conversation and realtime voice | `53%` | Conversation and realtime voice foundations are real and event-linked, but transport streaming and deeper conversation-state architecture are still missing. |
 | `Milestone 5` | Actions and open loops | `42%` | Suggested actions, confirmations, follow-up prompts, camera hops, and snooze are live, but there is no dedicated ActionService or richer policy engine yet. |
-| `Milestone 6` | Admin, metrics, and productization | `52%` | Parallel runtime, runtime-path work, and installer groundwork exist, and the V2 admin now has a durable cross-event history feed with direct filtering plus basic paging and time-window controls alongside the enriched motion archive, but the broader admin event timeline and productization work are still mostly ahead. |
-| `Overall` | Weighted V2 roadmap progress | `56%` | Strong foundation and interaction model, with major architecture and productization milestones still incomplete. |
+| `Milestone 6` | Admin, metrics, and productization | `55%` | Parallel runtime, runtime-path work, and installer groundwork exist, and the V2 admin now has a durable cross-event history feed with direct filtering, basic paging/time-window controls, and a real review path for persisted and surface events alongside the enriched motion archive, but the broader admin event timeline and productization work are still mostly ahead. |
+| `Overall` | Weighted V2 roadmap progress | `57%` | Strong foundation and interaction model, with major architecture and productization milestones still incomplete. |
 
 ## Milestone Status
 
@@ -62,7 +62,7 @@ Status legend:
 
 | Ticket | Status | Notes |
 | --- | --- | --- |
-| `V2-050` | `in_progress` | The V2 admin now has a first durable cross-event history feed that merges persisted canonical events, archived canonical motion events, and live surface-state context, and it supports direct filtering plus basic paging/time-window controls, but it still lacks a broader dedicated event timeline UX. |
+| `V2-050` | `in_progress` | The V2 admin now has a durable cross-event history feed that merges persisted canonical events, archived canonical motion events, and live surface-state context, supports direct filtering plus basic paging/time-window controls, and can open persisted/surface events in a dedicated review modal, but it still lacks a broader dedicated event timeline UX. |
 | `V2-051` | `partial` | Installer/runtime groundwork exists from runtime mapping and bootstrap work, but the V2-specific structured installer outputs in the plan are not complete. |
 
 ## Completed or Landed Work
@@ -87,10 +87,13 @@ Current landed pieces:
 - [motion_clip_service.py](/opt/avatar-server/avatar_backend/services/motion_clip_service.py), [metrics_db.py](/opt/avatar-server/avatar_backend/services/metrics_db.py), and [admin.py](/opt/avatar-server/avatar_backend/routers/admin.py) now support filtering the motion archive by canonical event type
 - [event_service.py](/opt/avatar-server/avatar_backend/services/event_service.py) now persists canonical visual-event publications into the durable `event_history` store at publish time
 - [admin.py](/opt/avatar-server/avatar_backend/routers/admin.py) now also exposes `/admin/event-history`, a first cross-event admin feed that merges persisted canonical events, archived canonical motion events, and recent surface-state events, and it supports direct filtering by kind, event type, and source plus `window` and `before_ts` controls
+- [admin.py](/opt/avatar-server/avatar_backend/routers/admin.py) now includes durable event detail payloads on Event History rows, including persisted event `data`, motion-derived canonical metadata, and open-loop notes where available
 - [admin.html](/opt/avatar-server/static/admin.html) now shows canonical event type chips on motion cards, event id/type/source metadata in the review modal, a dedicated event-type filter in the archive controls, a `Group By` toggle that can pivot the archive between day-based review and event-type/source/status triage, visible summary counts for event type/source/status above the archive, and a compact event-history list fed by `/admin/event-history` with its own kind/type/source filters plus time-window and older/newer controls
+- [admin.html](/opt/avatar-server/static/admin.html) now opens non-clip Event History entries in a dedicated review modal with structured event metadata and a no-video event stage instead of leaving them as dead rows
 - [test_admin_motion.py](/opt/avatar-server/tests/test_admin_motion.py) now covers canonical motion-event serialization, cross-event history composition, direct event-history filtering, and `before_ts` windowed history reads
 - [test_event_service.py](/opt/avatar-server/tests/test_event_service.py) now covers durable event-history persistence on canonical visual-event publication
 - [test_admin_motion.py](/opt/avatar-server/tests/test_admin_motion.py) covers the admin serializer exposure of canonical motion-event metadata
+- [realtime_voice_service.py](/opt/avatar-server/avatar_backend/services/realtime_voice_service.py) and [voice.py](/opt/avatar-server/avatar_backend/routers/voice.py) were re-aligned so the V2 voice websocket regression around `send_pong_if_needed` is cleared in the live service logs again
 
 Still required before `V2-050` can be marked `completed`:
 
