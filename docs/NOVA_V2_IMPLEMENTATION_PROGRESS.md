@@ -18,8 +18,8 @@ Status legend:
 | `Milestone 3` | Surface state and event delivery | `63%` | Surface snapshots, recent-event recovery, statuses, action acks, related-camera opens, and snooze all work, but this is still compatibility-first rather than canonical. |
 | `Milestone 4` | Conversation and realtime voice | `53%` | Conversation and realtime voice foundations are real and event-linked, but transport streaming and deeper conversation-state architecture are still missing. |
 | `Milestone 5` | Actions and open loops | `42%` | Suggested actions, confirmations, follow-up prompts, camera hops, and snooze are live, but there is no dedicated ActionService or richer policy engine yet. |
-| `Milestone 6` | Admin, metrics, and productization | `24%` | Parallel runtime, runtime-path work, and installer groundwork exist, and the V2 admin motion archive now exposes canonical event metadata, but the broader admin event timeline and productization work are still mostly ahead. |
-| `Overall` | Weighted V2 roadmap progress | `47%` | Strong foundation and interaction model, with major architecture and productization milestones still incomplete. |
+| `Milestone 6` | Admin, metrics, and productization | `28%` | Parallel runtime, runtime-path work, and installer groundwork exist, and the V2 admin motion archive now exposes and filters canonical event metadata, but the broader admin event timeline and productization work are still mostly ahead. |
+| `Overall` | Weighted V2 roadmap progress | `48%` | Strong foundation and interaction model, with major architecture and productization milestones still incomplete. |
 
 ## Milestone Status
 
@@ -62,7 +62,7 @@ Status legend:
 
 | Ticket | Status | Notes |
 | --- | --- | --- |
-| `V2-050` | `partial` | The V2 admin motion archive now exposes canonical event type, id, and source metadata in the API and review UI, but there is still no dedicated event timeline, filtering model, or cross-event admin view. |
+| `V2-050` | `partial` | The V2 admin motion archive now exposes canonical event type, id, and source metadata in the API and review UI, and it supports event-type filtering, but there is still no dedicated event timeline or cross-event admin view. |
 | `V2-051` | `partial` | Installer/runtime groundwork exists from runtime mapping and bootstrap work, but the V2-specific structured installer outputs in the plan are not complete. |
 
 ## Completed or Landed Work
@@ -83,13 +83,14 @@ Current landed pieces:
 
 - [metrics_db.py](/opt/avatar-server/avatar_backend/services/metrics_db.py) now exposes `canonical_event_id`, `canonical_event_type`, and `canonical_event` when reading motion clips
 - [admin.py](/opt/avatar-server/avatar_backend/routers/admin.py) now carries canonical event id, type, and source through the motion clip API serializer
-- [admin.html](/opt/avatar-server/static/admin.html) now shows canonical event type chips on motion cards and event id/type/source metadata in the review modal
+- [motion_clip_service.py](/opt/avatar-server/avatar_backend/services/motion_clip_service.py), [metrics_db.py](/opt/avatar-server/avatar_backend/services/metrics_db.py), and [admin.py](/opt/avatar-server/avatar_backend/routers/admin.py) now support filtering the motion archive by canonical event type
+- [admin.html](/opt/avatar-server/static/admin.html) now shows canonical event type chips on motion cards, event id/type/source metadata in the review modal, and a dedicated event-type filter in the archive controls
 - [test_admin_motion.py](/opt/avatar-server/tests/test_admin_motion.py) covers the admin serializer exposure of canonical motion-event metadata
 
 Still required before `V2-050` can be marked `completed`:
 
 - dedicated event timeline view instead of only enriching the motion archive
-- richer admin filtering and grouping by canonical event type/source/status
+- richer admin grouping by canonical event type/source/status beyond the current filter
 - cross-event history beyond motion clips
 
 ### `V2-001` Current Evidence
