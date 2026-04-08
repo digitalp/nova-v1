@@ -9,6 +9,18 @@ Status legend:
 - `completed`
 - `partial`
 
+## Milestone Completion
+
+| Milestone | Scope | Completion | Basis |
+| --- | --- | ---: | --- |
+| `Milestone 1` | Shared event model | `10%` | Runtime has compatibility event payloads, but no canonical schema or persistent event bus/store yet. |
+| `Milestone 2` | Camera event unification | `20%` | V2 routes real camera traffic and related-camera actions exist, but camera events still do not run through one canonical backend service. |
+| `Milestone 3` | Surface state and event delivery | `63%` | Surface snapshots, recent-event recovery, statuses, action acks, related-camera opens, and snooze all work, but this is still compatibility-first rather than canonical. |
+| `Milestone 4` | Conversation and realtime voice | `53%` | Conversation and realtime voice foundations are real and event-linked, but transport streaming and deeper conversation-state architecture are still missing. |
+| `Milestone 5` | Actions and open loops | `42%` | Suggested actions, confirmations, follow-up prompts, camera hops, and snooze are live, but there is no dedicated ActionService or richer policy engine yet. |
+| `Milestone 6` | Admin, metrics, and productization | `18%` | Parallel runtime, runtime-path work, and installer groundwork exist, but the V2 admin event timeline and broader productization work are still mostly ahead. |
+| `Overall` | Weighted V2 roadmap progress | `44%` | Strong foundation and interaction model, with major architecture and productization milestones still incomplete. |
+
 ## Milestone Status
 
 ### Milestone 1: Shared Event Model
