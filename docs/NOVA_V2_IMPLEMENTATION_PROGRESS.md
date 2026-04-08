@@ -43,7 +43,7 @@ Status legend:
 
 | Ticket | Status | Notes |
 | --- | --- | --- |
-| `V2-040` | `in_progress` | `SurfaceStateService` now supplies backend-defined `suggested_actions` for active and recent events, the V2 avatar renders those actions instead of relying only on hard-coded buttons, and state-changing actions now use a confirmation step before they are sent over `avatar_ws`. A dedicated `ActionService`, richer cross-surface action APIs, and non-surface action execution are still missing. |
+| `V2-040` | `in_progress` | `SurfaceStateService` now supplies backend-defined `suggested_actions` for active and recent events, the V2 avatar renders those actions instead of relying only on hard-coded buttons, state-changing actions now use a confirmation step before they are sent over `avatar_ws`, and event follow-up actions can now carry prompt seeds through the voice path so `ask about the vehicle` and similar actions are meaningfully distinct. A dedicated `ActionService`, richer cross-surface action APIs, and non-surface action execution are still missing. |
 | `V2-041` | `not_started` | Open-loop tracking not started. |
 
 ### Milestone 6: Admin, Metrics, and Productization
@@ -127,6 +127,8 @@ Current landed pieces:
 - suggested actions are status-aware, so active, acknowledged, dismissed, and resolved events no longer expose the same control set
 - [avatar.html](/opt/avatar-server/static/avatar.html) now renders popup and recent-event controls from backend-supplied `suggested_actions` instead of only hard-coded `Ask about this`, `Acknowledge`, and `Resolve` buttons
 - [avatar.html](/opt/avatar-server/static/avatar.html) now requires an explicit confirmation step before state-changing actions such as acknowledge, dismiss, and resolve are sent over the websocket
+- [surface_state_service.py](/opt/avatar-server/avatar_backend/services/surface_state_service.py) now emits domain-aware follow-up actions such as `Ask who is there`, `Ask about the vehicle`, and `Ask where the package is` using generic event text rather than home-specific entities
+- [avatar.html](/opt/avatar-server/static/avatar.html), [realtime_voice_service.py](/opt/avatar-server/avatar_backend/services/realtime_voice_service.py), [conversation_service.py](/opt/avatar-server/avatar_backend/services/conversation_service.py), and [context_builder.py](/opt/avatar-server/avatar_backend/services/context_builder.py) now carry follow-up prompt seeds through `turn_context` into the event-followup voice path so those actions influence the next question without changing the client protocol
 - [test_surface_state_service.py](/opt/avatar-server/tests/test_surface_state_service.py) now checks suggested action generation for active and recent event states
 
 Still required before `V2-040` can be marked `completed`:
