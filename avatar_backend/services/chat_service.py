@@ -93,14 +93,12 @@ async def run_chat(
         # Store assistant turn with tool calls in Ollama wire format
         raw_tcs: list[dict] = [
             {
-                "id": f"call_{i}",
-                "type": "function",
                 "function": {
                     "name": tc.function_name,
                     "arguments": tc.arguments,
                 },
             }
-            for i, tc in enumerate(tool_calls)
+            for tc in tool_calls
         ]
         await sm.add_message(session_id, "assistant", text or "", tool_calls=raw_tcs)
 

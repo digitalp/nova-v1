@@ -160,6 +160,45 @@ def _parse_tool_calls_anthropic(content_blocks: list[dict]) -> list[ToolCall]:
     ]
 
 
+def _to_ollama_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Normalize chat history into Ollama-compatible wire format.
+
+    Older Nova sessions may contain OpenAI-style assistant tool calls with
+    ``id``/``type`` wrappers. Ollama expects only ``{"function": ...}`` tool
+    call entries, and it rejects unknown structure with HTTP 400.
+    """
+    normalized: list[dict[str, Any]] = []
+    for msg in messages:
+        entry: dict[str, Any] = {
+            "role": msg.get("role", ""),
+            "content": msg.get("content") or "",
+        }
+        raw_tool_calls = msg.get("tool_calls") or []
+        if raw_tool_calls:
+            cleaned_tool_calls: list[dict[str, Any]] = []
+            for tc in raw_tool_calls:
+                function = tc.get("function") or {}
+                name = str(function.get("name") or "").strip()
+                if not name:
+                    continue
+                arguments = function.get("arguments", {})
+                if isinstance(arguments, str):
+                    try:
+                        arguments = json.loads(arguments)
+                    except json.JSONDecodeError:
+                        arguments = {}
+                cleaned_tool_calls.append({
+                    "function": {
+                        "name": name,
+                        "arguments": arguments if isinstance(arguments, dict) else {},
+                    }
+                })
+            if cleaned_tool_calls:
+                entry["tool_calls"] = cleaned_tool_calls
+        normalized.append(entry)
+    return normalized
+
+
 def _log(provider, model, t0, text, tools, input_tokens=0, output_tokens=0, purpose="chat"):
     elapsed = int((time.monotonic() - t0) * 1000)
     logger.info(
@@ -191,15 +230,21 @@ class _OllamaBackend:
         self._model        = settings.ollama_model
         self._vision_model = settings.ollama_vision_model
 
+    def _supports_tools(self) -> bool:
+        family = self._model.split(":")[0].lower()
+        return family not in {"gemma2"}
+
     async def chat(self, messages: list[dict], use_tools: bool) -> tuple[str, list[ToolCall]]:
         payload: dict[str, Any] = {
             "model":    self._model,
-            "messages": messages,
+            "messages": _to_ollama_messages(messages),
             "stream":   False,
             "options":  {"temperature": 0.7, "num_ctx": 4096, "num_predict": 200},
         }
-        if use_tools:
+        if use_tools and self._supports_tools():
             payload["tools"] = HA_TOOLS
+        elif use_tools:
+            logger.info("llm.ollama_tools_disabled", model=self._model)
 
         t0 = time.monotonic()
         async with httpx.AsyncClient(timeout=httpx.Timeout(90.0)) as client:
@@ -616,7 +661,7 @@ class _OllamaFallbackBackend:
         # gemma2 does not support tool_calls natively — strip tools, rely on text
         payload: dict[str, Any] = {
             "model":    self._model,
-            "messages": messages,
+            "messages": _to_ollama_messages(messages),
             "stream":   False,
             "options":  {"temperature": 0.7, "num_ctx": 4096, "num_predict": 400},
         }
@@ -794,3 +839,30 @@ class LLMService:
     @property
     def model_name(self) -> str:
         return self._backend.model_name
+
+    @property
+    def provider_name(self) -> str:
+        return self._provider
+
+    @property
+    def gemini_model_name(self) -> str:
+        settings = get_settings()
+        if settings.llm_provider.lower() == "google" and settings.cloud_model:
+            return settings.cloud_model
+        return _DEFAULT_MODELS["google"]
+
+    @property
+    def gemini_vision_provider_name(self) -> str:
+        settings = get_settings()
+        if settings.google_api_key:
+            return "google"
+        return self._provider
+
+    @property
+    def gemini_vision_effective_model_name(self) -> str:
+        settings = get_settings()
+        if settings.google_api_key:
+            if settings.llm_provider.lower() == "google" and settings.cloud_model:
+                return settings.cloud_model
+            return _DEFAULT_MODELS["google"]
+        return getattr(self._backend, "_vision_model", self._backend.model_name)
