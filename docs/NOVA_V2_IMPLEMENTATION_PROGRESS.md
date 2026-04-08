@@ -43,7 +43,7 @@ Status legend:
 
 | Ticket | Status | Notes |
 | --- | --- | --- |
-| `V2-040` | `not_started` | `ActionService` and action APIs not started. |
+| `V2-040` | `in_progress` | `SurfaceStateService` now supplies backend-defined `suggested_actions` for active and recent events, the V2 avatar renders those actions instead of relying only on hard-coded buttons, and state-changing actions now use a confirmation step before they are sent over `avatar_ws`. A dedicated `ActionService`, richer cross-surface action APIs, and non-surface action execution are still missing. |
 | `V2-041` | `not_started` | Open-loop tracking not started. |
 
 ### Milestone 6: Admin, Metrics, and Productization
@@ -118,6 +118,22 @@ Still required before `V2-020` can be marked `completed`:
 - canonical event-derived surface state instead of router-fed compatibility updates
 - richer surface protocol for recent-event stacks and action affordances beyond the current acknowledge/dismiss/reactivate slice
 - broader client adoption of `surface_state` beyond the avatar surface
+
+### `V2-040` Current Evidence
+
+Current landed pieces:
+
+- [surface_state_service.py](/opt/avatar-server/avatar_backend/services/surface_state_service.py) now decorates active and recent events with backend-defined `suggested_actions`
+- suggested actions are status-aware, so active, acknowledged, dismissed, and resolved events no longer expose the same control set
+- [avatar.html](/opt/avatar-server/static/avatar.html) now renders popup and recent-event controls from backend-supplied `suggested_actions` instead of only hard-coded `Ask about this`, `Acknowledge`, and `Resolve` buttons
+- [avatar.html](/opt/avatar-server/static/avatar.html) now requires an explicit confirmation step before state-changing actions such as acknowledge, dismiss, and resolve are sent over the websocket
+- [test_surface_state_service.py](/opt/avatar-server/tests/test_surface_state_service.py) now checks suggested action generation for active and recent event states
+
+Still required before `V2-040` can be marked `completed`:
+
+- dedicated backend `ActionService` instead of folding the action model into `SurfaceStateService`
+- broader action execution beyond surface-state transitions
+- action suggestions tied to concrete domain workflows such as `show driveway too` or `acknowledge package`
 
 ### `V2-030` Current Evidence
 
