@@ -88,6 +88,10 @@ async def test_send_initial_state_includes_adapter_metadata():
     assert caps_msg["realtime_provider"] == "openai"
     assert caps_msg["native_audio_input"] is False
     assert caps_msg["native_audio_output"] is False
+    assert caps_msg["input_streaming"] is True
+    assert caps_msg["output_streaming"] is True
+    assert caps_msg["turn_context"] is True
+    assert caps_msg["output_audio_formats"] == ["wav", "pcm_s16le"]
 
 
 def test_create_realtime_voice_adapter_selects_openai_chat_compat():
@@ -135,6 +139,82 @@ def test_create_realtime_voice_adapter_defaults_to_compat_adapter():
     adapter = create_realtime_voice_adapter(settings)
 
     assert isinstance(adapter, DefaultRealtimeVoiceAdapter)
+
+
+@pytest.mark.asyncio
+async def test_send_initial_state_uses_custom_adapter_capabilities():
+    service = RealtimeVoiceService()
+    ws = FakeWebSocket()
+    ws_mgr = MagicMock(spec=ConnectionManager)
+    ws_mgr.broadcast_json = AsyncMock()
+    adapter = MagicMock()
+    adapter.adapter_name = "wav_only_adapter"
+    adapter.provider_name = "custom"
+    adapter.supports_native_audio_input = False
+    adapter.supports_native_audio_output = False
+    adapter.supports_input_streaming = False
+    adapter.supports_output_streaming = False
+    adapter.supports_turn_context = False
+    adapter.supported_output_audio_formats = ("wav",)
+    ws.app = SimpleNamespace(
+        state=SimpleNamespace(
+            realtime_voice_adapter=adapter,
+        )
+    )
+
+    await service.send_initial_state(ws, ws_mgr)
+
+    caps_msg = json.loads(ws.text_messages[1])
+    assert caps_msg["type"] == "voice_capabilities"
+    assert caps_msg["realtime_adapter"] == "wav_only_adapter"
+    assert caps_msg["input_streaming"] is False
+    assert caps_msg["output_streaming"] is False
+    assert caps_msg["turn_context"] is False
+    assert caps_msg["output_audio_formats"] == ["wav"]
+
+
+@pytest.mark.asyncio
+async def test_handle_text_frame_rejects_streamed_input_when_adapter_disables_it():
+    service = RealtimeVoiceService()
+    ws = FakeWebSocket()
+    adapter = MagicMock()
+    adapter.supports_input_streaming = False
+    ws.app = SimpleNamespace(state=SimpleNamespace(realtime_voice_adapter=adapter))
+
+    handled = await service.handle_text_frame(
+        ws,
+        "voice_test:socket",
+        json.dumps({"type": "input_audio_start"}),
+    )
+
+    assert handled is True
+    error = _messages_of_type(ws, "error")[0]
+    assert error["detail"] == "This voice adapter does not support streamed input."
+
+
+@pytest.mark.asyncio
+async def test_handle_text_frame_falls_back_to_supported_output_format():
+    service = RealtimeVoiceService()
+    ws = FakeWebSocket()
+    adapter = MagicMock()
+    adapter.supports_output_streaming = True
+    adapter.supported_output_audio_formats = ("wav",)
+    ws.app = SimpleNamespace(state=SimpleNamespace(realtime_voice_adapter=adapter))
+
+    handled = await service.handle_text_frame(
+        ws,
+        "voice_test:socket",
+        json.dumps({
+            "type": "client_capabilities",
+            "output_streaming": True,
+            "output_audio_format": "pcm_s16le",
+        }),
+    )
+
+    assert handled is True
+    ack = _messages_of_type(ws, "client_capabilities_ack")[0]
+    assert ack["output_streaming"] is True
+    assert ack["output_audio_format"] == "wav"
 
 
 @pytest.mark.asyncio

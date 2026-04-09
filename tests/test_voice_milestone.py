@@ -720,6 +720,59 @@ def test_voice_ws_reports_anthropic_chat_compat_adapter_when_configured():
             assert msg["native_audio_output"] is False
 
 
+def test_voice_ws_custom_adapter_disables_streamed_input_and_pcm_output():
+    app = _build_test_app()
+    adapter = MagicMock()
+    adapter.adapter_name = "wav_only_adapter"
+    adapter.provider_name = "custom"
+    adapter.supports_native_audio_input = False
+    adapter.supports_native_audio_output = False
+    adapter.supports_input_streaming = False
+    adapter.supports_output_streaming = True
+    adapter.supports_turn_context = False
+    adapter.supported_output_audio_formats = ("wav",)
+    adapter.transcribe = AsyncMock(return_value="Adapter transcript")
+    adapter.run_turn = AsyncMock(return_value=VoiceTurnResult(
+        text="Adapter reply.",
+        session_id="adapter-session",
+        tool_calls=[],
+        processing_time_ms=9,
+    ))
+    adapter.synthesise_reply = AsyncMock(return_value=(
+        _make_silent_wav(n_samples=80, sample_rate=22050),
+        [],
+    ))
+    app.state.realtime_voice_adapter = adapter
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/voice?api_key=test-key&session_id=adapter-capabilities-restricted") as ws:
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "state"
+            assert msg["state"] == "idle"
+
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "voice_capabilities"
+            assert msg["input_streaming"] is False
+            assert msg["output_streaming"] is True
+            assert msg["turn_context"] is False
+            assert msg["output_audio_formats"] == ["wav"]
+
+            ws.send_text(json.dumps({
+                "type": "client_capabilities",
+                "output_streaming": True,
+                "output_audio_format": "pcm_s16le",
+            }))
+            ack = json.loads(ws.receive_text())
+            assert ack["type"] == "client_capabilities_ack"
+            assert ack["output_streaming"] is True
+            assert ack["output_audio_format"] == "wav"
+
+            ws.send_text(json.dumps({"type": "input_audio_start"}))
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "error"
+            assert msg["detail"] == "This voice adapter does not support streamed input."
+
+
 def test_voice_ws_uses_persisted_home_context_from_prior_chat_turn():
     app = _build_test_app()
 

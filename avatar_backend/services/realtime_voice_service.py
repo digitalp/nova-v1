@@ -68,6 +68,10 @@ class RealtimeVoiceAdapter(Protocol):
     provider_name: str
     supports_native_audio_input: bool
     supports_native_audio_output: bool
+    supports_input_streaming: bool
+    supports_output_streaming: bool
+    supports_turn_context: bool
+    supported_output_audio_formats: tuple[str, ...]
 
     async def transcribe(self, ctx: VoiceTurnContext, audio_bytes: bytes) -> str:
         ...
@@ -95,6 +99,10 @@ class DefaultRealtimeVoiceAdapter:
     provider_name = "local"
     supports_native_audio_input = False
     supports_native_audio_output = False
+    supports_input_streaming = True
+    supports_output_streaming = True
+    supports_turn_context = True
+    supported_output_audio_formats = ("wav", "pcm_s16le")
 
     async def transcribe(self, ctx: VoiceTurnContext, audio_bytes: bytes) -> str:
         return await ctx.stt.transcribe(audio_bytes)
@@ -219,6 +227,13 @@ class RealtimeVoiceService:
             return True
 
         if data.get("type") == "turn_context":
+            adapter = self._resolve_adapter_for_ws(ws)
+            if not getattr(adapter, "supports_turn_context", True):
+                await self._send_json(ws, {
+                    "type": "error",
+                    "detail": "This voice adapter does not support turn context.",
+                })
+                return True
             event_id = str(data.get("event_id") or "").strip()
             followup_prompt = str(data.get("followup_prompt") or "").strip()
             session = await self._get_or_create_session(session_key)
@@ -232,11 +247,18 @@ class RealtimeVoiceService:
             return True
 
         if data.get("type") == "client_capabilities":
+            adapter = self._resolve_adapter_for_ws(ws)
             session = await self._get_or_create_session(session_key)
             capabilities = data if isinstance(data, dict) else {}
-            session.output_streaming_enabled = bool(capabilities.get("output_streaming"))
+            session.output_streaming_enabled = bool(capabilities.get("output_streaming")) and bool(
+                getattr(adapter, "supports_output_streaming", True)
+            )
+            supported_formats = tuple(getattr(adapter, "supported_output_audio_formats", ("wav", "pcm_s16le")))
             output_audio_format = str(capabilities.get("output_audio_format") or "wav").strip().lower()
-            session.output_audio_format = output_audio_format if output_audio_format in {"wav", "pcm_s16le"} else "wav"
+            default_output_audio_format = supported_formats[0] if supported_formats else "wav"
+            session.output_audio_format = (
+                output_audio_format if output_audio_format in supported_formats else default_output_audio_format
+            )
             await self._send_json(ws, {
                 "type": "client_capabilities_ack",
                 "output_streaming": session.output_streaming_enabled,
@@ -245,6 +267,13 @@ class RealtimeVoiceService:
             return True
 
         if data.get("type") == "input_audio_start":
+            adapter = self._resolve_adapter_for_ws(ws)
+            if not getattr(adapter, "supports_input_streaming", True):
+                await self._send_json(ws, {
+                    "type": "error",
+                    "detail": "This voice adapter does not support streamed input.",
+                })
+                return True
             session = await self._get_or_create_session(session_key)
             async with session.lock:
                 session.input_stream_open = True
@@ -467,10 +496,10 @@ class RealtimeVoiceService:
         adapter = self._resolve_adapter_for_ws(ws)
         await self._send_json(ws, {
             "type": "voice_capabilities",
-            "input_streaming": True,
-            "output_streaming": True,
-            "output_audio_formats": ["wav", "pcm_s16le"],
-            "turn_context": True,
+            "input_streaming": bool(getattr(adapter, "supports_input_streaming", True)),
+            "output_streaming": bool(getattr(adapter, "supports_output_streaming", True)),
+            "output_audio_formats": list(getattr(adapter, "supported_output_audio_formats", ("wav", "pcm_s16le"))),
+            "turn_context": bool(getattr(adapter, "supports_turn_context", True)),
             "realtime_adapter": getattr(adapter, "adapter_name", "default_compat"),
             "realtime_provider": getattr(adapter, "provider_name", "local"),
             "native_audio_input": bool(getattr(adapter, "supports_native_audio_input", False)),
