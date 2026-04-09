@@ -610,6 +610,7 @@ let progressivePlaybackSources = [];
 let progressivePlaybackCursor = 0;
 let progressiveHeadSegments = [];
 let progressiveHeadDrainPromise = null;
+const HEAD_PROGRESSIVE_SEGMENT_MS = 180;
 let pendingWordTimings = null;  // word timings arriving just before audio
 let pendingWordTimingsTurnId = null;
 let pendingAudioTurnId = null;
@@ -926,6 +927,9 @@ async function connectWs() {
           channels: msg.channels || 1,
           sampleWidthBytes: msg.sample_width_bytes || 2,
           frameOffset: 0,
+          headBufferedChunks: [],
+          headBufferedFrames: 0,
+          headBufferedStartFrame: 0,
           chunks: [],
         };
         if (activeOutputStream.audioFormat === 'pcm_s16le') {
@@ -946,6 +950,9 @@ async function connectWs() {
         } else {
           if (activeOutputStream?.audioFormat === 'pcm_s16le' &&
               pendingWordTimingsTurnId === (msg.turn_id ?? null)) {
+            if (head && typeof head.speakAudio === 'function') {
+              flushHeadProgressiveBuffer(activeOutputStream, true);
+            }
             pendingWordTimings = null;
             pendingWordTimingsTurnId = null;
           }
@@ -1077,6 +1084,17 @@ function buildAudioBufferFromPcm(chunkBuffer, streamInfo) {
   return { audioBuffer, frameCount };
 }
 
+function concatPcmChunks(chunks) {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const merged = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return merged.buffer;
+}
+
 function consumeSegmentWordTimings(segmentStartMs, segmentEndMs, turnId) {
   if (!pendingWordTimings || !pendingWordTimings.length) return null;
   if (pendingWordTimingsTurnId !== null && pendingWordTimingsTurnId !== turnId) return null;
@@ -1131,6 +1149,32 @@ async function drainHeadProgressiveSegments() {
   }
 }
 
+function flushHeadProgressiveBuffer(streamInfo, force = false) {
+  if (!streamInfo?.headBufferedChunks?.length || !streamInfo.sampleRate) return false;
+  const bufferedMs = (streamInfo.headBufferedFrames / streamInfo.sampleRate) * 1000;
+  if (!force && bufferedMs < HEAD_PROGRESSIVE_SEGMENT_MS) return false;
+  const mergedBuffer = concatPcmChunks(streamInfo.headBufferedChunks);
+  const built = buildAudioBufferFromPcm(mergedBuffer, streamInfo);
+  if (!built) {
+    streamInfo.headBufferedChunks = [];
+    streamInfo.headBufferedFrames = 0;
+    streamInfo.headBufferedStartFrame = streamInfo.frameOffset;
+    return false;
+  }
+  const segmentStartMs = (streamInfo.headBufferedStartFrame / streamInfo.sampleRate) * 1000;
+  const segmentEndMs = ((streamInfo.headBufferedStartFrame + streamInfo.headBufferedFrames) / streamInfo.sampleRate) * 1000;
+  progressiveHeadSegments.push({
+    turnId: streamInfo.turnId,
+    audio: built.audioBuffer,
+    wordTimings: consumeSegmentWordTimings(segmentStartMs, segmentEndMs, streamInfo.turnId),
+  });
+  streamInfo.headBufferedChunks = [];
+  streamInfo.headBufferedFrames = 0;
+  streamInfo.headBufferedStartFrame = streamInfo.frameOffset;
+  void drainHeadProgressiveSegments();
+  return true;
+}
+
 async function queueProgressivePcmChunk(chunkBuffer, streamInfo) {
   try {
     if (!audioCtx) audioCtx = new AudioContext();
@@ -1138,16 +1182,14 @@ async function queueProgressivePcmChunk(chunkBuffer, streamInfo) {
     const built = buildAudioBufferFromPcm(chunkBuffer, streamInfo);
     if (!built) return;
     const { audioBuffer, frameCount } = built;
-    const segmentStartMs = (streamInfo.frameOffset / streamInfo.sampleRate) * 1000;
     streamInfo.frameOffset += frameCount;
-    const segmentEndMs = (streamInfo.frameOffset / streamInfo.sampleRate) * 1000;
     if (head && typeof head.speakAudio === 'function') {
-      progressiveHeadSegments.push({
-        turnId: streamInfo.turnId,
-        audio: audioBuffer,
-        wordTimings: consumeSegmentWordTimings(segmentStartMs, segmentEndMs, streamInfo.turnId),
-      });
-      void drainHeadProgressiveSegments();
+      if (!streamInfo.headBufferedChunks.length) {
+        streamInfo.headBufferedStartFrame = streamInfo.frameOffset - frameCount;
+      }
+      streamInfo.headBufferedChunks.push(new Uint8Array(chunkBuffer.slice(0)));
+      streamInfo.headBufferedFrames += frameCount;
+      flushHeadProgressiveBuffer(streamInfo, false);
       return;
     }
     const src = audioCtx.createBufferSource();
