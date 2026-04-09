@@ -240,6 +240,117 @@ def test_voice_ws_negotiates_streamed_output_capabilities():
     assert output_ended is True
 
 
+def test_voice_ws_streamed_input_commit_combines_home_context_with_event_overlay():
+    app = _build_test_app()
+
+    streamed_audio = _make_silent_wav(n_samples=160, sample_rate=16000)
+    split_at = len(streamed_audio) // 2
+    first_chunk = streamed_audio[:split_at]
+    second_chunk = streamed_audio[split_at:]
+
+    stt_mock = app.state.stt_service
+    stt_mock.transcribe = AsyncMock(return_value="What should I do with this event?")
+
+    llm_mock = app.state.llm_service
+    llm_mock.is_ready = AsyncMock(return_value=True)
+    llm_mock.chat = AsyncMock(side_effect=[
+        ("Driveway context captured.", []),
+        ("This looks routine; you can leave it for now.", []),
+    ])
+
+    app.state.session_manager = SessionManager("System prompt")
+    app.state.conversation_service = ConversationService(app)
+    app.state.recent_event_contexts["evt-streamed"] = (
+        0.0,
+        {
+            "event_type": "parcel_delivery",
+            "event_summary": "Package left near the driveway gate.",
+            "event_context": {
+                "camera_entity_id": "camera.driveway",
+                "source": "parcel",
+            },
+        },
+    )
+
+    with TestClient(app) as client:
+        chat_resp = client.post(
+            "/chat",
+            json={
+                "session_id": "coordinator-streamed-overlay",
+                "text": "Remember the driveway context.",
+                "context": {"camera": "driveway", "severity": "normal"},
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        assert chat_resp.status_code == 200
+        assert chat_resp.json()["text"] == "Driveway context captured."
+
+        with client.websocket_connect("/ws/voice?api_key=test-key&session_id=coordinator-streamed-overlay") as ws:
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "state"
+            assert msg["state"] == "idle"
+
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "voice_capabilities"
+            assert msg["input_streaming"] is True
+
+            ws.send_text(json.dumps({
+                "type": "turn_context",
+                "event_id": "evt-streamed",
+                "followup_prompt": "Focus on whether I need to act now.",
+            }))
+            ack = json.loads(ws.receive_text())
+            assert ack["type"] == "turn_context_ack"
+            assert ack["event_id"] == "evt-streamed"
+            assert ack["followup_prompt"] == "Focus on whether I need to act now."
+
+            ws.send_text(json.dumps({"type": "input_audio_start"}))
+            ack = json.loads(ws.receive_text())
+            assert ack["type"] == "input_audio_start_ack"
+
+            ws.send_bytes(first_chunk)
+            ws.send_bytes(second_chunk)
+
+            ws.send_text(json.dumps({"type": "input_audio_commit"}))
+            ack = json.loads(ws.receive_text())
+            assert ack["type"] == "input_audio_commit_ack"
+            assert ack["byte_length"] == len(streamed_audio)
+
+            response_seen = False
+            audio_received = False
+            for _ in range(50):
+                data = ws.receive()
+                if data.get("bytes"):
+                    audio_received = True
+                    continue
+                msg = json.loads(data.get("text", ""))
+                if msg.get("type") == "response":
+                    response_seen = True
+                elif msg.get("type") == "state" and msg.get("state") == "idle" and response_seen:
+                    break
+                elif msg.get("type") == "error":
+                    pytest.fail(f"Got error from server: {msg}")
+
+    assert response_seen is True
+    assert audio_received is True
+    assert stt_mock.transcribe.await_count == 1
+    assert stt_mock.transcribe.await_args.args[0] == streamed_audio
+    assert llm_mock.chat.await_count == 2
+    second_messages = llm_mock.chat.await_args_list[1].args[0]
+    assert second_messages[-1]["role"] == "user"
+    assert second_messages[-1]["content"] == (
+        "What should I do with this event?\n\n[Home context]\n"
+        "  camera: driveway\n"
+        "  severity: normal\n\n"
+        "[Event context]\n"
+        "  type: parcel_delivery\n"
+        "  summary: Package left near the driveway gate.\n"
+        "  followup_prompt: Focus on whether I need to act now.\n"
+        "  camera_entity_id: camera.driveway\n"
+        "  source: parcel"
+    )
+
+
 def test_voice_ws_uses_persisted_home_context_from_prior_chat_turn():
     app = _build_test_app()
 
