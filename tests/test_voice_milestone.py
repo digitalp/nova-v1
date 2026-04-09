@@ -18,10 +18,14 @@ from fastapi import FastAPI, WebSocket
 from fastapi.testclient import TestClient
 
 from avatar_backend.middleware.auth import verify_api_key_ws
+from avatar_backend.middleware.auth import verify_api_key
 from avatar_backend.models.messages import ToolCall
 from avatar_backend.models.tool_result import ToolResult
+from avatar_backend.routers.chat import router as chat_router
 from avatar_backend.routers.voice import router as voice_router
+from avatar_backend.services.conversation_service import ConversationService
 from avatar_backend.services.realtime_voice_service import RealtimeVoiceService
+from avatar_backend.services.session_manager import SessionManager
 from avatar_backend.services.ws_manager import ConnectionManager
 
 
@@ -48,11 +52,15 @@ def _build_test_app() -> FastAPI:
     STT and TTS are also mocked.
     """
     app = FastAPI()
+    app.include_router(chat_router)
     app.include_router(voice_router)
 
     # Bypass auth
+    async def _noop_http_auth() -> None:
+        pass
     async def _noop_auth(websocket: WebSocket) -> None:
         pass
+    app.dependency_overrides[verify_api_key] = _noop_http_auth
     app.dependency_overrides[verify_api_key_ws] = _noop_auth
 
     # STT mock
@@ -69,6 +77,7 @@ def _build_test_app() -> FastAPI:
     # LLM mock — returns a plain text reply (no tool calls)
     llm_mock = MagicMock()
     llm_mock.model_name = "test-model"
+    llm_mock.is_ready = AsyncMock(return_value=True)
     llm_mock.chat = AsyncMock(
         return_value=("OK, I've turned on the kitchen light.", [])
     )
@@ -91,6 +100,10 @@ def _build_test_app() -> FastAPI:
     app.state.ha_proxy        = ha_mock
     app.state.ws_manager      = ConnectionManager()
     app.state.realtime_voice_service = RealtimeVoiceService()
+    app.state.conversation_service = ConversationService(app)
+    app.state.decision_log = None
+    app.state.memory_service = None
+    app.state.recent_event_contexts = {}
 
     return app
 
@@ -225,3 +238,69 @@ def test_voice_ws_negotiates_streamed_output_capabilities():
     assert output_started["chunk_count"] >= 1
     assert chunk_count == output_started["chunk_count"]
     assert output_ended is True
+
+
+def test_voice_ws_uses_persisted_home_context_from_prior_chat_turn():
+    app = _build_test_app()
+
+    stt_mock = app.state.stt_service
+    stt_mock.transcribe = AsyncMock(return_value="What changed?")
+
+    llm_mock = app.state.llm_service
+    llm_mock.is_ready = AsyncMock(return_value=True)
+    llm_mock.chat = AsyncMock(side_effect=[
+        ("Kitchen status captured.", []),
+        ("The driveway still looks normal.", []),
+    ])
+
+    app.state.session_manager = SessionManager("System prompt")
+    app.state.conversation_service = ConversationService(app)
+
+    with TestClient(app) as client:
+        chat_resp = client.post(
+            "/chat",
+            json={
+                "session_id": "coordinator-sticky",
+                "text": "Remember the driveway context.",
+                "context": {"camera": "driveway", "severity": "normal"},
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        assert chat_resp.status_code == 200
+        assert chat_resp.json()["text"] == "Kitchen status captured."
+
+        with client.websocket_connect("/ws/voice?api_key=test-key&session_id=coordinator-sticky") as ws:
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "state"
+            assert msg["state"] == "idle"
+
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "voice_capabilities"
+
+            ws.send_bytes(_make_silent_wav())
+
+            response_seen = False
+            audio_received = False
+            for _ in range(40):
+                data = ws.receive()
+                if data.get("bytes"):
+                    audio_received = True
+                    continue
+                msg = json.loads(data.get("text", ""))
+                if msg.get("type") == "response":
+                    response_seen = True
+                elif msg.get("type") == "state" and msg.get("state") == "idle" and response_seen:
+                    break
+                elif msg.get("type") == "error":
+                    pytest.fail(f"Got error from server: {msg}")
+
+    assert response_seen is True
+    assert audio_received is True
+    assert llm_mock.chat.await_count == 2
+    second_messages = llm_mock.chat.await_args_list[1].args[0]
+    assert second_messages[-1]["role"] == "user"
+    assert second_messages[-1]["content"] == (
+        "What changed?\n\n[Home context]\n"
+        "  camera: driveway\n"
+        "  severity: normal"
+    )

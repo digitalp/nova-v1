@@ -16,10 +16,10 @@ Status legend:
 | `Milestone 1` | Shared event model | `38%` | A canonical event normalizer now exists, multiple producers publish through it, visual-event publication plus recent-event context registration are centralized in the canonical layer, and direct motion archives now persist canonical event metadata, but there is still no broad event bus, persistent event store, or full cross-service adoption. |
 | `Milestone 2` | Camera event unification | `20%` | V2 routes real camera traffic and related-camera actions exist, but camera events still do not run through one canonical backend service. |
 | `Milestone 3` | Surface state and event delivery | `63%` | Surface snapshots, recent-event recovery, statuses, action acks, related-camera opens, and snooze all work, but this is still compatibility-first rather than canonical. |
-| `Milestone 4` | Conversation and realtime voice | `69%` | Conversation and realtime voice foundations are real and event-linked, the websocket voice path now supports optional chunked input and output transport, the main avatar now accepts progressive PCM segments instead of waiting for full-turn WAV buffering, event-linked follow-up is reachable from both the active popup and recent-event controls, and the coordinator now persists a sanitized per-session home-context snapshot across later text and voice turns, but deeper state semantics and realtime-provider work are still pending. |
+| `Milestone 4` | Conversation and realtime voice | `70%` | Conversation and realtime voice foundations are real and event-linked, the websocket voice path now supports optional chunked input and output transport, the main avatar now accepts progressive PCM segments instead of waiting for full-turn WAV buffering, event-linked follow-up is reachable from both the active popup and recent-event controls, the coordinator persists a sanitized per-session home-context snapshot across later text and voice turns, and milestone validation now covers that context carrying from `/chat` into `/ws/voice`, but deeper state semantics and realtime-provider work are still pending. |
 | `Milestone 5` | Actions and open loops | `42%` | Suggested actions, confirmations, follow-up prompts, camera hops, and snooze are live, but there is no dedicated ActionService or richer policy engine yet. |
 | `Milestone 6` | Admin, metrics, and productization | `64%` | Parallel runtime, runtime-path work, and installer groundwork exist, and the V2 admin now has a durable cross-event history feed with direct filtering, free-text search, saved presets, status-aware incident slicing, grouped history sections, real review paths for persisted and surface events, drill-down actions back into the archive filters, admin-side acknowledge/resolve/reopen actions, persisted admin notes on incident transitions, inline note visibility in the Event History list, and at-a-glance history metrics, but the broader admin event timeline and productization work are still mostly ahead. |
-| `Overall` | Weighted V2 roadmap progress | `70%` | Strong foundation and interaction model, with major architecture and productization milestones still incomplete. |
+| `Overall` | Weighted V2 roadmap progress | `71%` | Strong foundation and interaction model, with major architecture and productization milestones still incomplete. |
 
 ## Milestone Status
 
@@ -248,13 +248,14 @@ Current landed pieces:
 - [avatar.html](/opt/avatar-server/static/avatar.html) now remembers the active visual-event `event_id`, sends it before the next recorded voice turn, exposes an explicit “Ask about this” action on the popup, and lets recent-event cards initiate the same event-linked follow-up flow without reopening the event first
 - [test_conversation_service.py](/opt/avatar-server/tests/test_conversation_service.py) covers text context injection, raw voice-turn pass-through, event-follow-up context shaping, one-shot consumption of pending event context, and persistence of sanitized home context across later text and voice turns
 - [test_announce.py](/opt/avatar-server/tests/test_announce.py), [test_chat.py](/opt/avatar-server/tests/test_chat.py), and [test_realtime_voice_service.py](/opt/avatar-server/tests/test_realtime_voice_service.py) cover stored event context, `/chat/followup-event`, and event-linked voice follow-up routing
+- [test_voice_milestone.py](/opt/avatar-server/tests/test_voice_milestone.py) now also proves that a context-bearing `/chat` turn can persist sanitized home context into the real `/ws/voice` path on the next transcribed turn when both surfaces share the same `session_id`
 - [proactive_service.py](/opt/avatar-server/avatar_backend/services/proactive_service.py) now expands aggregate `binary_sensor.house_needs_attention` events with the live `sensor.house_attention_summary` text before LLM triage, so generic household anomaly alerts can carry a concrete cause such as `back door open`
 
 Still required before `V2-030` can be marked `completed`:
 
 - richer structured context building beyond compatibility prompt shaping
 - deeper conversation-state semantics beyond persisted home context plus one-shot event overlays
-- broader end-to-end validation of chat and voice through the new coordinator
+- broader end-to-end validation of chat and voice through the new coordinator beyond the current focused milestone slices
 
 ## Next Recommended Ticket
 
