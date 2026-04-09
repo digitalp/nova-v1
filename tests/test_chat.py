@@ -160,7 +160,7 @@ def test_session_clear_removes_pending_event_context(mock_ready, client):
 
     assert resp.status_code == 200
     assert resp.json()["cleared"] == "to_clear_pending"
-    assert "to_clear_pending" not in conversation_service._pending_event_contexts
+    assert "to_clear_pending" not in conversation_service._session_states
 
 
 @patch("avatar_backend.services.llm_service.LLMService.is_ready", new_callable=AsyncMock, return_value=True)

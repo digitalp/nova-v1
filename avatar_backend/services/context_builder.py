@@ -11,6 +11,9 @@ _CTX_MAX_VAL = 256
 class ContextBuilder:
     """Builds compatibility-first structured context blocks for conversation turns."""
 
+    def sanitize_context(self, context: dict[str, Any] | None = None) -> dict[str, str]:
+        return self._sanitize_context(context)
+
     def build_text_context(self, user_text: str, context: dict[str, Any] | None = None) -> str:
         sanitized = self._sanitize_context(context)
         if not sanitized:

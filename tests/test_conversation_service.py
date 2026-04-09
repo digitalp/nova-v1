@@ -7,6 +7,7 @@ from avatar_backend.services.conversation_service import (
     ConversationService,
     ConversationTurnRequest,
     EventFollowupRequest,
+    PendingEventFollowupContext,
 )
 
 
@@ -164,3 +165,99 @@ async def test_pending_event_context_is_consumed_once_by_text_turn():
         "  camera: front_door"
     )
     assert captured[1] == "And what are they carrying?"
+
+
+@pytest.mark.asyncio
+async def test_home_context_persists_across_later_text_turns():
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            llm_service=object(),
+            session_manager=object(),
+            ha_proxy=object(),
+            decision_log=None,
+            memory_service=None,
+        )
+    )
+    service = ConversationService(app)
+
+    captured: list[str] = []
+
+    async def fake_run_turn(*, session_id: str, user_text: str):
+        captured.append(user_text)
+        return "ok"
+
+    service._run_turn = AsyncMock(side_effect=fake_run_turn)
+
+    await service.handle_text_turn(
+        ConversationTurnRequest(
+            session_id="sticky-text",
+            user_text="Status?",
+            context={"room": "Kitchen", "mode": "Evening"},
+        )
+    )
+    await service.handle_text_turn(
+        ConversationTurnRequest(
+            session_id="sticky-text",
+            user_text="What changed?",
+        )
+    )
+
+    assert captured[0] == (
+        "Status?\n\n[Home context]\n"
+        "  room: Kitchen\n"
+        "  mode: Evening"
+    )
+    assert captured[1] == (
+        "What changed?\n\n[Home context]\n"
+        "  room: Kitchen\n"
+        "  mode: Evening"
+    )
+
+
+@pytest.mark.asyncio
+async def test_voice_turn_uses_persisted_home_context_and_pending_event_overlay():
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            llm_service=object(),
+            session_manager=object(),
+            ha_proxy=object(),
+            decision_log=None,
+            memory_service=None,
+        )
+    )
+    service = ConversationService(app)
+
+    captured: list[str] = []
+
+    async def fake_run_turn(*, session_id: str, user_text: str):
+        captured.append(user_text)
+        return "ok"
+
+    service._run_turn = AsyncMock(side_effect=fake_run_turn)
+
+    await service.handle_text_turn(
+        ConversationTurnRequest(
+            session_id="sticky-voice",
+            user_text="Use the driveway camera context.",
+            context={"camera": "driveway", "severity": "normal"},
+        )
+    )
+    await service.set_event_followup_context(
+        "sticky-voice",
+        PendingEventFollowupContext(
+            event_type="vehicle_arrival",
+            event_summary="A car pulled into the driveway",
+            event_context={"source": "driveway_camera"},
+        ),
+    )
+    await service.handle_voice_turn(session_id="sticky-voice", user_text="Who is that?")
+
+    assert captured[1] == (
+        "Who is that?\n\n[Home context]\n"
+        "  camera: driveway\n"
+        "  severity: normal\n\n"
+        "[Event context]\n"
+        "  type: vehicle_arrival\n"
+        "  summary: A car pulled into the driveway\n"
+        "  source: driveway_camera"
+    )
