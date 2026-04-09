@@ -15,12 +15,15 @@ import subprocess
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Literal
-
+import httpx
 import structlog
 import re as _re
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
+from avatar_backend.services.action_service import ActionService
+from avatar_backend.services.open_loop_service import OpenLoopService
+from avatar_backend.services.open_loop_workflow_service import OpenLoopWorkflowService
 from avatar_backend.services.prompt_bootstrap import (
     extract_known_entity_ids,
     summarise_new_entities,
@@ -39,6 +42,8 @@ _ACL_FILE     = _CONFIG_DIR / "acl.yaml"
 _LOG_FILE     = logs_dir() / "avatar-backend.log"
 _STATIC_DIR   = static_dir()
 _COOKIE_NAME  = "nova_session"
+_OPEN_LOOP_SERVICE = OpenLoopService()
+_RESTART_KIOSK_TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
 
 # Fields shown in the config editor (display label, sensitive flag)
 _CONFIG_FIELDS = {
@@ -475,7 +480,13 @@ def _surface_event_iso_ts(value) -> str:
 
 
 def _serialize_event_history_item(item: dict) -> dict:
-    return {
+    open_loop = _OPEN_LOOP_SERVICE.extract_summary_fields(
+        item.get("data") or {},
+        status=str(item.get("status") or ""),
+        fallback_ts=str(item.get("ts") or ""),
+    )
+    action_service = ActionService(open_loop_service=_OPEN_LOOP_SERVICE)
+    payload = {
         "id": item.get("id", ""),
         "kind": item.get("kind", "event"),
         "ts": item.get("ts", ""),
@@ -488,9 +499,26 @@ def _serialize_event_history_item(item: dict) -> dict:
         "camera_entity_id": item.get("camera_entity_id", ""),
         "clip_id": item.get("clip_id"),
         "video_url": item.get("video_url", ""),
-        "open_loop_note": item.get("open_loop_note", ""),
+        "open_loop_note": open_loop["open_loop_note"] or item.get("open_loop_note", ""),
+        "open_loop_state": open_loop["open_loop_state"],
+        "open_loop_active": open_loop["open_loop_active"],
+        "open_loop_started_ts": open_loop["open_loop_started_ts"],
+        "open_loop_updated_ts": open_loop["open_loop_updated_ts"],
+        "open_loop_resolved_ts": open_loop["open_loop_resolved_ts"],
+        "open_loop_age_s": open_loop["open_loop_age_s"],
+        "open_loop_stale": open_loop["open_loop_stale"],
+        "open_loop_last_reminder_ts": open_loop["open_loop_last_reminder_ts"],
+        "open_loop_reminder_count": open_loop["open_loop_reminder_count"],
+        "open_loop_reminder_due": open_loop["open_loop_reminder_due"],
+        "open_loop_reminder_state": open_loop["open_loop_reminder_state"],
+        "open_loop_last_escalation_ts": open_loop["open_loop_last_escalation_ts"],
+        "open_loop_escalation_level": open_loop["open_loop_escalation_level"],
+        "open_loop_escalation_due": open_loop["open_loop_escalation_due"],
+        "open_loop_priority": open_loop["open_loop_priority"],
         "data": item.get("data") or {},
     }
+    payload["available_actions"] = action_service.build_event_history_actions(payload)
+    return payload
 
 
 def _motion_clip_is_playable(request: Request, clip: dict) -> bool:
@@ -590,6 +618,12 @@ async def get_event_history(
     event_type: str | None = None,
     event_source: str | None = None,
     status: str | None = None,
+    open_loop_state: str | None = None,
+    open_loop_only: bool = False,
+    open_loop_stale_only: bool = False,
+    open_loop_priority: str | None = None,
+    open_loop_reminder_due_only: bool = False,
+    open_loop_escalation_due_only: bool = False,
     window: str | None = None,
     before_ts: str | None = None,
 ):
@@ -598,6 +632,32 @@ async def get_event_history(
     surface_state = getattr(request.app.state, "surface_state_service", None)
 
     rows: list[dict] = []
+
+    if db is not None:
+        canonical_events = []
+        if hasattr(db, "list_event_records"):
+            canonical_events = db.list_event_records(limit=max(1, min(limit * 3, 120)))
+        for event in canonical_events:
+            rows.append(
+                _serialize_event_history_item(
+                    {
+                        "id": f"canonical:{event.get('event_id') or event.get('created_at')}",
+                        "kind": "canonical_event",
+                        "ts": event.get("created_at", ""),
+                        "title": event.get("details") or event.get("summary") or event.get("event_type", ""),
+                        "summary": event.get("summary", ""),
+                        "status": event.get("status", ""),
+                        "event_id": event.get("event_id", ""),
+                        "event_type": event.get("event_type", ""),
+                        "event_source": event.get("source", ""),
+                        "camera_entity_id": event.get("camera_entity_id", ""),
+                        "clip_id": None,
+                        "video_url": "",
+                        "open_loop_note": str((event.get("data") or {}).get("open_loop_note", "")),
+                        "data": event.get("data") or {},
+                    }
+                )
+            )
 
     if db is not None:
         persisted_events = db.recent_event_history(max(1, min(limit * 3, 120)))
@@ -696,6 +756,18 @@ async def get_event_history(
             continue
         if status and str(row.get("status") or "") != status:
             continue
+        if open_loop_state and str(row.get("open_loop_state") or "") != open_loop_state:
+            continue
+        if open_loop_only and not bool(row.get("open_loop_active")):
+            continue
+        if open_loop_stale_only and not bool(row.get("open_loop_stale")):
+            continue
+        if open_loop_priority and str(row.get("open_loop_priority") or "") != open_loop_priority:
+            continue
+        if open_loop_reminder_due_only and not bool(row.get("open_loop_reminder_due")):
+            continue
+        if open_loop_escalation_due_only and not bool(row.get("open_loop_escalation_due")):
+            continue
         if query_norm:
             haystack = " ".join(
                 [
@@ -733,6 +805,34 @@ async def get_event_history(
     return {"events": deduped, "next_before_ts": next_before}
 
 
+@router.get("/event-history/workflow-summary")
+async def get_event_history_workflow_summary(request: Request, limit: int = 10):
+    _require_session(request, min_role="viewer")
+    workflow_service = getattr(request.app.state, "open_loop_workflow_service", None)
+    if workflow_service is None:
+        workflow_service = OpenLoopWorkflowService(open_loop_service=_OPEN_LOOP_SERVICE)
+
+    history = await get_event_history(
+        request,
+        limit=max(20, min(limit * 6, 120)),
+        open_loop_only=True,
+        window="30d",
+    )
+    persisted_rows = [row for row in history.get("events", []) if row.get("kind") == "persisted_event"]
+    summary = workflow_service.summarize_due_work(persisted_rows, limit=max(1, min(limit, 20)))
+    summary["generated_from"] = {"kind": "persisted_event", "count": len(persisted_rows)}
+    return summary
+
+
+@router.get("/event-history/workflow-status")
+async def get_event_history_workflow_status(request: Request):
+    _require_session(request, min_role="viewer")
+    automation_service = getattr(request.app.state, "open_loop_automation_service", None)
+    if automation_service is None:
+        return {"running": False, "last_run_ts": "", "last_run_summary": {"planned": 0, "applied": 0, "applied_actions": []}}
+    return automation_service.get_status()
+
+
 # ── Test announce ─────────────────────────────────────────────────────────────
 
 class AnnounceBody(BaseModel):
@@ -742,7 +842,8 @@ class AnnounceBody(BaseModel):
 
 class EventHistoryActionBody(BaseModel):
     event_id: str = ""
-    status: Literal["active", "acknowledged", "resolved"]
+    status: Literal["active", "acknowledged", "resolved"] = "active"
+    workflow_action: Literal["send_reminder", "escalate_medium", "escalate_high"] | None = None
     title: str = ""
     summary: str = ""
     event_type: str = ""
@@ -750,9 +851,36 @@ class EventHistoryActionBody(BaseModel):
     camera_entity_id: str = ""
     open_loop_note: str | None = None
     admin_note: str | None = None
+    reminder_sent: bool = False
+    escalation_level: Literal["medium", "high"] | None = None
 
 
-def _default_open_loop_note(status: str) -> str:
+class EventHistoryWorkflowRunBody(BaseModel):
+    include_reminders: bool = True
+    include_escalations: bool = True
+    limit: int = 10
+    dry_run: bool = False
+
+
+class EventHistoryDomainActionBody(BaseModel):
+    session_id: str = "admin_event_history"
+    event_id: str = ""
+    action: Literal["ask_about_event", "show_related_camera"]
+    title: str = ""
+    summary: str = ""
+    event_type: str = ""
+    event_source: str = ""
+    camera_entity_id: str = ""
+    followup_prompt: str | None = None
+    target_camera_entity_id: str | None = None
+    target_event: str | None = None
+    target_title: str | None = None
+    target_message: str | None = None
+
+
+def _default_open_loop_note(status: str, workflow_action: str | None = None) -> str:
+    if workflow_action:
+        return _OPEN_LOOP_SERVICE.default_note_for_workflow_action(workflow_action)
     return {
         "active": "Needs attention",
         "acknowledged": "Seen by admin",
@@ -763,51 +891,95 @@ def _default_open_loop_note(status: str) -> str:
 @router.post("/event-history/action")
 async def update_event_history_action(body: EventHistoryActionBody, request: Request):
     _require_session(request, min_role="viewer")
-    db = request.app.state.metrics_db
     ws_mgr = getattr(request.app.state, "ws_manager", None)
-    surface_state = getattr(request.app.state, "surface_state_service", None)
+    action_service = getattr(request.app.state, "action_service", None) or ActionService()
 
     event_id = (body.event_id or "").strip()
-    open_loop_note = body.open_loop_note if body.open_loop_note is not None else _default_open_loop_note(body.status)
+    open_loop_note = body.open_loop_note if body.open_loop_note is not None else _default_open_loop_note(body.status, body.workflow_action)
+    return await action_service.handle_event_history_action(
+        app=request.app,
+        ws_mgr=ws_mgr,
+        event_id=event_id,
+        status=body.status,
+        workflow_action=body.workflow_action,
+        title=body.title,
+        summary=body.summary,
+        event_type=body.event_type,
+        event_source=body.event_source,
+        camera_entity_id=body.camera_entity_id,
+        open_loop_note=open_loop_note,
+        admin_note=body.admin_note,
+        reminder_sent=body.reminder_sent,
+        escalation_level=body.escalation_level,
+    )
 
-    persisted = False
-    if db is not None and event_id:
-        persisted = db.update_event_history_status(event_id, body.status, open_loop_note, body.admin_note)
-        if not persisted:
-            db.insert_event_history(
-                {
-                    "event_id": event_id,
-                    "event_type": body.event_type,
-                    "title": body.title,
-                    "summary": body.summary,
-                    "status": body.status,
-                    "event_source": body.event_source,
-                    "camera_entity_id": body.camera_entity_id,
-                    "data": {
-                        "open_loop_note": open_loop_note,
-                        "admin_note": body.admin_note or "",
-                        "admin_note_ts": datetime.now(timezone.utc).isoformat() if body.admin_note else "",
-                    },
-                }
+
+@router.post("/event-history/workflow-run")
+async def run_event_history_workflow(body: EventHistoryWorkflowRunBody, request: Request):
+    _require_session(request, min_role="viewer")
+    workflow_service = getattr(request.app.state, "open_loop_workflow_service", None)
+    if workflow_service is None:
+        workflow_service = OpenLoopWorkflowService(open_loop_service=_OPEN_LOOP_SERVICE)
+    action_service = getattr(request.app.state, "action_service", None) or ActionService()
+    ws_mgr = getattr(request.app.state, "ws_manager", None)
+
+    history = await get_event_history(
+        request,
+        limit=max(20, min(body.limit * 8, 160)),
+        open_loop_only=True,
+        window="30d",
+    )
+    persisted_rows = [row for row in history.get("events", []) if row.get("kind") == "persisted_event"]
+    planned = workflow_service.plan_due_actions(
+        persisted_rows,
+        include_reminders=body.include_reminders,
+        include_escalations=body.include_escalations,
+        limit=max(1, min(body.limit, 25)),
+    )
+    if body.dry_run:
+        return {"planned": planned, "applied": [], "dry_run": True}
+
+    applied: list[dict] = []
+    for item in planned:
+        applied.append(
+            await action_service.handle_event_history_action(
+                app=request.app,
+                ws_mgr=ws_mgr,
+                event_id=str(item.get("event_id") or ""),
+                status=str(item.get("status") or "active"),
+                workflow_action=str(item.get("workflow_action") or ""),
+                title=str(item.get("title") or ""),
+                summary=str(item.get("summary") or ""),
+                event_type=str(item.get("event_type") or ""),
+                event_source=str(item.get("event_source") or ""),
+                open_loop_note=str(item.get("open_loop_note") or ""),
             )
-            persisted = True
+        )
+    return {"planned": planned, "applied": applied, "dry_run": False}
 
-    surface_updated = False
-    if surface_state is not None and ws_mgr is not None and event_id:
-        if body.status == "acknowledged":
-            surface_updated = await surface_state.acknowledge_recent_event(ws_mgr, event_id)
-        elif body.status == "resolved":
-            surface_updated = await surface_state.resolve_recent_event(ws_mgr, event_id)
-        elif body.status == "active":
-            surface_updated = await surface_state.activate_recent_event(ws_mgr, event_id)
 
-    return {
-        "ok": bool(persisted or surface_updated),
-        "event_id": event_id,
-        "status": body.status,
-        "persisted": persisted,
-        "surface_updated": surface_updated,
-    }
+@router.post("/event-history/domain-action")
+async def run_event_history_domain_action(body: EventHistoryDomainActionBody, request: Request):
+    _require_session(request, min_role="viewer")
+    ws_mgr = getattr(request.app.state, "ws_manager", None)
+    action_service = getattr(request.app.state, "action_service", None) or ActionService()
+    return await action_service.handle_event_history_domain_action(
+        app=request.app,
+        ws_mgr=ws_mgr,
+        session_id=(body.session_id or "admin_event_history").strip() or "admin_event_history",
+        event_id=(body.event_id or "").strip(),
+        action=body.action,
+        title=body.title,
+        summary=body.summary,
+        event_type=body.event_type,
+        event_source=body.event_source,
+        camera_entity_id=body.camera_entity_id,
+        followup_prompt=body.followup_prompt,
+        target_camera_entity_id=body.target_camera_entity_id,
+        target_event=body.target_event,
+        target_title=body.target_title,
+        target_message=body.target_message,
+    )
 
 
 @router.post("/announce/test")

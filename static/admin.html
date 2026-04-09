@@ -2130,6 +2130,14 @@ tr:hover td { background: rgba(255,255,255,.02); color: var(--text); }
                 <div class="motion-insight-label">Sources</div>
                 <div class="motion-insight-items" id="motion-history-source-mix"></div>
               </div>
+              <div class="motion-insight-card">
+                <div class="motion-insight-label">Open Loop Queue</div>
+                <div class="motion-insight-items" id="motion-history-open-loop"></div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+                  <button class="btn btn-outline btn-sm" onclick="runEventHistoryWorkflow({ includeReminders: true, includeEscalations: false })">Apply Due Reminders</button>
+                  <button class="btn btn-outline btn-sm" onclick="runEventHistoryWorkflow({ includeReminders: false, includeEscalations: true })">Apply Due Escalations</button>
+                </div>
+              </div>
             </div>
             <div class="motion-searchbar" style="margin-top:0;">
               <div class="field" style="margin:0;">
@@ -2468,6 +2476,10 @@ tr:hover td { background: rgba(255,255,255,.02); color: var(--text); }
         <div class="motion-meta-block">
           <div class="motion-meta-label">AI Description</div>
           <div id="motion-modal-desc" class="motion-meta-value">—</div>
+        </div>
+        <div class="motion-meta-block">
+          <div class="motion-meta-label">Nova Follow-up</div>
+          <div id="motion-modal-followup" class="motion-meta-value">—</div>
         </div>
         <div class="motion-meta-block">
           <div class="motion-meta-label">Event Details</div>
@@ -2899,11 +2911,76 @@ async function loadEventHistory() {
     const d = await api('GET', `/admin/event-history?${params.toString()}`);
     _eventHistoryItems = d.events || [];
     _eventHistoryBeforeTs = d.next_before_ts || _eventHistoryBeforeTs;
+    await loadEventHistoryWorkflowStatus();
+    await loadEventHistoryWorkflowSummary();
     renderEventHistoryFilters();
     renderMotionHistory();
   } catch (e) {
     const root = document.getElementById('motion-history-list');
     if (root) root.innerHTML = `<div class="motion-empty">${_esc(e.message || 'Failed to load event history.')}</div>`;
+  }
+}
+
+async function loadEventHistoryWorkflowSummary() {
+  try {
+    const summary = await api('GET', '/admin/event-history/workflow-summary?limit=6');
+    renderEventHistoryWorkflowSummary(summary || {});
+  } catch (e) {
+    renderEventHistoryWorkflowSummary({ error: e.message || 'Failed to load queue.' });
+  }
+}
+
+function renderEventHistoryWorkflowSummary(summary) {
+  const root = document.getElementById('motion-history-open-loop');
+  if (!root) return;
+  const counts = summary?.counts || {};
+  const automation = window._eventHistoryWorkflowStatus || {};
+  const reminderDue = Number(counts.reminder_due || 0);
+  const escalationDue = Number(counts.escalation_due || 0);
+  const stale = Number(counts.stale || 0);
+  const topReminder = summary?.next_actions?.reminder_due?.[0];
+  const topEscalation = summary?.next_actions?.escalation_due?.[0];
+  if (summary?.error) {
+    root.innerHTML = `<div class="motion-empty" style="padding:0;">${_esc(summary.error)}</div>`;
+    return;
+  }
+  const chips = [
+    `<div class="motion-stat"><strong>${reminderDue}</strong> reminders due</div>`,
+    `<div class="motion-stat"><strong>${escalationDue}</strong> escalations due</div>`,
+    `<div class="motion-stat"><strong>${stale}</strong> stale incidents</div>`,
+  ];
+  if (automation.last_run_summary) {
+    chips.push(`<div class="motion-stat">Auto run: <strong>${Number(automation.last_run_summary.applied || 0)}</strong> applied</div>`);
+  }
+  if (topEscalation?.title) {
+    chips.push(`<div class="motion-stat">Top escalation: <strong>${_esc(topEscalation.title)}</strong></div>`);
+  } else if (topReminder?.title) {
+    chips.push(`<div class="motion-stat">Next reminder: <strong>${_esc(topReminder.title)}</strong></div>`);
+  }
+  root.innerHTML = chips.join('');
+}
+
+async function loadEventHistoryWorkflowStatus() {
+  try {
+    window._eventHistoryWorkflowStatus = await api('GET', '/admin/event-history/workflow-status');
+  } catch {
+    window._eventHistoryWorkflowStatus = null;
+  }
+}
+
+async function runEventHistoryWorkflow({ includeReminders = true, includeEscalations = true } = {}) {
+  try {
+    const result = await api('POST', '/admin/event-history/workflow-run', {
+      include_reminders: !!includeReminders,
+      include_escalations: !!includeEscalations,
+      limit: 6,
+      dry_run: false,
+    });
+    const applied = Array.isArray(result.applied) ? result.applied.length : 0;
+    toast(applied ? `Applied ${applied} workflow action${applied === 1 ? '' : 's'}` : 'No due workflow actions');
+    await loadEventHistory();
+  } catch (e) {
+    toast('Workflow run failed: ' + e.message, 'err');
   }
 }
 
@@ -3539,16 +3616,12 @@ function _renderMotionModalActions(item) {
     root.appendChild(button);
   };
   if (_motionModalHistoryIndex >= 0 && item.event_id) {
-    const status = String(item.status || '');
-    if (status !== 'acknowledged') {
-      addButton('Acknowledge', () => updateEventHistoryStatus(item, 'acknowledged'));
-    }
-    if (status !== 'resolved') {
-      addButton('Resolve', () => updateEventHistoryStatus(item, 'resolved'));
-    }
-    if (status !== 'active') {
-      addButton('Reopen', () => updateEventHistoryStatus(item, 'active'));
-    }
+    const actions = Array.isArray(item.available_actions) ? item.available_actions : [];
+    actions.forEach(action => {
+      const label = String(action.label || '').trim();
+      if (!label) return;
+      addButton(label, () => updateEventHistoryAction(item, action));
+    });
   }
   if (item.event_type) {
     addButton('Filter by Type', () => applyMotionArchiveFocus({ eventType: item.event_type }));
@@ -3569,20 +3642,68 @@ function _renderMotionModalActions(item) {
   }
 }
 
-async function updateEventHistoryStatus(item, status) {
+function _eventHistoryActionPayload(item, action) {
+  const actionId = String(action?.action || '').trim();
+  const statusMap = {
+    acknowledge: 'acknowledged',
+    resolve: 'resolved',
+    reopen: 'active',
+  };
+  const status = statusMap[actionId] || String(item.status || 'active');
+  return {
+    event_id: item.event_id || '',
+    status,
+    workflow_action: actionId === 'send_reminder' || actionId === 'escalate_medium' || actionId === 'escalate_high'
+      ? actionId
+      : null,
+    title: item.title || '',
+    summary: item.summary || '',
+    event_type: item.event_type || '',
+    event_source: item.event_source || '',
+    camera_entity_id: item.camera_entity_id || '',
+  };
+}
+
+function _eventHistoryDomainActionPayload(item, action) {
+  return {
+    session_id: 'admin_event_history',
+    event_id: item.event_id || '',
+    action: String(action?.action || '').trim(),
+    title: item.title || '',
+    summary: item.summary || '',
+    event_type: item.event_type || '',
+    event_source: item.event_source || '',
+    camera_entity_id: item.camera_entity_id || '',
+    followup_prompt: action?.followup_prompt || null,
+    target_camera_entity_id: action?.target_camera_entity_id || null,
+    target_event: action?.target_event || null,
+    target_title: action?.target_title || null,
+    target_message: action?.target_message || null,
+  };
+}
+
+async function updateEventHistoryAction(item, action) {
   try {
+    const actionId = String(action?.action || '').trim();
+    if (actionId === 'ask_about_event' || actionId === 'show_related_camera') {
+      const followup = document.getElementById('motion-modal-followup');
+      if (followup) followup.textContent = actionId === 'ask_about_event' ? 'Thinking…' : 'Opening related camera…';
+      const result = await api('POST', '/admin/event-history/domain-action', _eventHistoryDomainActionPayload(item, action));
+      if (actionId === 'ask_about_event') {
+        if (followup) followup.textContent = result.text || 'No follow-up answer returned.';
+        return;
+      }
+      toast(String(action?.label || 'Domain action'));
+      closeMotionModal();
+      await loadEventHistory();
+      return;
+    }
     const noteField = document.getElementById('motion-modal-note');
-    await api('POST', '/admin/event-history/action', {
-      event_id: item.event_id || '',
-      status,
-      title: item.title || '',
-      summary: item.summary || '',
-      event_type: item.event_type || '',
-      event_source: item.event_source || '',
-      camera_entity_id: item.camera_entity_id || '',
-      admin_note: noteField?.value.trim() || '',
-    });
-    toast(`Event ${_motionStatusLabel(status).toLowerCase()}`);
+    const payload = _eventHistoryActionPayload(item, action);
+    payload.admin_note = noteField?.value.trim() || '';
+    await api('POST', '/admin/event-history/action', payload);
+    const actionLabel = String(action?.label || '').trim();
+    toast(actionLabel || `Event ${_motionStatusLabel(payload.status).toLowerCase()}`);
     closeMotionModal();
     await loadEventHistory();
   } catch (e) {
@@ -3616,6 +3737,7 @@ function _renderMotionModal(clip) {
   document.getElementById('motion-modal-title').textContent = clip.location || clip.camera_entity_id || 'Motion Clip';
   document.getElementById('motion-modal-time').textContent = _fmtMotionTs(clip.ts);
   document.getElementById('motion-modal-desc').innerHTML = _motionHighlight(clip.description || 'No AI description available.');
+  document.getElementById('motion-modal-followup').textContent = '—';
   if (strip) {
     strip.innerHTML =
       `<div class="motion-card-badge ${_motionSearchMode === 'ai' ? 'ai' : 'review'}">${_motionSearchMode === 'ai' ? 'AI Match' : 'Event Review'}</div>` +
@@ -3676,6 +3798,7 @@ function openEventHistoryModal(item) {
   document.getElementById('motion-modal-title').textContent = item.title || _motionEventTypeLabel(item.event_type || 'event');
   document.getElementById('motion-modal-time').textContent = _fmtMotionTs(item.ts);
   document.getElementById('motion-modal-desc').innerHTML = _motionHighlight(item.summary || 'No event summary available.');
+  document.getElementById('motion-modal-followup').textContent = '—';
   if (strip) {
     strip.innerHTML =
       `<div class="motion-card-badge review">Event Review</div>` +
@@ -3733,6 +3856,8 @@ function closeMotionModal(evt) {
   if (fallback) fallback.classList.remove('show');
   const noteField = document.getElementById('motion-modal-note');
   if (noteField) noteField.value = '';
+  const followup = document.getElementById('motion-modal-followup');
+  if (followup) followup.textContent = '—';
   _motionModalHistoryIndex = -1;
 }
 

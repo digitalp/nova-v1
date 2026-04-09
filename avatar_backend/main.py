@@ -19,6 +19,7 @@ from avatar_backend.services.decision_log import DecisionLog
 from avatar_backend.services.log_store import LogStore
 from avatar_backend.services.session_manager import SessionManager
 from avatar_backend.services.conversation_service import ConversationService
+from avatar_backend.services.action_service import ActionService
 from avatar_backend.services.persistent_memory import PersistentMemoryService
 from avatar_backend.services.speaker_service import SpeakerService
 from avatar_backend.services.stt_service import STTService
@@ -30,7 +31,12 @@ from avatar_backend.services.realtime_voice_service import (
 )
 from avatar_backend.services.surface_state_service import SurfaceStateService
 from avatar_backend.services.event_service import EventService
+from avatar_backend.services.event_bus import EventBusService
+from avatar_backend.services.event_store import EventStoreService
+from avatar_backend.services.camera_event_service import CameraEventService
 from avatar_backend.services.proactive_service import ProactiveService
+from avatar_backend.services.open_loop_automation_service import OpenLoopAutomationService
+from avatar_backend.services.open_loop_workflow_service import OpenLoopWorkflowService
 from avatar_backend.services.sensor_watch_service import SensorWatchService
 from avatar_backend.services.metrics_db import MetricsDB
 from avatar_backend.services.motion_clip_service import MotionClipService
@@ -125,7 +131,10 @@ async def _restart_fully_kiosk_after_startup(app: FastAPI, delay_s: float = 5.0)
                     detail=result.message,
                 )
             else:
-                logger.info("avatar_backend.kiosk_restart_requested", entity_id="button.rk3566_restart_browser")
+                logger.info(
+                    "avatar_backend.kiosk_restart_requested",
+                    entity_id="button.rk3566_restart_browser",
+                )
     if ws_mgr is not None:
         payload = {"type": "server_restarted"}
         await ws_mgr.broadcast_json(payload)
@@ -176,9 +185,22 @@ async def lifespan(app: FastAPI):
     app.state.conversation_service = ConversationService(app)
     app.state.realtime_voice_adapter = create_realtime_voice_adapter(settings)
     app.state.realtime_voice_service = RealtimeVoiceService()
-    app.state.surface_state_service = SurfaceStateService()
+    app.state.action_service = ActionService()
+    app.state.surface_state_service = SurfaceStateService(action_service=app.state.action_service)
+    app.state.event_bus = EventBusService()
     app.state.event_service = EventService()
     app.state.metrics_db = MetricsDB()
+    app.state.event_store = EventStoreService(app.state.metrics_db)
+    app.state.camera_event_service = CameraEventService(
+        ha_proxy=app.state.ha_proxy,
+        llm_service=app.state.llm_service,
+        event_service=app.state.event_service,
+    )
+    app.state.open_loop_workflow_service = OpenLoopWorkflowService()
+    app.state.open_loop_automation_service = OpenLoopAutomationService(
+        app,
+        workflow_service=app.state.open_loop_workflow_service,
+    )
     imported_memories = app.state.metrics_db.import_memories_from(settings.shared_memory_db_path)
     app.state.memory_service = PersistentMemoryService(app.state.metrics_db)
     if imported_memories:
@@ -238,6 +260,7 @@ async def lifespan(app: FastAPI):
         announce_fn=_proactive_announce,
         system_prompt=system_prompt,
         event_service=app.state.event_service,
+        camera_event_service=app.state.camera_event_service,
     )
     app.state.proactive_service = proactive
     await proactive.start()
@@ -250,6 +273,7 @@ async def lifespan(app: FastAPI):
     )
     app.state.sensor_watch = sensor_watch
     await sensor_watch.start()
+    await app.state.open_loop_automation_service.start()
     kiosk_restart_task = asyncio.create_task(_restart_fully_kiosk_after_startup(app))
 
     cleanup_task = asyncio.create_task(
@@ -292,13 +316,14 @@ async def lifespan(app: FastAPI):
     yield
 
     kiosk_restart_task.cancel()
+    cleanup_task.cancel()
     try:
         await kiosk_restart_task
     except asyncio.CancelledError:
         pass
-    cleanup_task.cancel()
     await proactive.stop()
     await app.state.sensor_watch.stop()
+    await app.state.open_loop_automation_service.stop()
     await app.state.sys_metrics.stop()
     logger.info("avatar_backend.stopped")
 

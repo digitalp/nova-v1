@@ -65,6 +65,16 @@ async def run_chat(
     if memory_service is not None:
         memory_context, memory_ids = memory_service.build_context(user_text)
         if memory_context:
+            if decision_log:
+                decision_log.record(
+                    "memory_context_used",
+                    session=session_id,
+                    query=user_text[:100],
+                    memory_count=len(memory_ids),
+                    memory_ids=memory_ids,
+                    memory_preview=memory_context[:240],
+                    phase="initial",
+                )
             messages = _inject_persistent_memory(messages, memory_context)
 
     # Inject current datetime + timezone into the system message so the LLM can answer
@@ -136,6 +146,16 @@ async def run_chat(
         if memory_service is not None:
             memory_context, memory_ids = memory_service.build_context(user_text)
             if memory_context:
+                if decision_log:
+                    decision_log.record(
+                        "memory_context_used",
+                        session=session_id,
+                        query=user_text[:100],
+                        memory_count=len(memory_ids),
+                        memory_ids=memory_ids,
+                        memory_preview=memory_context[:240],
+                        phase=f"tool_round_{round_num + 1}",
+                    )
                 messages = _inject_persistent_memory(messages, memory_context)
         messages = _inject_datetime(messages, now_str)  # now_str already has tz
         messages = _sanitize_history(messages)
@@ -152,6 +172,14 @@ async def run_chat(
 
     if memory_service is not None and memory_ids:
         memory_service.mark_referenced(memory_ids)
+        if decision_log:
+            decision_log.record(
+                "memory_context_referenced",
+                session=session_id,
+                query=user_text[:100],
+                memory_count=len(memory_ids),
+                memory_ids=memory_ids,
+            )
 
     if memory_service is not None and final_text:
         memory_service.learn_from_exchange_async(

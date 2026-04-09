@@ -103,6 +103,22 @@ http://<server-ip>:8001/avatar?api_key=<your-api-key>
 http://<server-ip>:8001/admin
 ```
 
+## Development Guardrails
+
+To prevent `docs/NOVA_V2_IMPLEMENTATION_PROGRESS.md` from drifting away from the implementation plan, install the local pre-commit hook:
+
+```bash
+/opt/avatar-server/scripts/install_v2_tracker_hook.sh
+```
+
+The hook runs:
+
+```bash
+python3 /opt/avatar-server/scripts/check_v2_tracker.py
+```
+
+Run that command manually before commits if you are editing the V2 tracker or milestone percentages.
+
 ---
 
 ## Configuration

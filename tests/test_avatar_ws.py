@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from avatar_backend.routers.avatar_ws import avatar_state_websocket
+from avatar_backend.services.action_service import ActionService
 from avatar_backend.services.event_service import EventService
 from avatar_backend.services.surface_state_service import SurfaceStateService
 from avatar_backend.services.ws_manager import ConnectionManager
@@ -75,6 +76,7 @@ async def test_avatar_ws_handles_surface_actions():
     ws.app.state.ws_manager.disconnect = AsyncMock()
     ws.app.state.ha_proxy = FakeHAProxy()
     ws.app.state.event_service = EventService()
+    ws.app.state.action_service = ActionService()
     surface = SurfaceStateService()
     ws.app.state.surface_state_service = surface
     ws.app.state.recent_event_contexts = {}
@@ -119,6 +121,7 @@ async def test_avatar_ws_can_open_related_camera_event():
     ws.app.state.ws_manager.connect = AsyncMock()
     ws.app.state.ws_manager.disconnect = AsyncMock()
     ws.app.state.ha_proxy = FakeHAProxy()
+    ws.app.state.action_service = ActionService()
     surface = SurfaceStateService()
     ws.app.state.surface_state_service = surface
     ws.app.state.recent_event_contexts = {}

@@ -293,9 +293,8 @@ async def doorbell_announce_handler(body: DoorbellAnnounceRequest, request: Requ
     Falls back to a generic "Someone is at the door" if the camera is unavailable.
     """
     t0 = time.monotonic()
-    ha  = request.app.state.ha_proxy
-    llm = request.app.state.llm_service
     ws_mgr: ConnectionManager = request.app.state.ws_manager
+    camera_events = getattr(request.app.state, "camera_event_service", None)
     runtime = load_home_runtime_config()
     camera_entity_id = (
         body.camera_entity_id
@@ -315,30 +314,33 @@ async def doorbell_announce_handler(body: DoorbellAnnounceRequest, request: Requ
         expires_in_ms=45000,
     )
 
-    # 1. Fetch camera snapshot
-    from avatar_backend.services.llm_service import _DOORBELL_IMAGE_PROMPT
-    image_bytes = await ha.fetch_camera_image(camera_entity_id)
+    try:
+        result = await camera_events.describe_doorbell(camera_entity_id)
+    except Exception as exc:
+        _LOGGER.warning("doorbell.describe_failed", exc=str(exc))
+        result = {
+            "camera_entity_id": camera_entity_id,
+            "image_available": False,
+            "description": "",
+            "message": "Someone is at the door.",
+            "suppressed": False,
+        }
 
-    if image_bytes:
-        try:
-            description = await llm.describe_image(image_bytes, prompt=_DOORBELL_IMAGE_PROMPT)
-            if description.strip().startswith("NO_PERSON"):
-                _LOGGER.info("doorbell.no_person_visible", camera=camera_entity_id)
-                return DoorbellAnnounceResponse(
-                    status="ok",
-                    message="no_person_visible",
-                    camera_used=camera_entity_id,
-                    wav_bytes=0,
-                    elapsed_ms=int((time.monotonic() - t0) * 1000),
-                )
-            message = f"Someone is at the door. {description}"
-            _LOGGER.info("doorbell.described", chars=len(description))
-        except Exception as exc:
-            _LOGGER.warning("doorbell.describe_failed", exc=str(exc))
-            message = "Someone is at the door."
-    else:
-        _LOGGER.warning("doorbell.camera_unavailable", camera=camera_entity_id)
-        message = "Someone is at the door."
+    if result["suppressed"]:
+        _LOGGER.info("doorbell.no_person_visible", camera=result["camera_entity_id"])
+        return DoorbellAnnounceResponse(
+            status="ok",
+            message="no_person_visible",
+            camera_used=result["camera_entity_id"],
+            wav_bytes=0,
+            elapsed_ms=int((time.monotonic() - t0) * 1000),
+        )
+
+    if result["description"]:
+        _LOGGER.info("doorbell.described", chars=len(result["description"]))
+    elif not result["image_available"]:
+        _LOGGER.warning("doorbell.camera_unavailable", camera=result["camera_entity_id"])
+    message = result["message"]
 
     # 2. Announce via the standard announce flow
     announce_resp = await announce_handler(
@@ -352,7 +354,7 @@ async def doorbell_announce_handler(body: DoorbellAnnounceRequest, request: Requ
     return DoorbellAnnounceResponse(
         status="ok",
         message=message,
-        camera_used=camera_entity_id,
+        camera_used=result["camera_entity_id"],
         wav_bytes=announce_resp.wav_bytes,
         elapsed_ms=elapsed_ms,
     )
@@ -410,6 +412,22 @@ class MotionAnnounceResponse(BaseModel):
     elapsed_ms:  int = 0
 
 
+class PackageAnnounceRequest(BaseModel):
+    camera_entity_id: str | None = None
+    trigger_entity_id: str = Field(default="binary_sensor.reolink_video_doorbell_poe_package")
+    location: str = Field(default="front door", max_length=64)
+    title: str = Field(default="Package Delivery", max_length=120)
+    message: str = Field(default="A package was delivered.", max_length=300)
+
+
+class PackageAnnounceResponse(BaseModel):
+    status: str
+    event_id: str
+    event: str
+    camera_used: str
+    delivered: bool = True
+
+
 @router.post(
     "/announce/motion",
     response_model=MotionAnnounceResponse,
@@ -429,10 +447,9 @@ async def motion_announce_handler(body: MotionAnnounceRequest, request: Request)
     Falls back to a generic "Motion detected" message if the camera is unavailable.
     """
     t0 = time.monotonic()
-    ha  = request.app.state.ha_proxy
-    llm = request.app.state.llm_service
+    camera_events = getattr(request.app.state, "camera_event_service", None)
 
-    camera_id = ha.resolve_camera_entity(body.camera_entity_id)
+    camera_id = camera_events.resolve_camera_entity(body.camera_entity_id)
     location  = body.location.strip() or "outdoors"
     cooldowns: dict[str, float] = getattr(request.app.state, "motion_announce_cooldowns", None)
     if cooldowns is None:
@@ -460,48 +477,31 @@ async def motion_announce_handler(body: MotionAnnounceRequest, request: Request)
 
     _LOGGER.info("motion.triggered", camera=camera_id, location=location)
 
-    # 1. Fetch camera snapshot and describe using Gemini with system prompt context
-    from avatar_backend.services.llm_service import _MOTION_IMAGE_PROMPT
-    image_bytes = await ha.fetch_camera_image(camera_id)
     system_prompt: str = getattr(request.app.state, "system_prompt", "")
     motion_clip_service = request.app.state.motion_clip_service
-    event_service = getattr(request.app.state, "event_service", None)
-
-    if image_bytes:
-        try:
-            description = await llm.describe_image_with_gemini(
-                image_bytes,
-                prompt=_MOTION_IMAGE_PROMPT,
-                system_instruction=system_prompt or None,
-            )
-            if description.strip().startswith("NO_MOTION"):
-                _LOGGER.info("motion.suppressed", camera=camera_id, reason="no_concern")
-                description = "No meaningful motion visible."
-            message = f"Motion detected {location}. {description}"
-            _LOGGER.info("motion.described", chars=len(description))
-        except Exception as exc:
-            _LOGGER.warning("motion.describe_failed", exc=str(exc))
-            message = f"Motion detected {location}."
-    else:
-        _LOGGER.warning("motion.camera_unavailable", camera=camera_id)
+    try:
+        result = await camera_events.analyze_motion(
+            camera_entity_id=camera_id,
+            location=location,
+            trigger_entity_id=body.camera_entity_id,
+            source="announce_motion",
+            system_prompt=system_prompt or None,
+        )
+        if result["suppressed"]:
+            _LOGGER.info("motion.suppressed", camera=camera_id, reason="no_concern")
+        elif result["image_available"]:
+            _LOGGER.info("motion.described", chars=len(result["description"]))
+        else:
+            _LOGGER.warning("motion.camera_unavailable", camera=camera_id)
+        message = result["message"]
+    except Exception as exc:
+        _LOGGER.warning("motion.describe_failed", exc=str(exc))
+        result = {"canonical_event": None}
         message = f"Motion detected {location}."
 
     extra = {"source": "announce_motion"}
-    if event_service is not None:
-        canonical_event = event_service.build_event(
-            event_id=f"announce-motion-{uuid.uuid4().hex}",
-            event_type="motion_detected",
-            title=f"Motion at {location}",
-            message=message,
-            camera_entity_id=camera_id,
-            event_context={
-                "source": "announce_motion",
-                "location": location,
-                "trigger_entity_id": body.camera_entity_id,
-            },
-            expires_in_ms=30000,
-        )
-        extra["canonical_event"] = event_service.to_dict(canonical_event)
+    if result.get("canonical_event") is not None:
+        extra["canonical_event"] = result["canonical_event"]
 
     motion_clip_service.schedule_capture(
         camera_entity_id=camera_id,
@@ -521,6 +521,58 @@ async def motion_announce_handler(body: MotionAnnounceRequest, request: Request)
         archived=True,
         wav_bytes=0,
         elapsed_ms=elapsed_ms,
+    )
+
+
+@router.post(
+    "/announce/package",
+    response_model=PackageAnnounceResponse,
+    dependencies=[Depends(verify_api_key)],
+    summary="Package alert — send a shared package camera event to avatar clients",
+)
+async def package_announce_handler(body: PackageAnnounceRequest, request: Request):
+    ws_mgr: ConnectionManager = request.app.state.ws_manager
+    camera_events = getattr(request.app.state, "camera_event_service", None)
+    runtime = load_home_runtime_config()
+    camera_entity_id = (
+        body.camera_entity_id
+        or runtime.default_doorbell_camera
+        or _LEGACY_DEFAULT_DOORBELL_CAMERA
+    )
+
+    package_event = camera_events.build_package_event(
+        camera_entity_id=camera_entity_id,
+        source="package_announce",
+        trigger_entity_id=body.trigger_entity_id,
+        location=body.location.strip() or "front door",
+        title=body.title.strip() or "Package Delivery",
+        message=body.message.strip() or "A package was delivered.",
+    )
+    event_context = {
+        "camera_entity_id": package_event["camera_entity_id"],
+        "source": "package_announce",
+        "trigger_entity_id": body.trigger_entity_id,
+        "location": body.location.strip() or "front door",
+    }
+    if package_event.get("canonical_event") is not None:
+        event_context["canonical_event"] = package_event["canonical_event"]
+
+    event_id = await _broadcast_visual_event(
+        request,
+        ws_mgr,
+        event="package_delivery",
+        title=package_event["title"],
+        message=package_event["message"],
+        camera_entity_id=package_event["camera_entity_id"],
+        event_context=event_context,
+        expires_in_ms=45000,
+    )
+    return PackageAnnounceResponse(
+        status="ok",
+        event_id=event_id,
+        event="package_delivery",
+        camera_used=package_event["camera_entity_id"],
+        delivered=True,
     )
 
 

@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 import time
 from typing import Any
 
+from avatar_backend.models.events import EventEnvelope
+
 _RECENT_EVENT_CONTEXT_TTL_S = 900
 
 
@@ -40,6 +42,24 @@ class EventRecord:
         if self.camera_entity_id:
             payload.setdefault("camera_entity_id", self.camera_entity_id)
         return payload
+
+    def to_event_envelope(self) -> EventEnvelope:
+        return EventEnvelope(
+            event_id=self.event_id,
+            event_type=self.event_type,
+            source=str(self.event_context.get("source") or ""),
+            camera_entity_id=self.camera_entity_id or "",
+            summary=self.message or self.title,
+            details=self.title if self.message else "",
+            action_suggestions=[],
+            data={
+                "title": self.title,
+                "image_urls": list(self.image_urls),
+                "open_loop_note": self.open_loop_note,
+                "event_context": self.to_context_payload(),
+                "expires_in_ms": self.expires_in_ms,
+            },
+        )
 
 
 class EventService:
@@ -133,6 +153,16 @@ def persist_event_history(app, event_record: EventRecord) -> None:
         pass
 
 
+def persist_canonical_event(app, event_record: EventRecord) -> None:
+    event_store = getattr(app.state, "event_store", None)
+    if event_store is None:
+        return
+    try:
+        event_store.create_event(event_record.to_event_envelope())
+    except Exception:
+        pass
+
+
 async def publish_visual_event(
     *,
     app,
@@ -170,6 +200,10 @@ async def publish_visual_event(
         event_summary=event_record.message or event_record.title,
         event_context=event_record.to_context_payload(),
     )
+    event_bus = getattr(app.state, "event_bus", None)
+    if event_bus is not None:
+        await event_bus.publish(event_record.to_event_envelope())
+    persist_canonical_event(app, event_record)
     persist_event_history(app, event_record)
     payload = {"type": "visual_event", **event_record.to_surface_payload()}
     if surface_state is not None:

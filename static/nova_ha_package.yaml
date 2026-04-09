@@ -23,3 +23,15 @@ rest_command:
       "message": {{ message | default('', true) | tojson }},
       "image_urls_csv": {{ image_urls_csv | default('', true) | tojson }},
       "expires_in_ms": {{ expires_in_ms | default(30000, true) }}}
+  nova_package_event:
+    url: "http://<SERVER_IP>:<PORT>/announce/package"
+    method: POST
+    content_type: "application/json"
+    headers:
+      X-API-Key: "<API_KEY>"
+    payload: >-
+      {"camera_entity_id": {{ camera_entity_id | default('', true) | tojson }},
+      "trigger_entity_id": {{ trigger_entity_id | default('binary_sensor.reolink_video_doorbell_poe_package', true) | tojson }},
+      "location": {{ location | default('front door', true) | tojson }},
+      "title": {{ title | default('Package Delivery', true) | tojson }},
+      "message": {{ message | default('A package was delivered.', true) | tojson }}}

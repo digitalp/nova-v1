@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -33,8 +33,15 @@ def test_event_service_builds_canonical_event_record():
 @pytest.mark.asyncio
 async def test_publish_visual_event_records_context_and_surface_payload():
     service = EventService()
-    fake_db = SimpleNamespace(insert_event_history=AsyncMock())
-    app = SimpleNamespace(state=SimpleNamespace(recent_event_contexts={}, metrics_db=fake_db))
+    fake_db = SimpleNamespace(insert_event_history=MagicMock())
+    fake_event_store = SimpleNamespace(create_event=MagicMock())
+    fake_event_bus = SimpleNamespace(publish=AsyncMock())
+    app = SimpleNamespace(state=SimpleNamespace(
+        recent_event_contexts={},
+        metrics_db=fake_db,
+        event_store=fake_event_store,
+        event_bus=fake_event_bus,
+    ))
     ws_mgr = SimpleNamespace(broadcast_to_voice_json=AsyncMock())
     surface_state = SimpleNamespace(record_visual_event=AsyncMock())
 
@@ -60,3 +67,8 @@ async def test_publish_visual_event_records_context_and_surface_payload():
     assert payload["type"] == "visual_event"
     assert payload["camera_entity_id"] == "camera.driveway"
     fake_db.insert_event_history.assert_called_once()
+    fake_event_store.create_event.assert_called_once()
+    fake_event_bus.publish.assert_awaited_once()
+    published = fake_event_bus.publish.await_args.args[0]
+    assert published.event_id == "evt-2"
+    assert published.event_type == "related_camera"

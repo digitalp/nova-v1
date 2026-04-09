@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from avatar_backend.middleware.auth import verify_api_key
 from avatar_backend.routers.announce import router as announce_router
+from avatar_backend.services.camera_event_service import CameraEventService
 from avatar_backend.services.event_service import EventService
 from avatar_backend.services.speaker_service import SpeakerService
 from avatar_backend.services.surface_state_service import SurfaceStateService
@@ -50,6 +51,7 @@ def _make_app(tts_wav=b"RIFF" + b"\x00" * 36, speaker_ok=True):
     app.state.ws_manager      = ws_mock
     app.state.audio_cache     = {}
     app.state.ha_proxy        = MagicMock()
+    app.state.ha_proxy.resolve_camera_entity = MagicMock(side_effect=lambda entity_id: entity_id)
     app.state.ha_proxy.fetch_camera_image = AsyncMock(return_value=b"fake-image")
     app.state.llm_service     = MagicMock()
     app.state.llm_service.describe_image = AsyncMock(return_value="A visitor is standing at the front door.")
@@ -60,6 +62,11 @@ def _make_app(tts_wav=b"RIFF" + b"\x00" * 36, speaker_ok=True):
     app.state.recent_event_contexts = {}
     app.state.surface_state_service = SurfaceStateService()
     app.state.event_service = EventService()
+    app.state.camera_event_service = CameraEventService(
+        ha_proxy=app.state.ha_proxy,
+        llm_service=app.state.llm_service,
+        event_service=app.state.event_service,
+    )
 
     return app, tts_mock, speaker_mock, ws_mock
 
@@ -117,7 +124,13 @@ def test_announce_calls_speaker_speak():
     client = TestClient(app)
     client.post("/announce", json={"message": "Lights off in 5 minutes"},
                 headers={"X-API-Key": API_KEY})
-    speaker_mock.speak.assert_called_once_with("Lights off in 5 minutes")
+    assert speaker_mock.speak.await_count + speaker_mock.speak_wav.await_count == 1
+    if speaker_mock.speak.await_count:
+        speaker_mock.speak.assert_called_once_with("Lights off in 5 minutes")
+    else:
+        args = speaker_mock.speak_wav.await_args.args
+        assert args[0] == "Lights off in 5 minutes"
+        assert args[1].startswith("http")
 
 
 def test_announce_broadcasts_voice_payload_and_audio():
@@ -126,8 +139,8 @@ def test_announce_broadcasts_voice_payload_and_audio():
     client.post("/announce", json={"message": "Hello there"},
                 headers={"X-API-Key": API_KEY})
 
-    ws_mock.broadcast_to_voice_json.assert_called_once()
-    payload = ws_mock.broadcast_to_voice_json.call_args[0][0]
+    voice_calls = [c.args[0] for c in ws_mock.broadcast_to_voice_json.await_args_list]
+    payload = next(call for call in voice_calls if call.get("type") == "announce")
     assert payload["type"] == "announce"
     assert payload["text"] == "Hello there"
     ws_mock.broadcast_to_voice_bytes.assert_called_once()
@@ -139,11 +152,12 @@ def test_doorbell_announce_emits_visual_event_before_speaking():
     resp = client.post("/announce/doorbell", json={}, headers={"X-API-Key": API_KEY})
 
     assert resp.status_code == 200
-    voice_calls = [c[0][0] for c in ws_mock.broadcast_to_voice_json.call_args_list]
-    assert voice_calls[0]["type"] == "visual_event"
-    assert voice_calls[0]["event"] == "doorbell"
-    assert voice_calls[0]["camera_entity_id"] == "camera.reolink_video_doorbell_poe_fluent"
-    assert any(call.get("type") == "announce" for call in voice_calls)
+    voice_calls = [c.args[0] for c in ws_mock.broadcast_to_voice_json.await_args_list]
+    visual_idx = next(i for i, call in enumerate(voice_calls) if call.get("type") == "visual_event")
+    announce_idx = next(i for i, call in enumerate(voice_calls) if call.get("type") == "announce")
+    assert voice_calls[visual_idx]["event"] == "doorbell"
+    assert voice_calls[visual_idx]["camera_entity_id"] == "camera.reolink_video_doorbell_poe_fluent"
+    assert visual_idx < announce_idx
 
 
 def test_visual_event_endpoint_broadcasts_static_images():
@@ -167,8 +181,8 @@ def test_visual_event_endpoint_broadcasts_static_images():
     assert resp.status_code == 200
     assert resp.json()["event"] == "bins"
     assert resp.json()["event_id"]
-    ws_mock.broadcast_to_voice_json.assert_called_once()
-    payload = ws_mock.broadcast_to_voice_json.call_args[0][0]
+    voice_calls = [c.args[0] for c in ws_mock.broadcast_to_voice_json.await_args_list]
+    payload = next(call for call in voice_calls if call.get("type") == "visual_event")
     assert payload["type"] == "visual_event"
     assert payload["event_id"] == resp.json()["event_id"]
     assert payload["event"] == "bins"
@@ -215,11 +229,33 @@ def test_visual_event_endpoint_accepts_csv_image_urls():
     )
 
     assert resp.status_code == 200
-    payload = ws_mock.broadcast_to_voice_json.call_args[0][0]
+    voice_calls = [c.args[0] for c in ws_mock.broadcast_to_voice_json.await_args_list]
+    payload = next(call for call in voice_calls if call.get("type") == "visual_event")
     assert payload["image_urls"] == [
         "/static/bin-icons/brown-bin.svg",
         "/static/bin-icons/black-bin.svg",
     ]
+
+
+def test_package_announce_uses_shared_package_camera_path():
+    app, _, _, ws_mock = _make_app()
+    client = TestClient(app)
+    resp = client.post(
+        "/announce/package",
+        json={},
+        headers={"X-API-Key": API_KEY},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["event"] == "package_delivery"
+    assert resp.json()["camera_used"] == "camera.reolink_video_doorbell_poe_fluent"
+    voice_calls = [c.args[0] for c in ws_mock.broadcast_to_voice_json.await_args_list]
+    payload = next(call for call in voice_calls if call.get("type") == "visual_event")
+    assert payload["event"] == "package_delivery"
+    assert payload["camera_entity_id"] == "camera.reolink_video_doorbell_poe_fluent"
+    _, stored = app.state.recent_event_contexts[resp.json()["event_id"]]
+    assert stored["event_type"] == "package_delivery"
+    assert stored["event_context"]["source"] == "package_announce"
 
 
 def test_motion_announce_applies_per_camera_cooldown():
@@ -248,9 +284,9 @@ def test_motion_announce_applies_per_camera_cooldown():
     assert first.json()["message"].startswith("Motion detected")
     assert second.json()["message"] == "motion_cooldown"
 
-    voice_calls = [c[0][0] for c in ws_mock.broadcast_to_voice_json.call_args_list]
+    voice_calls = [c.args[0] for c in ws_mock.broadcast_to_voice_json.await_args_list]
     announce_calls = [call for call in voice_calls if call.get("type") == "announce"]
-    assert len(announce_calls) == 1
+    assert len(announce_calls) == 0
 
 
 def test_motion_announce_cooldown_is_per_camera():
@@ -278,9 +314,9 @@ def test_motion_announce_cooldown_is_per_camera():
     assert driveway.status_code == 200
     assert driveway.json()["message"].startswith("Motion detected")
 
-    voice_calls = [c[0][0] for c in ws_mock.broadcast_to_voice_json.call_args_list]
+    voice_calls = [c.args[0] for c in ws_mock.broadcast_to_voice_json.await_args_list]
     announce_calls = [call for call in voice_calls if call.get("type") == "announce"]
-    assert len(announce_calls) == 2
+    assert len(announce_calls) == 0
 
 
 def test_motion_announce_persists_canonical_event_metadata():

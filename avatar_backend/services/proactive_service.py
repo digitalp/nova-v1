@@ -174,6 +174,7 @@ class ProactiveService:
         announce_fn: Callable[[str, str], Awaitable[None]],
         system_prompt: str,
         event_service=None,
+        camera_event_service=None,
     ) -> None:
         self._ha_url = ha_url.rstrip("/")
         self._ha_token = ha_token
@@ -183,6 +184,7 @@ class ProactiveService:
         self._announce = announce_fn
         self._system_prompt = system_prompt
         self._event_service = event_service
+        self._camera_event_service = camera_event_service
         runtime = load_home_runtime_config()
         self._motion_camera_map = dict(_LEGACY_MOTION_CAMERA_MAP)
         self._motion_camera_map.update(runtime.motion_camera_map)
@@ -456,95 +458,62 @@ class ProactiveService:
             )
 
         try:
-            image_bytes = await self._ha.fetch_camera_image(camera_id)
+            result = await self._camera_event_service.analyze_motion(
+                camera_entity_id=camera_id,
+                location=friendly,
+                trigger_entity_id=entity_id,
+                source="proactive_motion",
+                system_prompt=self._system_prompt or None,
+                vision_prompt=self._camera_vision_prompts.get(camera_id),
+            )
         except Exception as exc:
-            _LOGGER.warning("proactive.motion_camera_fetch_failed", camera=camera_id, exc=str(exc))
-            image_bytes = None
+            _LOGGER.warning("proactive.motion_describe_failed", camera=camera_id, exc=str(exc))
+            result = {
+                "message": f"Motion detected by {friendly}.",
+                "description": "",
+                "archive_description": f"Motion detected by {friendly}.",
+                "suppressed": False,
+                "is_delivery": False,
+                "delivery_company": "",
+                "raw_description": "",
+                "canonical_event": None,
+            }
 
-        is_delivery = False
-        delivery_company = ""
-        message = f"Motion detected by {friendly}."
-        description = ""
+        is_delivery = bool(result["is_delivery"])
+        delivery_company = str(result["delivery_company"] or "")
+        message = str(result["message"] or f"Motion detected by {friendly}.")
+        description = str(result["archive_description"] or result["description"] or message)
 
-        if image_bytes:
-            vision_prompt = self._camera_vision_prompts.get(camera_id)
-            try:
-                raw_desc = await self._llm.describe_image_with_gemini(
-                    image_bytes,
-                    prompt=vision_prompt,
-                    system_instruction=self._system_prompt or None,
+        if result["suppressed"]:
+            _LOGGER.info("proactive.motion_suppressed", camera=camera_id, reason="owner_car_or_no_cause")
+            if self._decision_log:
+                self._decision_log.record(
+                    "motion_suppressed",
+                    camera=camera_id,
+                    reason="NO_MOTION",
+                    **self._gemini_llm_fields(),
                 )
-            except Exception as exc:
-                _LOGGER.warning("proactive.motion_describe_failed", camera=camera_id, exc=str(exc))
-                raw_desc = ""
-
-            if raw_desc and raw_desc.strip().startswith("NO_MOTION"):
-                description = "No meaningful motion visible."
-                _LOGGER.info("proactive.motion_suppressed", camera=camera_id, reason="owner_car_or_no_cause")
+        elif result["raw_description"]:
+            _LOGGER.info("proactive.motion_described", camera=camera_id,
+                         chars=len(result["raw_description"]), delivery=is_delivery)
+            if is_delivery:
+                _LOGGER.info("proactive.delivery_detected", camera=camera_id,
+                             company=delivery_company)
                 if self._decision_log:
                     self._decision_log.record(
-                        "motion_suppressed",
+                        "delivery_detected",
                         camera=camera_id,
-                        reason="NO_MOTION",
+                        company=delivery_company,
+                        scene=description[:200],
                         **self._gemini_llm_fields(),
                     )
-            elif raw_desc:
-                # Parse delivery detection line  (format: "DELIVERY: <company>")
-                scene_lines, delivery_line = [], ""
-                for line in raw_desc.splitlines():
-                    if line.strip().upper().startswith("DELIVERY:"):
-                        delivery_line = line.strip()
-                    else:
-                        scene_lines.append(line)
-                scene = " ".join(scene_lines).strip()
-                description = scene or raw_desc.strip()
 
-                if delivery_line:
-                    is_delivery = True
-                    delivery_company = delivery_line.split(":", 1)[1].strip()
-                    company_label = delivery_company if delivery_company.lower() != "unknown" else "a courier"
-                    message = f"Delivery alert! There's {company_label} delivery at the driveway. {scene}"
-                    _LOGGER.info("proactive.delivery_detected", camera=camera_id,
-                                 company=delivery_company)
-                    if self._decision_log:
-                        self._decision_log.record(
-                            "delivery_detected",
-                            camera=camera_id,
-                            company=delivery_company,
-                            scene=scene[:200],
-                            **self._gemini_llm_fields(),
-                        )
-                else:
-                    message = f"Motion on the driveway. {scene}"
-
-                _LOGGER.info("proactive.motion_described", camera=camera_id,
-                             chars=len(raw_desc), delivery=is_delivery)
-        if not description:
-            description = message
-
-        if self._event_service is not None:
-            canonical_event = self._event_service.build_event(
-                event_id=f"proactive-{int(time.time() * 1000)}-{camera_id}",
-                event_type="delivery_detected" if is_delivery else "motion_detected",
-                title=f"Delivery at {friendly}" if is_delivery else f"Motion at {friendly}",
-                message=description,
-                camera_entity_id=camera_id,
-                event_context={
-                    "trigger_entity_id": entity_id,
-                    "location": friendly,
-                    "delivery": is_delivery,
-                    "delivery_company": delivery_company,
-                    "source": "proactive_motion",
-                },
-            )
-            description = canonical_event.message or description
-            extra = {
-                "delivery": is_delivery,
-                "delivery_company": delivery_company,
-                "canonical_event": self._event_service.to_dict(canonical_event),
-            }
-        else:
-            extra = {"delivery": is_delivery, "delivery_company": delivery_company}
+        extra = {
+            "delivery": is_delivery,
+            "delivery_company": delivery_company,
+        }
+        if result.get("canonical_event") is not None:
+            extra["canonical_event"] = result["canonical_event"]
 
         self._motion_clip_service.schedule_capture(
             camera_entity_id=camera_id,

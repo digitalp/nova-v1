@@ -31,7 +31,11 @@ async def test_surface_state_tracks_avatar_state_and_events():
     assert snapshot["active_event"]["image_urls"] == ["/static/example.png"]
     assert snapshot["active_event"]["status"] == "active"
     assert snapshot["active_event"]["open_loop_note"] == "Needs attention"
+    assert snapshot["active_event"]["open_loop_state"] == "active"
+    assert snapshot["active_event"]["open_loop_active"] is True
     assert [item["action"] for item in snapshot["active_event"]["suggested_actions"]] == [
+        "ask_about_event",
+        "show_related_camera",
         "ask_about_event",
         "acknowledge_active_event",
         "snooze_active_event",
@@ -67,6 +71,8 @@ async def test_surface_state_can_dismiss_and_reactivate_recent_event():
     assert snapshot["active_event"] is None
     assert snapshot["recent_events"][0]["event_id"] == "evt-1"
     assert snapshot["recent_events"][0]["status"] == "dismissed"
+    assert snapshot["recent_events"][0]["open_loop_state"] == "dismissed"
+    assert snapshot["recent_events"][0]["open_loop_active"] is True
 
     ok = await service.activate_recent_event(ws_mgr, "evt-1")
     snapshot = await service.get_snapshot()
@@ -94,6 +100,8 @@ async def test_surface_state_can_acknowledge_active_event():
     assert snapshot["active_event"]["status"] == "acknowledged"
     assert snapshot["recent_events"][0]["status"] == "acknowledged"
     assert snapshot["recent_events"][0]["open_loop_note"] == "Seen by user"
+    assert snapshot["recent_events"][0]["open_loop_state"] == "acknowledged"
+    assert snapshot["recent_events"][0]["open_loop_active"] is True
 
 
 @pytest.mark.asyncio
@@ -115,6 +123,9 @@ async def test_surface_state_can_resolve_active_event():
     assert snapshot["active_event"] is None
     assert snapshot["recent_events"][0]["status"] == "resolved"
     assert snapshot["recent_events"][0]["open_loop_note"] == "Closed out"
+    assert snapshot["recent_events"][0]["open_loop_state"] == "resolved"
+    assert snapshot["recent_events"][0]["open_loop_active"] is False
+    assert snapshot["recent_events"][0]["open_loop_resolved_ts"]
 
 
 @pytest.mark.asyncio
@@ -196,6 +207,8 @@ async def test_surface_state_recent_actions_change_with_status():
     await service.acknowledge_active_event(ws_mgr)
     snapshot = await service.get_snapshot()
     assert [item["action"] for item in snapshot["recent_events"][0]["suggested_actions"]] == [
+        "ask_about_event",
+        "show_related_camera",
         "ask_about_event",
         "snooze_recent_event",
         "dismiss_recent_event",

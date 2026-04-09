@@ -14,6 +14,7 @@ import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
+from avatar_backend.services.open_loop_service import OpenLoopService
 from avatar_backend.runtime_paths import data_dir
 
 _DB_PATH = data_dir() / "metrics.db"
@@ -117,6 +118,73 @@ CREATE TABLE IF NOT EXISTS event_history (
 );
 CREATE INDEX IF NOT EXISTS idx_event_history_ts ON event_history(ts);
 CREATE INDEX IF NOT EXISTS idx_event_history_event_id ON event_history(event_id);
+
+CREATE TABLE IF NOT EXISTS events (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id          TEXT NOT NULL UNIQUE,
+    event_type        TEXT NOT NULL DEFAULT '',
+    source            TEXT NOT NULL DEFAULT '',
+    room              TEXT NOT NULL DEFAULT '',
+    camera_entity_id  TEXT NOT NULL DEFAULT '',
+    severity          TEXT NOT NULL DEFAULT 'normal',
+    summary           TEXT NOT NULL DEFAULT '',
+    details           TEXT NOT NULL DEFAULT '',
+    confidence        REAL,
+    status            TEXT NOT NULL DEFAULT 'active',
+    created_at        TEXT NOT NULL,
+    expires_at        TEXT NOT NULL DEFAULT '',
+    linked_session_id TEXT NOT NULL DEFAULT '',
+    data_json         TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at);
+CREATE INDEX IF NOT EXISTS idx_events_event_type ON events(event_type);
+CREATE INDEX IF NOT EXISTS idx_events_status ON events(status);
+CREATE INDEX IF NOT EXISTS idx_events_source ON events(source);
+CREATE INDEX IF NOT EXISTS idx_events_camera ON events(camera_entity_id);
+
+CREATE TABLE IF NOT EXISTS event_actions (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts                TEXT NOT NULL,
+    event_id          TEXT NOT NULL,
+    action_id         TEXT NOT NULL,
+    action_type       TEXT NOT NULL DEFAULT '',
+    status            TEXT NOT NULL DEFAULT 'completed',
+    result_json       TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_event_actions_event_id ON event_actions(event_id);
+CREATE INDEX IF NOT EXISTS idx_event_actions_ts ON event_actions(ts);
+
+CREATE TABLE IF NOT EXISTS event_media (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id          TEXT NOT NULL,
+    media_type        TEXT NOT NULL DEFAULT '',
+    url               TEXT NOT NULL DEFAULT '',
+    metadata_json     TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_event_media_event_id ON event_media(event_id);
+
+CREATE TABLE IF NOT EXISTS conversation_sessions (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id        TEXT NOT NULL UNIQUE,
+    started_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL,
+    surface           TEXT NOT NULL DEFAULT '',
+    linked_event_id   TEXT NOT NULL DEFAULT '',
+    metadata_json     TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_conversation_sessions_updated_at ON conversation_sessions(updated_at);
+
+CREATE TABLE IF NOT EXISTS conversation_turn_summaries (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id        TEXT NOT NULL,
+    ts                TEXT NOT NULL,
+    role              TEXT NOT NULL DEFAULT '',
+    summary           TEXT NOT NULL DEFAULT '',
+    event_id          TEXT NOT NULL DEFAULT '',
+    metadata_json     TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_conversation_turn_summaries_session_id ON conversation_turn_summaries(session_id);
+CREATE INDEX IF NOT EXISTS idx_conversation_turn_summaries_ts ON conversation_turn_summaries(ts);
 """
 
 
@@ -125,6 +193,7 @@ class MetricsDB:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._path = str(path)
         self._lock = threading.Lock()
+        self._open_loop_service = OpenLoopService()
         self._init_db()
 
     def _conn(self) -> sqlite3.Connection:
@@ -325,6 +394,13 @@ class MetricsDB:
         ts = entry.get("ts") or datetime.now(timezone.utc).isoformat()
         data = dict(entry)
         payload = data.pop("data", {})
+        payload = self._open_loop_service.enrich_event_data(
+            ts=ts,
+            status=str(data.get("status", "active")),
+            data=payload,
+            open_loop_note=(payload or {}).get("open_loop_note"),
+            admin_note=(payload or {}).get("admin_note"),
+        )
         with self._lock, self._conn() as conn:
             conn.execute(
                 """
@@ -383,16 +459,345 @@ class MetricsDB:
                 return False
             for row in rows:
                 data = _json.loads(row["data_json"] or "{}")
-                if open_loop_note is not None:
-                    data["open_loop_note"] = open_loop_note
-                if admin_note is not None:
-                    data["admin_note"] = admin_note
-                    data["admin_note_ts"] = datetime.now(timezone.utc).isoformat()
+                data = self._open_loop_service.apply_status_transition(
+                    status=status,
+                    data=data,
+                    open_loop_note=open_loop_note,
+                    admin_note=admin_note,
+                )
                 conn.execute(
                     "UPDATE event_history SET status = ?, data_json = ? WHERE id = ?",
                     (status, _json.dumps(data), row["id"]),
                 )
         return True
+
+    def update_event_history_policy(
+        self,
+        event_id: str,
+        *,
+        reminder_sent: bool = False,
+        escalation_level: str | None = None,
+    ) -> bool:
+        import json as _json
+
+        if not event_id or (not reminder_sent and not escalation_level):
+            return False
+        with self._lock, self._conn() as conn:
+            rows = conn.execute(
+                "SELECT id, data_json FROM event_history WHERE event_id = ?",
+                (event_id,),
+            ).fetchall()
+            if not rows:
+                return False
+            for row in rows:
+                data = _json.loads(row["data_json"] or "{}")
+                data = self._open_loop_service.apply_policy_update(
+                    data=data,
+                    reminder_sent=reminder_sent,
+                    escalation_level=escalation_level,
+                )
+                conn.execute(
+                    "UPDATE event_history SET data_json = ? WHERE id = ?",
+                    (_json.dumps(data), row["id"]),
+                )
+        return True
+
+    # ── Canonical event store ───────────────────────────────────────────────
+
+    def insert_event_record(self, entry: dict[str, Any]) -> None:
+        import json as _json
+
+        event_id = str(entry.get("event_id") or "").strip()
+        if not event_id:
+            raise ValueError("event_id is required")
+        created_at = str(entry.get("created_at") or datetime.now(timezone.utc).isoformat())
+        payload = dict(entry.get("data") or {})
+        with self._lock, self._conn() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO events
+                (event_id, event_type, source, room, camera_entity_id, severity, summary, details,
+                 confidence, status, created_at, expires_at, linked_session_id, data_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event_id,
+                    entry.get("event_type", ""),
+                    entry.get("source", ""),
+                    entry.get("room", ""),
+                    entry.get("camera_entity_id", ""),
+                    entry.get("severity", "normal"),
+                    entry.get("summary", ""),
+                    entry.get("details", ""),
+                    entry.get("confidence"),
+                    entry.get("status", "active"),
+                    created_at,
+                    entry.get("expires_at", ""),
+                    entry.get("linked_session_id", ""),
+                    _json.dumps(payload),
+                ),
+            )
+
+    def get_event_record(self, event_id: str) -> dict[str, Any] | None:
+        import json as _json
+
+        if not event_id:
+            return None
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT event_id, event_type, source, room, camera_entity_id, severity, summary, details,
+                       confidence, status, created_at, expires_at, linked_session_id, data_json
+                FROM events
+                WHERE event_id = ?
+                """,
+                (event_id,),
+            ).fetchone()
+        if not row:
+            return None
+        entry = dict(row)
+        entry["data"] = _json.loads(entry.pop("data_json", "{}") or "{}")
+        return entry
+
+    def list_event_records(
+        self,
+        *,
+        limit: int = 100,
+        event_type: str | None = None,
+        status: str | None = None,
+        source: str | None = None,
+        camera_entity_id: str | None = None,
+        created_after: str | None = None,
+        created_before: str | None = None,
+    ) -> list[dict[str, Any]]:
+        import json as _json
+
+        clauses: list[str] = []
+        args: list[Any] = []
+        if event_type:
+            clauses.append("event_type = ?")
+            args.append(event_type)
+        if status:
+            clauses.append("status = ?")
+            args.append(status)
+        if source:
+            clauses.append("source = ?")
+            args.append(source)
+        if camera_entity_id:
+            clauses.append("camera_entity_id = ?")
+            args.append(camera_entity_id)
+        if created_after:
+            clauses.append("created_at >= ?")
+            args.append(created_after)
+        if created_before:
+            clauses.append("created_at <= ?")
+            args.append(created_before)
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        args.append(max(1, min(limit, 500)))
+        sql = f"""
+        SELECT event_id, event_type, source, room, camera_entity_id, severity, summary, details,
+               confidence, status, created_at, expires_at, linked_session_id, data_json
+        FROM events
+        {where_sql}
+        ORDER BY created_at DESC
+        LIMIT ?
+        """
+        with self._conn() as conn:
+            rows = conn.execute(sql, tuple(args)).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            entry = dict(row)
+            entry["data"] = _json.loads(entry.pop("data_json", "{}") or "{}")
+            out.append(entry)
+        return out
+
+    def update_event_record_status(
+        self,
+        event_id: str,
+        *,
+        status: str,
+        open_loop_note: str | None = None,
+        admin_note: str | None = None,
+        reminder_sent: bool = False,
+        escalation_level: str | None = None,
+    ) -> bool:
+        import json as _json
+
+        if not event_id:
+            return False
+        with self._lock, self._conn() as conn:
+            row = conn.execute(
+                "SELECT data_json FROM events WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+            if not row:
+                return False
+            data = _json.loads(row["data_json"] or "{}")
+            created_row = conn.execute(
+                "SELECT created_at FROM events WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+            fallback_ts = str(created_row["created_at"] if created_row else "") or datetime.now(timezone.utc).isoformat()
+            data.setdefault("open_loop_started_ts", fallback_ts)
+            data = self._open_loop_service.apply_status_transition(
+                status=status,
+                data=data,
+                open_loop_note=open_loop_note,
+                admin_note=admin_note,
+            )
+            data = self._open_loop_service.apply_policy_update(
+                data=data,
+                reminder_sent=reminder_sent,
+                escalation_level=escalation_level,
+            )
+            conn.execute(
+                "UPDATE events SET status = ?, data_json = ? WHERE event_id = ?",
+                (status, _json.dumps(data), event_id),
+            )
+        return True
+
+    def insert_event_action(
+        self,
+        *,
+        event_id: str,
+        action_id: str,
+        action_type: str,
+        status: str = "completed",
+        result: dict[str, Any] | None = None,
+        ts: str | None = None,
+    ) -> None:
+        import json as _json
+
+        with self._lock, self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO event_actions (ts, event_id, action_id, action_type, status, result_json)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    ts or datetime.now(timezone.utc).isoformat(),
+                    event_id,
+                    action_id,
+                    action_type,
+                    status,
+                    _json.dumps(result or {}),
+                ),
+            )
+
+    def list_event_actions(self, event_id: str) -> list[dict[str, Any]]:
+        import json as _json
+
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT ts, event_id, action_id, action_type, status, result_json
+                FROM event_actions
+                WHERE event_id = ?
+                ORDER BY id ASC
+                """,
+                (event_id,),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            entry = dict(row)
+            entry["result"] = _json.loads(entry.pop("result_json", "{}") or "{}")
+            out.append(entry)
+        return out
+
+    def insert_event_media(
+        self,
+        *,
+        event_id: str,
+        media_type: str,
+        url: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        import json as _json
+
+        with self._lock, self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO event_media (event_id, media_type, url, metadata_json)
+                VALUES (?, ?, ?, ?)
+                """,
+                (event_id, media_type, url, _json.dumps(metadata or {})),
+            )
+
+    def list_event_media(self, event_id: str) -> list[dict[str, Any]]:
+        import json as _json
+
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT event_id, media_type, url, metadata_json
+                FROM event_media
+                WHERE event_id = ?
+                ORDER BY id ASC
+                """,
+                (event_id,),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            entry = dict(row)
+            entry["metadata"] = _json.loads(entry.pop("metadata_json", "{}") or "{}")
+            out.append(entry)
+        return out
+
+    def upsert_conversation_session(
+        self,
+        *,
+        session_id: str,
+        surface: str = "",
+        linked_event_id: str = "",
+        metadata: dict[str, Any] | None = None,
+        now_iso: str | None = None,
+    ) -> None:
+        import json as _json
+
+        ts = now_iso or datetime.now(timezone.utc).isoformat()
+        with self._lock, self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO conversation_sessions
+                (session_id, started_at, updated_at, surface, linked_event_id, metadata_json)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    updated_at=excluded.updated_at,
+                    surface=excluded.surface,
+                    linked_event_id=excluded.linked_event_id,
+                    metadata_json=excluded.metadata_json
+                """,
+                (session_id, ts, ts, surface, linked_event_id, _json.dumps(metadata or {})),
+            )
+
+    def insert_conversation_turn_summary(
+        self,
+        *,
+        session_id: str,
+        role: str,
+        summary: str,
+        event_id: str = "",
+        metadata: dict[str, Any] | None = None,
+        ts: str | None = None,
+    ) -> None:
+        import json as _json
+
+        with self._lock, self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO conversation_turn_summaries
+                (session_id, ts, role, summary, event_id, metadata_json)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    ts or datetime.now(timezone.utc).isoformat(),
+                    role,
+                    summary,
+                    event_id,
+                    _json.dumps(metadata or {}),
+                ),
+            )
 
     # ── Server logs ──────────────────────────────────────────────────────────────────────────
 
