@@ -135,7 +135,7 @@ async def test_handle_event_followup_injects_event_context():
 
 
 @pytest.mark.asyncio
-async def test_pending_event_context_is_consumed_once_by_text_turn():
+async def test_event_context_stays_active_for_one_additional_turn():
     app = SimpleNamespace(
         state=SimpleNamespace(
             llm_service=object(),
@@ -171,6 +171,12 @@ async def test_pending_event_context_is_consumed_once_by_text_turn():
             user_text="And what are they carrying?",
         )
     )
+    await service.handle_text_turn(
+        ConversationTurnRequest(
+            session_id="event-2",
+            user_text="Anything else?",
+        )
+    )
 
     assert captured[0] == (
         "Who is there?\n\n[Event context]\n"
@@ -178,7 +184,13 @@ async def test_pending_event_context_is_consumed_once_by_text_turn():
         "  summary: Someone is at the front door\n"
         "  camera: front_door"
     )
-    assert captured[1] == "And what are they carrying?"
+    assert captured[1] == (
+        "And what are they carrying?\n\n[Event context]\n"
+        "  type: doorbell\n"
+        "  summary: Someone is at the front door\n"
+        "  camera: front_door"
+    )
+    assert captured[2] == "Anything else?"
 
 
 @pytest.mark.asyncio
@@ -375,3 +387,57 @@ async def test_voice_turn_uses_persisted_home_context_and_pending_event_overlay(
         "  summary: A car pulled into the driveway\n"
         "  source: driveway_camera"
     )
+
+
+@pytest.mark.asyncio
+async def test_event_context_from_chat_followup_can_carry_into_next_voice_turn_once():
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            llm_service=object(),
+            session_manager=object(),
+            ha_proxy=object(),
+            decision_log=None,
+            memory_service=None,
+        )
+    )
+    service = ConversationService(app)
+
+    captured: list[str] = []
+
+    async def fake_run_turn(*, session_id: str, user_text: str):
+        captured.append(user_text)
+        return "ok"
+
+    service._run_turn = AsyncMock(side_effect=fake_run_turn)
+
+    await service.handle_event_followup(
+        EventFollowupRequest(
+            session_id="event-voice-carry",
+            user_text="Is this urgent?",
+            event_type="parcel_delivery",
+            event_summary="Package left near the front door",
+            event_context={"camera_entity_id": "camera.front_door"},
+        )
+    )
+    await service.handle_voice_turn(
+        session_id="event-voice-carry",
+        user_text="And what should I do now?",
+    )
+    await service.handle_voice_turn(
+        session_id="event-voice-carry",
+        user_text="Anything else?",
+    )
+
+    assert captured[0] == (
+        "Is this urgent?\n\n[Event context]\n"
+        "  type: parcel_delivery\n"
+        "  summary: Package left near the front door\n"
+        "  camera_entity_id: camera.front_door"
+    )
+    assert captured[1] == (
+        "And what should I do now?\n\n[Event context]\n"
+        "  type: parcel_delivery\n"
+        "  summary: Package left near the front door\n"
+        "  camera_entity_id: camera.front_door"
+    )
+    assert captured[2] == "Anything else?"

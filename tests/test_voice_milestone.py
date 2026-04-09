@@ -469,3 +469,85 @@ def test_voice_ws_does_not_reuse_home_context_after_chat_explicitly_clears_it():
     third_messages = llm_mock.chat.await_args_list[2].args[0]
     assert third_messages[-1]["role"] == "user"
     assert third_messages[-1]["content"] == "What changed?"
+
+
+def test_voice_ws_reuses_followup_event_context_seeded_by_chat_route():
+    app = _build_test_app()
+
+    stt_mock = app.state.stt_service
+    stt_mock.transcribe = AsyncMock(return_value="And what should I do now?")
+
+    llm_mock = app.state.llm_service
+    llm_mock.is_ready = AsyncMock(return_value=True)
+    llm_mock.chat = AsyncMock(side_effect=[
+        ("The package looks routine.", []),
+        ("You can leave it for now.", []),
+    ])
+
+    app.state.session_manager = SessionManager("System prompt")
+    app.state.conversation_service = ConversationService(app)
+    app.state.recent_event_contexts["evt-followup"] = (
+        0.0,
+        {
+            "event_type": "parcel_delivery",
+            "event_summary": "Package left near the front door.",
+            "event_context": {
+                "camera_entity_id": "camera.front_door",
+                "source": "parcel",
+                "captures": ["doorstep", "wide"],
+            },
+        },
+    )
+
+    with TestClient(app) as client:
+        followup_resp = client.post(
+            "/chat/followup-event",
+            json={
+                "session_id": "coordinator-followup-voice",
+                "text": "Is this urgent?",
+                "event_id": "evt-followup",
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        assert followup_resp.status_code == 200
+        assert followup_resp.json()["text"] == "The package looks routine."
+
+        with client.websocket_connect("/ws/voice?api_key=test-key&session_id=coordinator-followup-voice") as ws:
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "state"
+            assert msg["state"] == "idle"
+
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "voice_capabilities"
+
+            ws.send_bytes(_make_silent_wav())
+
+            response_seen = False
+            audio_received = False
+            for _ in range(40):
+                data = ws.receive()
+                if data.get("bytes"):
+                    audio_received = True
+                    continue
+                msg = json.loads(data.get("text", ""))
+                if msg.get("type") == "response":
+                    response_seen = True
+                elif msg.get("type") == "state" and msg.get("state") == "idle" and response_seen:
+                    break
+                elif msg.get("type") == "error":
+                    pytest.fail(f"Got error from server: {msg}")
+
+    assert response_seen is True
+    assert audio_received is True
+    assert llm_mock.chat.await_count == 2
+    second_messages = llm_mock.chat.await_args_list[1].args[0]
+    assert second_messages[-1]["role"] == "user"
+    assert second_messages[-1]["content"] == (
+        "And what should I do now?\n\n[Event context]\n"
+        "  type: parcel_delivery\n"
+        "  summary: Package left near the front door.\n"
+        "  camera_entity_id: camera.front_door\n"
+        "  source: parcel\n"
+        "  captures.0: doorstep\n"
+        "  captures.1: wide"
+    )

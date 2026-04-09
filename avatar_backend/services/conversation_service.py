@@ -37,6 +37,7 @@ class PendingEventFollowupContext:
 class ConversationSessionState:
     home_context: dict[str, str] | None = None
     pending_event_context: PendingEventFollowupContext | None = None
+    active_event_context: PendingEventFollowupContext | None = None
 
 
 class ConversationService:
@@ -95,6 +96,7 @@ class ConversationService:
             if session_state is None:
                 return
             session_state.pending_event_context = None
+            session_state.active_event_context = None
             if session_state.home_context is None:
                 self._session_states.pop(session_id, None)
 
@@ -111,6 +113,7 @@ class ConversationService:
         context: dict[str, Any] | None = None,
     ) -> str:
         pending: PendingEventFollowupContext | None = None
+        active_event: PendingEventFollowupContext | None = None
         sanitized_context = self._context_builder.sanitize_context(context)
         context_was_provided = context is not None
         async with self._state_lock:
@@ -129,20 +132,30 @@ class ConversationService:
                         session_state.home_context = None
                 effective_context = session_state.home_context
                 pending = session_state.pending_event_context
+                active_event = session_state.active_event_context
                 session_state.pending_event_context = None
-                if session_state.home_context is None and session_state.pending_event_context is None:
+                if pending is not None:
+                    session_state.active_event_context = pending
+                elif active_event is not None:
+                    session_state.active_event_context = None
+                if (
+                    session_state.home_context is None
+                    and session_state.pending_event_context is None
+                    and session_state.active_event_context is None
+                ):
                     self._session_states.pop(session_id, None)
             else:
                 effective_context = sanitized_context or None
         shaped = self._context_builder.build_text_context(user_text, effective_context)
-        if not pending:
+        event_context = pending or active_event
+        if not event_context:
             return shaped
         return self._context_builder.build_event_followup_context(
             user_text=shaped,
-            event_type=pending.event_type,
-            event_summary=pending.event_summary,
-            event_context=pending.event_context,
-            followup_prompt=pending.followup_prompt,
+            event_type=event_context.event_type,
+            event_summary=event_context.event_summary,
+            event_context=event_context.event_context,
+            followup_prompt=event_context.followup_prompt,
         )
 
     async def _run_turn(self, *, session_id: str, user_text: str) -> ChatResult:
