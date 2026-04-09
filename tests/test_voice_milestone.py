@@ -8,6 +8,7 @@ This avoids unittest.mock.patch thread-propagation issues with TestClient.
 Pipeline under test:
   binary audio → STT → run_chat(llm, sm, ha) → TTS → binary WAV + JSON msgs
 """
+import asyncio
 import io
 import json
 import wave
@@ -409,6 +410,98 @@ def test_voice_ws_streamed_input_cancel_discards_buffer_before_next_turn():
     assert audio_received is True
     assert stt_mock.transcribe.await_count == 1
     assert stt_mock.transcribe.await_args.args[0] == fresh_audio
+    assert llm_mock.chat.await_count == 1
+
+
+def test_voice_ws_second_turn_interrupts_first_turn_on_same_socket():
+    app = _build_test_app()
+
+    first_gate = asyncio.Event()
+    second_gate = asyncio.Event()
+    transcripts = ["first interrupted turn", "second winning turn"]
+
+    async def transcribe(_audio: bytes) -> str:
+        text = transcripts.pop(0)
+        gate = first_gate if text == "first interrupted turn" else second_gate
+        await gate.wait()
+        return text
+
+    stt_mock = app.state.stt_service
+    stt_mock.transcribe = AsyncMock(side_effect=transcribe)
+
+    llm_mock = app.state.llm_service
+    llm_mock.is_ready = AsyncMock(return_value=True)
+    llm_mock.chat = AsyncMock(return_value=("Handled only the latest turn.", []))
+
+    app.state.session_manager = SessionManager("System prompt")
+    app.state.conversation_service = ConversationService(app)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/voice?api_key=test-key&session_id=coordinator-interrupt") as ws:
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "state"
+            assert msg["state"] == "idle"
+
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "voice_capabilities"
+
+            ws.send_bytes(_make_silent_wav(n_samples=90))
+
+            turn_started_ids: list[int] = []
+            interrupted_turn_id = None
+            turn_finished: dict[int, str] = {}
+            response_turn_ids: list[int] = []
+            audio_turn_ids: list[int] = []
+            states_seen: list[tuple[int | None, str]] = []
+
+            for _ in range(20):
+                data = ws.receive()
+                if data.get("bytes"):
+                    continue
+                msg = json.loads(data.get("text", ""))
+                if msg.get("type") == "turn_started":
+                    turn_started_ids.append(msg["turn_id"])
+                    if msg["turn_id"] == 1:
+                        ws.send_bytes(_make_silent_wav(n_samples=100))
+                        second_gate.set()
+                elif msg.get("type") == "turn_interrupted":
+                    interrupted_turn_id = msg["interrupted_turn_id"]
+                    first_gate.set()
+                elif msg.get("type") == "turn_finished":
+                    turn_finished[msg["turn_id"]] = msg["reason"]
+                    if (
+                        turn_finished.get(2) == "completed"
+                        and 2 in response_turn_ids
+                    ):
+                        break
+                elif msg.get("type") == "response":
+                    response_turn_ids.append(msg["turn_id"])
+                    if msg["turn_id"] == 2:
+                        assert msg["text"] == "Handled only the latest turn."
+                    if (
+                        msg["turn_id"] == 2
+                        and turn_finished.get(2) == "completed"
+                    ):
+                        break
+                elif msg.get("type") == "audio_start":
+                    audio_turn_ids.append(msg["turn_id"])
+                elif msg.get("type") == "state":
+                    states_seen.append((msg.get("turn_id"), msg["state"]))
+                elif msg.get("type") == "error":
+                    pytest.fail(f"Got error from server: {msg}")
+
+    assert turn_started_ids == [1, 2]
+    assert interrupted_turn_id == 1
+    assert turn_finished[1] == "interrupted"
+    assert turn_finished[2] == "completed"
+    assert response_turn_ids == [2]
+    assert audio_turn_ids == [2]
+    listening_count = sum(1 for _, state in states_seen if state == "listening")
+    assert listening_count >= 2
+    assert (2, "thinking") in states_seen
+    assert (2, "speaking") in states_seen
+    assert (2, "idle") in states_seen
+    assert stt_mock.transcribe.await_count == 2
     assert llm_mock.chat.await_count == 1
 
 
