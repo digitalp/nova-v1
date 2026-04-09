@@ -25,7 +25,7 @@ from avatar_backend.models.tool_result import ToolResult
 from avatar_backend.routers.chat import router as chat_router
 from avatar_backend.routers.voice import router as voice_router
 from avatar_backend.services.conversation_service import ConversationService
-from avatar_backend.services.realtime_voice_service import RealtimeVoiceService
+from avatar_backend.services.realtime_voice_service import RealtimeVoiceService, VoiceTurnResult
 from avatar_backend.services.session_manager import SessionManager
 from avatar_backend.services.ws_manager import ConnectionManager
 
@@ -589,6 +589,63 @@ def test_voice_ws_streamed_output_only_flows_for_latest_interrupted_turn():
     assert chunk_count == output_start["chunk_count"]
     assert stt_mock.transcribe.await_count == 2
     assert llm_mock.chat.await_count == 1
+
+
+def test_voice_ws_uses_custom_realtime_voice_adapter():
+    app = _build_test_app()
+
+    stt_mock = app.state.stt_service
+    tts_mock = app.state.tts_service
+    adapter = MagicMock()
+    adapter.transcribe = AsyncMock(return_value="Adapter transcript")
+    adapter.run_turn = AsyncMock(return_value=VoiceTurnResult(
+        text="Adapter reply.",
+        session_id="adapter-session",
+        tool_calls=[],
+        processing_time_ms=9,
+    ))
+    adapter.synthesise_reply = AsyncMock(return_value=(
+        _make_silent_wav(n_samples=80, sample_rate=22050),
+        [],
+    ))
+
+    app.state.realtime_voice_adapter = adapter
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/voice?api_key=test-key&session_id=adapter-route") as ws:
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "state"
+            assert msg["state"] == "idle"
+
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "voice_capabilities"
+
+            ws.send_bytes(b"adapter-audio")
+
+            response_seen = None
+            audio_received = False
+            for _ in range(30):
+                data = ws.receive()
+                if data.get("bytes"):
+                    audio_received = True
+                    continue
+                msg = json.loads(data.get("text", ""))
+                if msg.get("type") == "response":
+                    response_seen = msg
+                elif msg.get("type") == "state" and msg.get("state") == "idle" and response_seen:
+                    break
+                elif msg.get("type") == "error":
+                    pytest.fail(f"Got error from server: {msg}")
+
+    assert response_seen is not None
+    assert response_seen["text"] == "Adapter reply."
+    assert response_seen["session_id"] == "adapter-session"
+    assert audio_received is True
+    adapter.transcribe.assert_awaited_once()
+    adapter.run_turn.assert_awaited_once()
+    adapter.synthesise_reply.assert_awaited_once()
+    stt_mock.transcribe.assert_not_called()
+    tts_mock.synthesise_with_timing.assert_not_called()
 
 
 def test_voice_ws_uses_persisted_home_context_from_prior_chat_turn():

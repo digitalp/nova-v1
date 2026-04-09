@@ -6,7 +6,7 @@ import json
 import wave
 from contextlib import suppress
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 import structlog
 from fastapi import WebSocket
@@ -55,6 +55,98 @@ class VoiceSessionState:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
+@dataclass
+class VoiceTurnResult:
+    text: str
+    session_id: str
+    tool_calls: list[Any]
+    processing_time_ms: int | None = None
+
+
+class RealtimeVoiceAdapter(Protocol):
+    async def transcribe(self, ctx: VoiceTurnContext, audio_bytes: bytes) -> str:
+        ...
+
+    async def run_turn(
+        self,
+        ctx: VoiceTurnContext,
+        transcript: str,
+        *,
+        event_id: str | None = None,
+        followup_prompt: str | None = None,
+    ) -> VoiceTurnResult:
+        ...
+
+    async def synthesise_reply(
+        self,
+        ctx: VoiceTurnContext,
+        reply_text: str,
+    ) -> tuple[bytes, list[Any]]:
+        ...
+
+
+class DefaultRealtimeVoiceAdapter:
+    async def transcribe(self, ctx: VoiceTurnContext, audio_bytes: bytes) -> str:
+        return await ctx.stt.transcribe(audio_bytes)
+
+    async def run_turn(
+        self,
+        ctx: VoiceTurnContext,
+        transcript: str,
+        *,
+        event_id: str | None = None,
+        followup_prompt: str | None = None,
+    ) -> VoiceTurnResult:
+        result = await _run_default_conversation_turn(
+            ctx,
+            transcript,
+            event_id=event_id,
+            followup_prompt=followup_prompt,
+        )
+        return VoiceTurnResult(
+            text=result.text,
+            session_id=result.session_id,
+            tool_calls=list(result.tool_calls),
+            processing_time_ms=result.processing_time_ms,
+        )
+
+    async def synthesise_reply(
+        self,
+        ctx: VoiceTurnContext,
+        reply_text: str,
+    ) -> tuple[bytes, list[Any]]:
+        return await ctx.tts.synthesise_with_timing(reply_text)
+
+
+async def _run_default_conversation_turn(
+    ctx: VoiceTurnContext,
+    transcript: str,
+    *,
+    event_id: str | None = None,
+    followup_prompt: str | None = None,
+) -> Any:
+    if event_id:
+        recent_events: dict[str, tuple[float, dict[str, Any]]] = getattr(
+            ctx.app.state, "recent_event_contexts", {}
+        )
+        stored = recent_events.get(event_id)
+        if stored:
+            _, event_context = stored
+            await ctx.app.state.conversation_service.set_event_followup_context(
+                ctx.session_id,
+                PendingEventFollowupContext(
+                    event_type=str(event_context.get("event_type", "event")),
+                    event_summary=str(event_context.get("event_summary", "")) or None,
+                    event_context=dict(event_context.get("event_context", {})),
+                    followup_prompt=followup_prompt,
+                )
+            )
+    return await ctx.app.state.conversation_service.handle_voice_turn(
+        session_id=ctx.session_id,
+        user_text=transcript,
+    )
+
+
 class RealtimeVoiceService:
     """Compatibility-first voice turn orchestrator for the websocket voice path.
 
@@ -66,6 +158,7 @@ class RealtimeVoiceService:
     def __init__(self) -> None:
         self._sessions: dict[str, VoiceSessionState] = {}
         self._sessions_lock = asyncio.Lock()
+        self._default_adapter = DefaultRealtimeVoiceAdapter()
 
     async def connect_session(self, session_key: str) -> None:
         await self._get_or_create_session(session_key)
@@ -224,10 +317,11 @@ class RealtimeVoiceService:
         speaker_task: asyncio.Task[None] | None = None
         finish_reason = "completed"
         finish_sent = False
+        adapter = self._resolve_adapter(ctx)
         try:
             try:
                 await self._send_state(ctx.ws, ctx.ws_mgr, LISTENING, session_key=session_key)
-                transcript = await ctx.stt.transcribe(audio_bytes)
+                transcript = await adapter.transcribe(ctx, audio_bytes)
             except Exception as exc:
                 _LOGGER.error("voice_ws.stt_error", exc=str(exc))
                 await self._send_json(ctx.ws, {"type": "error", "detail": f"STT failed: {exc}"}, turn_id=turn_id)
@@ -261,36 +355,12 @@ class RealtimeVoiceService:
             result = None
 
             try:
-                if event_id:
-                    recent_events: dict[str, tuple[float, dict[str, Any]]] = getattr(
-                        ctx.app.state, "recent_event_contexts", {}
-                    )
-                    stored = recent_events.get(event_id)
-                    if stored:
-                        _, event_context = stored
-                        await ctx.app.state.conversation_service.set_event_followup_context(
-                            ctx.session_id,
-                            PendingEventFollowupContext(
-                                event_type=str(event_context.get("event_type", "event")),
-                                event_summary=str(event_context.get("event_summary", "")) or None,
-                                event_context=dict(event_context.get("event_context", {})),
-                                followup_prompt=followup_prompt,
-                            )
-                        )
-                        result = await ctx.app.state.conversation_service.handle_voice_turn(
-                            session_id=ctx.session_id,
-                            user_text=transcript,
-                        )
-                    else:
-                        result = await ctx.app.state.conversation_service.handle_voice_turn(
-                            session_id=ctx.session_id,
-                            user_text=transcript,
-                        )
-                else:
-                    result = await ctx.app.state.conversation_service.handle_voice_turn(
-                        session_id=ctx.session_id,
-                        user_text=transcript,
-                    )
+                result = await adapter.run_turn(
+                    ctx,
+                    transcript,
+                    event_id=event_id,
+                    followup_prompt=followup_prompt,
+                )
             except RuntimeError as exc:
                 err = str(exc)
                 _LOGGER.error("voice_ws.llm_error", exc=err)
@@ -300,36 +370,12 @@ class RealtimeVoiceService:
                     _LOGGER.warning("voice_ws.clearing_corrupt_session", session_id=ctx.session_id)
                     await ctx.app.state.conversation_service.clear_session_state(ctx.session_id)
                     try:
-                        if event_id:
-                            recent_events: dict[str, tuple[float, dict[str, Any]]] = getattr(
-                                ctx.app.state, "recent_event_contexts", {}
-                            )
-                            stored = recent_events.get(event_id)
-                            if stored:
-                                _, event_context = stored
-                                await ctx.app.state.conversation_service.set_event_followup_context(
-                                    ctx.session_id,
-                                    PendingEventFollowupContext(
-                                        event_type=str(event_context.get("event_type", "event")),
-                                        event_summary=str(event_context.get("event_summary", "")) or None,
-                                        event_context=dict(event_context.get("event_context", {})),
-                                        followup_prompt=followup_prompt,
-                                    )
-                                )
-                                result = await ctx.app.state.conversation_service.handle_voice_turn(
-                                    session_id=ctx.session_id,
-                                    user_text=transcript,
-                                )
-                            else:
-                                result = await ctx.app.state.conversation_service.handle_voice_turn(
-                                    session_id=ctx.session_id,
-                                    user_text=transcript,
-                                )
-                        else:
-                            result = await ctx.app.state.conversation_service.handle_voice_turn(
-                                session_id=ctx.session_id,
-                                user_text=transcript,
-                            )
+                        result = await adapter.run_turn(
+                            ctx,
+                            transcript,
+                            event_id=event_id,
+                            followup_prompt=followup_prompt,
+                        )
                     except Exception as retry_exc:
                         _LOGGER.error("voice_ws.llm_retry_failed", exc=str(retry_exc))
                         fallback_text = LLM_OFFLINE_MSG
@@ -361,7 +407,7 @@ class RealtimeVoiceService:
                     from avatar_backend.config import get_settings as _get_settings
                     offset_s = _get_settings().speaker_audio_offset_ms / 1000.0
 
-                    wav_bytes, word_timings = await ctx.tts.synthesise_with_timing(reply_text)
+                    wav_bytes, word_timings = await adapter.synthesise_reply(ctx, reply_text)
                     if session_key and not await self._is_current_turn(session_key, turn_id):
                         finish_reason = "superseded"
                         await self._finish_turn(ctx.ws, session_key, turn_id, finish_reason)
@@ -580,3 +626,9 @@ class RealtimeVoiceService:
             )
         except AttributeError:
             return None
+
+    def _resolve_adapter(self, ctx: VoiceTurnContext) -> RealtimeVoiceAdapter:
+        adapter = getattr(ctx.app.state, "realtime_voice_adapter", None)
+        if adapter is None:
+            return self._default_adapter
+        return adapter

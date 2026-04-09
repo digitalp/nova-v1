@@ -9,12 +9,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from avatar_backend.services.realtime_voice_service import (
+    DefaultRealtimeVoiceAdapter,
     IDLE,
     LISTENING,
     SPEAKING,
     THINKING,
     RealtimeVoiceService,
     VoiceTurnContext,
+    VoiceTurnResult,
 )
 from avatar_backend.services.ws_manager import ConnectionManager
 
@@ -524,3 +526,70 @@ async def test_client_output_streaming_sends_chunked_audio_messages():
     assert stream_start["chunk_count"] == len(ws.binary_messages)
     assert stream_end["turn_id"] == 1
     assert len(ws.binary_messages) > 1
+
+
+@pytest.mark.asyncio
+async def test_realtime_voice_service_uses_custom_app_adapter():
+    service = RealtimeVoiceService()
+    ws = FakeWebSocket()
+    ws_mgr = MagicMock(spec=ConnectionManager)
+    ws_mgr.broadcast_json = AsyncMock()
+
+    custom_adapter = MagicMock(spec=DefaultRealtimeVoiceAdapter)
+    custom_adapter.transcribe = AsyncMock(return_value="adapter transcript")
+    custom_adapter.run_turn = AsyncMock(return_value=VoiceTurnResult(
+        text="Adapter reply.",
+        session_id="voice_test",
+        tool_calls=[],
+        processing_time_ms=12,
+    ))
+    custom_adapter.synthesise_reply = AsyncMock(return_value=(b"RIFF" + b"\x00" * 40, []))
+
+    stt = MagicMock()
+    stt.transcribe = AsyncMock(return_value="legacy transcript")
+
+    tts = MagicMock()
+    tts.synthesise_with_timing = AsyncMock(return_value=(b"legacy", []))
+
+    conversation_service = MagicMock()
+    conversation_service.handle_voice_turn = AsyncMock()
+
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            realtime_voice_adapter=custom_adapter,
+            conversation_service=conversation_service,
+            llm_service=MagicMock(),
+            session_manager=MagicMock(),
+            ha_proxy=MagicMock(),
+            decision_log=None,
+            memory_service=None,
+            recent_event_contexts={},
+        )
+    )
+    ws.app = app
+
+    ctx = VoiceTurnContext(
+        ws=ws,
+        ws_mgr=ws_mgr,
+        session_id="voice_test",
+        stt=stt,
+        tts=tts,
+        speaker=None,
+        app=app,
+    )
+
+    await service.connect_session("voice_test:socket")
+    try:
+        await service.start_audio_turn("voice_test:socket", ctx, b"adapter-audio")
+        await asyncio.sleep(0.05)
+    finally:
+        with suppress(Exception):
+            await service.disconnect_session("voice_test:socket")
+
+    custom_adapter.transcribe.assert_awaited_once_with(ctx, b"adapter-audio")
+    custom_adapter.run_turn.assert_awaited_once()
+    custom_adapter.synthesise_reply.assert_awaited_once_with(ctx, "Adapter reply.")
+    stt.transcribe.assert_not_called()
+    tts.synthesise_with_timing.assert_not_called()
+    conversation_service.handle_voice_turn.assert_not_called()
+    assert _messages_of_type(ws, "response")[0]["text"] == "Adapter reply."
