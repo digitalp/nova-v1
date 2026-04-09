@@ -24,7 +24,10 @@ from avatar_backend.services.speaker_service import SpeakerService
 from avatar_backend.services.stt_service import STTService
 from avatar_backend.services.tts_service import create_tts_service
 from avatar_backend.services.ws_manager import ConnectionManager
-from avatar_backend.services.realtime_voice_service import RealtimeVoiceService
+from avatar_backend.services.realtime_voice_service import (
+    RealtimeVoiceService,
+    create_realtime_voice_adapter,
+)
 from avatar_backend.services.surface_state_service import SurfaceStateService
 from avatar_backend.services.event_service import EventService
 from avatar_backend.services.proactive_service import ProactiveService
@@ -139,6 +142,7 @@ async def lifespan(app: FastAPI):
     logger.info("tts_service.configured", provider=settings.tts_provider)
     app.state.ws_manager  = ConnectionManager()
     app.state.conversation_service = ConversationService(app)
+    app.state.realtime_voice_adapter = create_realtime_voice_adapter(settings)
     app.state.realtime_voice_service = RealtimeVoiceService()
     app.state.surface_state_service = SurfaceStateService()
     app.state.event_service = EventService()

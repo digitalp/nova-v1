@@ -64,6 +64,11 @@ class VoiceTurnResult:
 
 
 class RealtimeVoiceAdapter(Protocol):
+    adapter_name: str
+    provider_name: str
+    supports_native_audio_input: bool
+    supports_native_audio_output: bool
+
     async def transcribe(self, ctx: VoiceTurnContext, audio_bytes: bytes) -> str:
         ...
 
@@ -86,6 +91,11 @@ class RealtimeVoiceAdapter(Protocol):
 
 
 class DefaultRealtimeVoiceAdapter:
+    adapter_name = "default_compat"
+    provider_name = "local"
+    supports_native_audio_input = False
+    supports_native_audio_output = False
+
     async def transcribe(self, ctx: VoiceTurnContext, audio_bytes: bytes) -> str:
         return await ctx.stt.transcribe(audio_bytes)
 
@@ -454,12 +464,17 @@ class RealtimeVoiceService:
 
     async def send_initial_state(self, ws: WebSocket, ws_mgr: ConnectionManager) -> None:
         await self._send_state(ws, ws_mgr, IDLE)
+        adapter = self._resolve_adapter_for_ws(ws)
         await self._send_json(ws, {
             "type": "voice_capabilities",
             "input_streaming": True,
             "output_streaming": True,
             "output_audio_formats": ["wav", "pcm_s16le"],
             "turn_context": True,
+            "realtime_adapter": getattr(adapter, "adapter_name", "default_compat"),
+            "realtime_provider": getattr(adapter, "provider_name", "local"),
+            "native_audio_input": bool(getattr(adapter, "supports_native_audio_input", False)),
+            "native_audio_output": bool(getattr(adapter, "supports_native_audio_output", False)),
         })
 
     async def _send_wav(self, ws: WebSocket, wav_bytes: bytes) -> None:
@@ -632,3 +647,23 @@ class RealtimeVoiceService:
         if adapter is None:
             return self._default_adapter
         return adapter
+
+    def _resolve_adapter_for_ws(self, ws: WebSocket) -> RealtimeVoiceAdapter:
+        app = getattr(ws, "app", None)
+        state = getattr(app, "state", None) if app is not None else None
+        adapter = getattr(state, "realtime_voice_adapter", None) if state is not None else None
+        if adapter is None:
+            return self._default_adapter
+        return adapter
+
+
+class OpenAIChatRealtimeVoiceAdapter(DefaultRealtimeVoiceAdapter):
+    adapter_name = "openai_chat_compat"
+    provider_name = "openai"
+
+
+def create_realtime_voice_adapter(settings: Any) -> RealtimeVoiceAdapter:
+    provider = str(getattr(settings, "llm_provider", "") or "").strip().lower()
+    if provider == "openai" and str(getattr(settings, "openai_api_key", "") or "").strip():
+        return OpenAIChatRealtimeVoiceAdapter()
+    return DefaultRealtimeVoiceAdapter()

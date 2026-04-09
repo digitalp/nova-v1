@@ -12,11 +12,13 @@ from avatar_backend.services.realtime_voice_service import (
     DefaultRealtimeVoiceAdapter,
     IDLE,
     LISTENING,
+    OpenAIChatRealtimeVoiceAdapter,
     SPEAKING,
     THINKING,
     RealtimeVoiceService,
     VoiceTurnContext,
     VoiceTurnResult,
+    create_realtime_voice_adapter,
 )
 from avatar_backend.services.ws_manager import ConnectionManager
 
@@ -60,6 +62,46 @@ async def test_send_pong_if_needed_handles_ping():
 
     assert handled is True
     assert json.loads(ws.text_messages[0]) == {"type": "pong"}
+
+
+@pytest.mark.asyncio
+async def test_send_initial_state_includes_adapter_metadata():
+    service = RealtimeVoiceService()
+    ws = FakeWebSocket()
+    ws_mgr = MagicMock(spec=ConnectionManager)
+    ws_mgr.broadcast_json = AsyncMock()
+    ws.app = SimpleNamespace(
+        state=SimpleNamespace(
+            realtime_voice_adapter=OpenAIChatRealtimeVoiceAdapter(),
+        )
+    )
+
+    await service.send_initial_state(ws, ws_mgr)
+
+    state_msg = json.loads(ws.text_messages[0])
+    caps_msg = json.loads(ws.text_messages[1])
+    assert state_msg == {"type": "state", "state": "idle"}
+    assert caps_msg["type"] == "voice_capabilities"
+    assert caps_msg["realtime_adapter"] == "openai_chat_compat"
+    assert caps_msg["realtime_provider"] == "openai"
+    assert caps_msg["native_audio_input"] is False
+    assert caps_msg["native_audio_output"] is False
+
+
+def test_create_realtime_voice_adapter_selects_openai_chat_compat():
+    settings = SimpleNamespace(llm_provider="openai", openai_api_key="sk-test")
+
+    adapter = create_realtime_voice_adapter(settings)
+
+    assert isinstance(adapter, OpenAIChatRealtimeVoiceAdapter)
+
+
+def test_create_realtime_voice_adapter_defaults_to_compat_adapter():
+    settings = SimpleNamespace(llm_provider="ollama", openai_api_key="")
+
+    adapter = create_realtime_voice_adapter(settings)
+
+    assert isinstance(adapter, DefaultRealtimeVoiceAdapter)
 
 
 @pytest.mark.asyncio

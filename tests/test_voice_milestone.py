@@ -25,7 +25,11 @@ from avatar_backend.models.tool_result import ToolResult
 from avatar_backend.routers.chat import router as chat_router
 from avatar_backend.routers.voice import router as voice_router
 from avatar_backend.services.conversation_service import ConversationService
-from avatar_backend.services.realtime_voice_service import RealtimeVoiceService, VoiceTurnResult
+from avatar_backend.services.realtime_voice_service import (
+    OpenAIChatRealtimeVoiceAdapter,
+    RealtimeVoiceService,
+    VoiceTurnResult,
+)
 from avatar_backend.services.session_manager import SessionManager
 from avatar_backend.services.ws_manager import ConnectionManager
 
@@ -198,6 +202,10 @@ def test_voice_ws_negotiates_streamed_output_capabilities():
             assert msg["input_streaming"] is True
             assert msg["output_streaming"] is True
             assert "pcm_s16le" in msg["output_audio_formats"]
+            assert msg["realtime_adapter"] == "default_compat"
+            assert msg["realtime_provider"] == "local"
+            assert msg["native_audio_input"] is False
+            assert msg["native_audio_output"] is False
 
             ws.send_text(json.dumps({
                 "type": "client_capabilities",
@@ -597,6 +605,10 @@ def test_voice_ws_uses_custom_realtime_voice_adapter():
     stt_mock = app.state.stt_service
     tts_mock = app.state.tts_service
     adapter = MagicMock()
+    adapter.adapter_name = "custom_test_adapter"
+    adapter.provider_name = "custom"
+    adapter.supports_native_audio_input = False
+    adapter.supports_native_audio_output = False
     adapter.transcribe = AsyncMock(return_value="Adapter transcript")
     adapter.run_turn = AsyncMock(return_value=VoiceTurnResult(
         text="Adapter reply.",
@@ -619,6 +631,8 @@ def test_voice_ws_uses_custom_realtime_voice_adapter():
 
             msg = json.loads(ws.receive_text())
             assert msg["type"] == "voice_capabilities"
+            assert msg["realtime_adapter"] == "custom_test_adapter"
+            assert msg["realtime_provider"] == "custom"
 
             ws.send_bytes(b"adapter-audio")
 
@@ -632,7 +646,9 @@ def test_voice_ws_uses_custom_realtime_voice_adapter():
                 msg = json.loads(data.get("text", ""))
                 if msg.get("type") == "response":
                     response_seen = msg
-                elif msg.get("type") == "state" and msg.get("state") == "idle" and response_seen:
+                    if audio_received:
+                        break
+                elif msg.get("type") == "state" and msg.get("state") == "idle" and response_seen and audio_received:
                     break
                 elif msg.get("type") == "error":
                     pytest.fail(f"Got error from server: {msg}")
@@ -646,6 +662,24 @@ def test_voice_ws_uses_custom_realtime_voice_adapter():
     adapter.synthesise_reply.assert_awaited_once()
     stt_mock.transcribe.assert_not_called()
     tts_mock.synthesise_with_timing.assert_not_called()
+
+
+def test_voice_ws_reports_openai_chat_compat_adapter_when_configured():
+    app = _build_test_app()
+    app.state.realtime_voice_adapter = OpenAIChatRealtimeVoiceAdapter()
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/voice?api_key=test-key&session_id=adapter-capabilities") as ws:
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "state"
+            assert msg["state"] == "idle"
+
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "voice_capabilities"
+            assert msg["realtime_adapter"] == "openai_chat_compat"
+            assert msg["realtime_provider"] == "openai"
+            assert msg["native_audio_input"] is False
+            assert msg["native_audio_output"] is False
 
 
 def test_voice_ws_uses_persisted_home_context_from_prior_chat_turn():
