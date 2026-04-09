@@ -662,8 +662,22 @@ class OpenAIChatRealtimeVoiceAdapter(DefaultRealtimeVoiceAdapter):
     provider_name = "openai"
 
 
+class GoogleChatRealtimeVoiceAdapter(DefaultRealtimeVoiceAdapter):
+    adapter_name = "google_chat_compat"
+    provider_name = "google"
+
+
+class AnthropicChatRealtimeVoiceAdapter(DefaultRealtimeVoiceAdapter):
+    adapter_name = "anthropic_chat_compat"
+    provider_name = "anthropic"
+
+
 def create_realtime_voice_adapter(settings: Any) -> RealtimeVoiceAdapter:
     provider = str(getattr(settings, "llm_provider", "") or "").strip().lower()
     if provider == "openai" and str(getattr(settings, "openai_api_key", "") or "").strip():
         return OpenAIChatRealtimeVoiceAdapter()
+    if provider == "google" and str(getattr(settings, "google_api_key", "") or "").strip():
+        return GoogleChatRealtimeVoiceAdapter()
+    if provider == "anthropic" and str(getattr(settings, "anthropic_api_key", "") or "").strip():
+        return AnthropicChatRealtimeVoiceAdapter()
     return DefaultRealtimeVoiceAdapter()

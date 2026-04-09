@@ -26,6 +26,8 @@ from avatar_backend.routers.chat import router as chat_router
 from avatar_backend.routers.voice import router as voice_router
 from avatar_backend.services.conversation_service import ConversationService
 from avatar_backend.services.realtime_voice_service import (
+    AnthropicChatRealtimeVoiceAdapter,
+    GoogleChatRealtimeVoiceAdapter,
     OpenAIChatRealtimeVoiceAdapter,
     RealtimeVoiceService,
     VoiceTurnResult,
@@ -678,6 +680,42 @@ def test_voice_ws_reports_openai_chat_compat_adapter_when_configured():
             assert msg["type"] == "voice_capabilities"
             assert msg["realtime_adapter"] == "openai_chat_compat"
             assert msg["realtime_provider"] == "openai"
+            assert msg["native_audio_input"] is False
+            assert msg["native_audio_output"] is False
+
+
+def test_voice_ws_reports_google_chat_compat_adapter_when_configured():
+    app = _build_test_app()
+    app.state.realtime_voice_adapter = GoogleChatRealtimeVoiceAdapter()
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/voice?api_key=test-key&session_id=google-adapter-capabilities") as ws:
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "state"
+            assert msg["state"] == "idle"
+
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "voice_capabilities"
+            assert msg["realtime_adapter"] == "google_chat_compat"
+            assert msg["realtime_provider"] == "google"
+            assert msg["native_audio_input"] is False
+            assert msg["native_audio_output"] is False
+
+
+def test_voice_ws_reports_anthropic_chat_compat_adapter_when_configured():
+    app = _build_test_app()
+    app.state.realtime_voice_adapter = AnthropicChatRealtimeVoiceAdapter()
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/voice?api_key=test-key&session_id=anthropic-adapter-capabilities") as ws:
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "state"
+            assert msg["state"] == "idle"
+
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "voice_capabilities"
+            assert msg["realtime_adapter"] == "anthropic_chat_compat"
+            assert msg["realtime_provider"] == "anthropic"
             assert msg["native_audio_input"] is False
             assert msg["native_audio_output"] is False
 

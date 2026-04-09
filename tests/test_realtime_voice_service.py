@@ -9,7 +9,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from avatar_backend.services.realtime_voice_service import (
+    AnthropicChatRealtimeVoiceAdapter,
     DefaultRealtimeVoiceAdapter,
+    GoogleChatRealtimeVoiceAdapter,
     IDLE,
     LISTENING,
     OpenAIChatRealtimeVoiceAdapter,
@@ -96,8 +98,39 @@ def test_create_realtime_voice_adapter_selects_openai_chat_compat():
     assert isinstance(adapter, OpenAIChatRealtimeVoiceAdapter)
 
 
+def test_create_realtime_voice_adapter_selects_google_chat_compat():
+    settings = SimpleNamespace(
+        llm_provider="google",
+        openai_api_key="",
+        google_api_key="google-key",
+        anthropic_api_key="",
+    )
+
+    adapter = create_realtime_voice_adapter(settings)
+
+    assert isinstance(adapter, GoogleChatRealtimeVoiceAdapter)
+
+
+def test_create_realtime_voice_adapter_selects_anthropic_chat_compat():
+    settings = SimpleNamespace(
+        llm_provider="anthropic",
+        openai_api_key="",
+        google_api_key="",
+        anthropic_api_key="anthropic-key",
+    )
+
+    adapter = create_realtime_voice_adapter(settings)
+
+    assert isinstance(adapter, AnthropicChatRealtimeVoiceAdapter)
+
+
 def test_create_realtime_voice_adapter_defaults_to_compat_adapter():
-    settings = SimpleNamespace(llm_provider="ollama", openai_api_key="")
+    settings = SimpleNamespace(
+        llm_provider="ollama",
+        openai_api_key="",
+        google_api_key="",
+        anthropic_api_key="",
+    )
 
     adapter = create_realtime_voice_adapter(settings)
 
