@@ -194,6 +194,19 @@ Still required before `V2-020` can be marked `completed`:
 - richer surface protocol for recent-event stacks and action affordances beyond the current acknowledge/dismiss/reactivate slice
 - broader client adoption of `surface_state` beyond the avatar surface
 
+### `V2-021` Visual References
+
+Avatar surface reference captures for the current popup, confirmation, and recent-event triage states:
+
+![Avatar active event state](/opt/avatar-server/docs/screenshots/avatar_active_event.png)
+![Avatar confirmation flow](/opt/avatar-server/docs/screenshots/avatar_confirmation_flow.png)
+![Avatar recent-event triage](/opt/avatar-server/docs/screenshots/avatar_recent_event_triage.png)
+
+Notes:
+
+- these captures are deterministic local renders of the current `avatar.html` visual states
+- the browser-based screenshot path was blocked in this container, so the captures were generated from a local harness and renderer instead of a live headless browser session
+
 ### `V2-040` Current Evidence
 
 Current landed pieces:

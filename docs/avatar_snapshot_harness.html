@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Avatar Snapshot Harness</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(14,165,233,.18), transparent 32%),
+        radial-gradient(circle at 78% 18%, rgba(99,102,241,.22), transparent 28%),
+        linear-gradient(180deg, #08101a 0%, #07101c 48%, #050912 100%);
+      color: #e2e8f0;
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 28px;
+    }
+    .frame {
+      position: relative;
+      width: 1365px;
+      height: 768px;
+      margin: 0 auto;
+      overflow: hidden;
+      border-radius: 26px;
+      background: radial-gradient(ellipse at 50% 40%, #0d1f35 0%, #080d16 70%);
+      box-shadow: 0 24px 70px rgba(0,0,0,.42);
+      border: 1px solid rgba(148,163,184,.14);
+    }
+    .name-badge {
+      position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.5); backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 20px;
+      padding: 4px 16px; font-size: 0.85rem; font-weight: 600;
+      letter-spacing: 0.1em; text-transform: uppercase; color: #67e8f9; z-index: 5;
+    }
+    .status {
+      position: absolute;
+      left: 28px;
+      bottom: 26px;
+      display: inline-flex;
+      gap: 10px;
+      align-items: center;
+      background: rgba(5, 10, 18, .72);
+      border: 1px solid rgba(96,165,250,.18);
+      border-radius: 999px;
+      padding: 10px 16px;
+      color: #dbeafe;
+      font-size: 14px;
+    }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: #38bdf8;
+      box-shadow: 0 0 18px rgba(56,189,248,.6);
+    }
+    .subtitle {
+      position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%);
+      max-width: 78%;
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(8px);
+      border-radius: 12px;
+      padding: 8px 16px;
+      font-size: .88rem;
+      line-height: 1.5;
+      text-align: center;
+      z-index: 5;
+    }
+    .avatar-glow {
+      position: absolute;
+      inset: 110px 300px 110px 300px;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 50% 36%, rgba(96,165,250,.36), transparent 30%),
+        radial-gradient(circle at 50% 54%, rgba(52,211,153,.14), transparent 34%),
+        radial-gradient(circle at 50% 60%, rgba(15,23,42,.82), transparent 55%);
+      filter: blur(6px);
+    }
+    .event-popup {
+      position: absolute; top: 104px; right: 18px;
+      width: min(31vw, 360px);
+      background: rgba(7, 12, 22, 0.92);
+      border: 1px solid rgba(103,232,249,.24);
+      border-radius: 18px;
+      box-shadow: 0 18px 44px rgba(0,0,0,.38);
+      backdrop-filter: blur(14px);
+      overflow: hidden;
+    }
+    .event-popup-head {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      background: linear-gradient(135deg, rgba(239,68,68,.22), rgba(8,145,178,.14));
+    }
+    .event-popup-title {
+      flex: 1;
+      font-size: .86rem;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      color: #e2e8f0;
+    }
+    .chip-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 10px 12px 0;
+    }
+    .chip {
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 11px;
+      letter-spacing: .03em;
+      text-transform: uppercase;
+      border: 1px solid rgba(148,163,184,.22);
+      color: #cbd5e1;
+      background: rgba(15,23,42,.72);
+    }
+    .chip.active { color: #dbeafe; border-color: rgba(96,165,250,.3); background: rgba(30,64,175,.18); }
+    .chip.ack { color: #fef3c7; border-color: rgba(250,204,21,.28); background: rgba(161,98,7,.18); }
+    .chip.resolved { color: #dcfce7; border-color: rgba(74,222,128,.26); background: rgba(21,128,61,.16); }
+    .event-popup-msg {
+      padding: 10px 12px 0;
+      color: #cbd5e1;
+      font-size: .84rem;
+      line-height: 1.45;
+    }
+    .event-popup-note {
+      padding: 8px 12px 0;
+      color: rgba(191,219,254,.84);
+      font-size: .73rem;
+      letter-spacing: .03em;
+    }
+    .actions {
+      display: grid;
+      gap: 8px;
+      padding: 10px 12px 12px;
+    }
+    .btn {
+      width: 100%;
+      border: 1px solid rgba(103,232,249,.24);
+      background: linear-gradient(135deg, rgba(8,145,178,.18), rgba(14,116,144,.28));
+      color: #e0f2fe;
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: .82rem;
+      font-weight: 600;
+    }
+    .btn.warn {
+      border-color: rgba(250,204,21,.26);
+      background: linear-gradient(135deg, rgba(161,98,7,.18), rgba(120,53,15,.28));
+      color: #fef3c7;
+    }
+    .btn.success {
+      border-color: rgba(74,222,128,.24);
+      background: linear-gradient(135deg, rgba(21,128,61,.18), rgba(20,83,45,.28));
+      color: #dcfce7;
+    }
+    .btn.quiet {
+      border-color: rgba(148,163,184,.2);
+      background: rgba(15,23,42,.58);
+      color: #cbd5e1;
+    }
+    .confirm {
+      border: 1px solid rgba(250,204,21,.16);
+      background: rgba(15,23,42,.45);
+      border-radius: 12px;
+      padding: 10px 12px;
+      display: grid;
+      gap: 8px;
+    }
+    .confirm-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .event-feed {
+      margin: 0 12px 12px;
+      aspect-ratio: 16 / 9;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.08);
+      background:
+        linear-gradient(180deg, rgba(7,12,22,.22), rgba(7,12,22,.48)),
+        radial-gradient(circle at 60% 34%, rgba(56,189,248,.24), transparent 16%),
+        linear-gradient(135deg, #334155, #0f172a);
+    }
+    .recent {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      top: 430px;
+      display: grid;
+      gap: 12px;
+    }
+    .recent-head {
+      color: #93c5fd;
+      font-size: 12px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .recent-list {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+    .recent-card {
+      background: rgba(8,15,27,.82);
+      border: 1px solid rgba(148,163,184,.18);
+      border-radius: 18px;
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+      box-shadow: 0 14px 28px rgba(0,0,0,.2);
+    }
+    .recent-card.active { border-color: rgba(96,165,250,.28); }
+    .recent-card.ack { border-color: rgba(250,204,21,.22); }
+    .recent-card.resolved { border-color: rgba(74,222,128,.2); opacity: .9; }
+    .recent-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #e2e8f0;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .recent-text {
+      font-size: 13px;
+      color: #cbd5e1;
+      line-height: 1.45;
+      min-height: 54px;
+    }
+    .recent-note {
+      font-size: 12px;
+      color: #93c5fd;
+    }
+    .recent-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .mini-btn {
+      border-radius: 999px;
+      border: 1px solid rgba(103,232,249,.2);
+      background: rgba(8,145,178,.14);
+      color: #e0f2fe;
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+    .scene-label {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      color: rgba(226,232,240,.7);
+      font-size: 12px;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <div class="name-badge">Nova</div>
+    <div class="scene-label" id="scene-label">Scene</div>
+    <div class="avatar-glow"></div>
+    <div class="event-popup" id="event-popup">
+      <div class="event-popup-head">
+        <div class="event-popup-title" id="popup-title">Driveway Vehicle</div>
+      </div>
+      <div class="chip-row" id="popup-chips"></div>
+      <div class="event-popup-msg" id="popup-msg"></div>
+      <div class="event-popup-note" id="popup-note"></div>
+      <div class="actions" id="popup-actions"></div>
+      <div class="event-feed" id="popup-feed"></div>
+    </div>
+    <div class="recent">
+      <div class="recent-head">Recent Events</div>
+      <div class="recent-list" id="recent-list"></div>
+    </div>
+    <div class="status"><span class="status-dot"></span><span id="status-text">Ready</span></div>
+    <div class="subtitle" id="subtitle">Nova: I can keep showing the driveway event while the package stays unresolved.</div>
+  </div>
+  <script>
+    const scenes = {
+      active: {
+        label: 'Active Event',
+        status: 'Speaking with active camera popup',
+        subtitle: 'Nova: The driveway vehicle is still outside and the package has not been collected.',
+        popup: {
+          title: 'Driveway Vehicle',
+          chips: [['active', 'Active'], ['ack', 'Needs Review']],
+          msg: 'A dark vehicle has remained in the driveway longer than expected. Front door package is still visible.',
+          note: 'Open loop: package still outside and vehicle remains parked.',
+          actions: [
+            ['warn', 'Ask about the vehicle'],
+            ['quiet', 'Show related camera'],
+            ['success', 'Resolve']
+          ]
+        },
+        recent: [
+          ['active', 'Front Door Delivery', 'Package left near the front door 12 minutes ago.', 'Still visible from the front camera.', ['Acknowledge', 'Resolve']],
+          ['ack', 'Driveway Motion', 'Vehicle arrived and remains stationary.', 'Acknowledged but still unresolved.', ['Reopen', 'Resolve']],
+          ['resolved', 'Outdoor Motion', 'Short motion event near the side gate.', 'Closed out after no follow-up activity.', ['View']]
+        ]
+      },
+      confirm: {
+        label: 'Confirmation Flow',
+        status: 'Confirming a state-changing event action',
+        subtitle: 'Nova: Confirm before dismissing the unresolved delivery event.',
+        popup: {
+          title: 'Front Door Delivery',
+          chips: [['ack', 'Acknowledged']],
+          msg: 'The package event is waiting for confirmation before it is dismissed from the active surface.',
+          note: 'Open loop: unresolved until someone confirms it was handled.',
+          confirm: true
+        },
+        recent: [
+          ['ack', 'Front Door Delivery', 'Package event is pending confirmation for dismissal.', 'Needs an explicit operator decision.', ['Resolve', 'Dismiss']],
+          ['active', 'Driveway Vehicle', 'Vehicle still present in driveway view.', 'Camera follow-up remains available.', ['Ask', 'Show Camera']],
+          ['resolved', 'Door Motion', 'Walkway motion event cleared.', 'Resolved after visual review.', ['View']]
+        ]
+      },
+      triage: {
+        label: 'Recent Event Triage',
+        status: 'Reviewing unresolved-first recent event stack',
+        subtitle: 'Nova: Recent events are grouped with unresolved items first and clear status labels.',
+        popup: {
+          title: 'Recent Event Review',
+          chips: [['active', 'Surface State']],
+          msg: 'The active popup is minimized here so the recent-event strip can be reviewed as the primary triage surface.',
+          note: 'Status chips, open-loop notes, and quick actions stay visible without reopening each event.',
+          actions: [
+            ['warn', 'Acknowledge'],
+            ['quiet', 'Dismiss'],
+            ['success', 'Resolve']
+          ]
+        },
+        recent: [
+          ['active', 'Package Delivery', 'Package remains on the doorstep after 18 minutes.', 'Unresolved items stay pinned to the front of the strip.', ['Ask', 'Resolve']],
+          ['active', 'Driveway Vehicle', 'Driveway camera still sees a parked vehicle.', 'Follow-up action can hop to related camera views.', ['Show Camera', 'Acknowledge']],
+          ['ack', 'Outdoor Motion', 'Motion near the side gate was seen and acknowledged.', 'Still visible because it has not been resolved.', ['Resolve', 'Dismiss']]
+        ]
+      }
+    };
+
+    const params = new URLSearchParams(window.location.search);
+    const scene = scenes[params.get('scene')] || scenes.active;
+    document.getElementById('scene-label').textContent = scene.label;
+    document.getElementById('status-text').textContent = scene.status;
+    document.getElementById('subtitle').textContent = scene.subtitle;
+    document.getElementById('popup-title').textContent = scene.popup.title;
+    document.getElementById('popup-msg').textContent = scene.popup.msg;
+    document.getElementById('popup-note').textContent = scene.popup.note;
+
+    const chips = document.getElementById('popup-chips');
+    scene.popup.chips.forEach(([cls, text]) => {
+      const span = document.createElement('span');
+      span.className = `chip ${cls}`;
+      span.textContent = text;
+      chips.appendChild(span);
+    });
+
+    const actions = document.getElementById('popup-actions');
+    if (scene.popup.confirm) {
+      const box = document.createElement('div');
+      box.className = 'confirm';
+      box.innerHTML = `
+        <div>Dismissing this event will hide it from the active surface while leaving it unresolved in history.</div>
+        <div class="confirm-actions">
+          <button class="btn warn">Confirm Dismiss</button>
+          <button class="btn quiet">Cancel</button>
+        </div>
+      `;
+      actions.appendChild(box);
+    } else {
+      scene.popup.actions.forEach(([cls, text]) => {
+        const btn = document.createElement('button');
+        btn.className = `btn ${cls}`;
+        btn.textContent = text;
+        actions.appendChild(btn);
+      });
+    }
+
+    const recent = document.getElementById('recent-list');
+    scene.recent.forEach(([cls, title, text, note, actionLabels]) => {
+      const card = document.createElement('div');
+      card.className = `recent-card ${cls}`;
+      card.innerHTML = `
+        <div class="recent-title">${title}</div>
+        <div class="chip ${cls}">${cls === 'ack' ? 'Acknowledged' : cls === 'resolved' ? 'Resolved' : 'Active'}</div>
+        <div class="recent-text">${text}</div>
+        <div class="recent-note">${note}</div>
+        <div class="recent-actions">${actionLabels.map(label => `<span class="mini-btn">${label}</span>`).join('')}</div>
+      `;
+      recent.appendChild(card);
+    });
+  </script>
+</body>
+</html>
