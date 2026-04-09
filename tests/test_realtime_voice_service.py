@@ -239,8 +239,8 @@ async def test_turn_context_routes_next_voice_turn_to_event_followup():
     tts.synthesise_with_timing = AsyncMock(return_value=(b"RIFF" + b"\x00" * 40, []))
 
     conversation_service = MagicMock()
-    conversation_service.handle_voice_turn = AsyncMock()
-    conversation_service.handle_event_followup = AsyncMock(return_value=SimpleNamespace(
+    conversation_service.set_event_followup_context = AsyncMock()
+    conversation_service.handle_voice_turn = AsyncMock(return_value=SimpleNamespace(
         text="This looks like a normal delivery.",
         session_id="voice_test",
         tool_calls=[],
@@ -294,8 +294,8 @@ async def test_turn_context_routes_next_voice_turn_to_event_followup():
         with suppress(Exception):
             await service.disconnect_session("voice_test:socket")
 
-    conversation_service.handle_event_followup.assert_awaited_once()
-    conversation_service.handle_voice_turn.assert_not_called()
+    conversation_service.set_event_followup_context.assert_awaited_once()
+    conversation_service.handle_voice_turn.assert_awaited_once()
     ack = _messages_of_type(ws, "turn_context_ack")[0]
     assert ack["event_id"] == "evt-1"
 

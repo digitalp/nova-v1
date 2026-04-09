@@ -6,7 +6,11 @@ import structlog
 
 from avatar_backend.middleware.auth import verify_api_key
 from avatar_backend.models.messages import ChatRequest, ChatResponse
-from avatar_backend.services.conversation_service import ConversationTurnRequest, EventFollowupRequest
+from avatar_backend.services.conversation_service import (
+    ConversationTurnRequest,
+    EventFollowupRequest,
+    PendingEventFollowupContext,
+)
 from avatar_backend.services.session_manager import SessionManager
 
 router = APIRouter(tags=["chat"])
@@ -83,13 +87,18 @@ async def chat_followup_event(body: EventFollowupChatRequest, request: Request) 
     _, event_context = stored
     logger.info("chat.followup_event", session_id=body.session_id, event_id=body.event_id)
     try:
-        result = await request.app.state.conversation_service.handle_event_followup(
-            EventFollowupRequest(
-                session_id=body.session_id,
-                user_text=body.text,
+        await request.app.state.conversation_service.set_event_followup_context(
+            body.session_id,
+            PendingEventFollowupContext(
                 event_type=str(event_context.get("event_type", "event")),
                 event_summary=str(event_context.get("event_summary", "")) or None,
                 event_context=dict(event_context.get("event_context", {})),
+            )
+        )
+        result = await request.app.state.conversation_service.handle_text_turn(
+            ConversationTurnRequest(
+                session_id=body.session_id,
+                user_text=body.text,
             )
         )
     except RuntimeError as exc:

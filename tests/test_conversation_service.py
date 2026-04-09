@@ -117,3 +117,50 @@ async def test_handle_event_followup_injects_event_context():
         "  camera: front_door\n"
         "  severity: normal"
     )
+
+
+@pytest.mark.asyncio
+async def test_pending_event_context_is_consumed_once_by_text_turn():
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            llm_service=object(),
+            session_manager=object(),
+            ha_proxy=object(),
+            decision_log=None,
+            memory_service=None,
+        )
+    )
+    service = ConversationService(app)
+
+    captured: list[str] = []
+
+    async def fake_run_turn(*, session_id: str, user_text: str):
+        captured.append(user_text)
+        return "ok"
+
+    service._run_turn = AsyncMock(side_effect=fake_run_turn)
+
+    await service.handle_event_followup(
+        EventFollowupRequest(
+            session_id="event-2",
+            user_text="Who is there?",
+            event_type="doorbell",
+            event_summary="Someone is at the front door",
+            event_context={"camera": "front_door"},
+        )
+    )
+
+    await service.handle_text_turn(
+        ConversationTurnRequest(
+            session_id="event-2",
+            user_text="And what are they carrying?",
+        )
+    )
+
+    assert captured[0] == (
+        "Who is there?\n\n[Event context]\n"
+        "  type: doorbell\n"
+        "  summary: Someone is at the front door\n"
+        "  camera: front_door"
+    )
+    assert captured[1] == "And what are they carrying?"

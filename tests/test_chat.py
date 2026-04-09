@@ -139,11 +139,12 @@ def test_session_clear(mock_chat, mock_ready, client):
 
 
 @patch("avatar_backend.services.llm_service.LLMService.is_ready", new_callable=AsyncMock, return_value=True)
-@patch("avatar_backend.services.conversation_service.ConversationService.handle_event_followup", new_callable=AsyncMock)
-def test_chat_followup_event_uses_stored_event_context(mock_followup, mock_ready, client):
+@patch("avatar_backend.services.conversation_service.ConversationService.handle_text_turn", new_callable=AsyncMock)
+@patch("avatar_backend.services.conversation_service.ConversationService.set_event_followup_context", new_callable=AsyncMock)
+def test_chat_followup_event_uses_stored_event_context(mock_set_context, mock_handle_text_turn, mock_ready, client):
     from avatar_backend.services.chat_service import ChatResult
 
-    mock_followup.return_value = ChatResult(
+    mock_handle_text_turn.return_value = ChatResult(
         text="It looks like a normal delivery.",
         tool_calls=[],
         processing_time_ms=42,
@@ -167,11 +168,14 @@ def test_chat_followup_event_uses_stored_event_context(mock_followup, mock_ready
 
     assert resp.status_code == 200
     assert resp.json()["text"] == "It looks like a normal delivery."
-    turn = mock_followup.await_args.args[0]
+    mock_set_context.assert_awaited_once()
+    context = mock_set_context.await_args.args[1]
+    assert context.event_type == "parcel_delivery"
+    assert context.event_summary == "Package left near the front door."
+    assert context.event_context["camera_entity_id"] == "camera.front_door"
+    turn = mock_handle_text_turn.await_args.args[0]
     assert turn.session_id == "s-followup"
-    assert turn.event_type == "parcel_delivery"
-    assert turn.event_summary == "Package left near the front door."
-    assert turn.event_context["camera_entity_id"] == "camera.front_door"
+    assert turn.user_text == "Is this urgent?"
 
 
 @patch("avatar_backend.services.llm_service.LLMService.is_ready", new_callable=AsyncMock, return_value=True)

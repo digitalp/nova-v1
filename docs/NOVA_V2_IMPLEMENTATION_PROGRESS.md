@@ -16,10 +16,10 @@ Status legend:
 | `Milestone 1` | Shared event model | `38%` | A canonical event normalizer now exists, multiple producers publish through it, visual-event publication plus recent-event context registration are centralized in the canonical layer, and direct motion archives now persist canonical event metadata, but there is still no broad event bus, persistent event store, or full cross-service adoption. |
 | `Milestone 2` | Camera event unification | `20%` | V2 routes real camera traffic and related-camera actions exist, but camera events still do not run through one canonical backend service. |
 | `Milestone 3` | Surface state and event delivery | `63%` | Surface snapshots, recent-event recovery, statuses, action acks, related-camera opens, and snooze all work, but this is still compatibility-first rather than canonical. |
-| `Milestone 4` | Conversation and realtime voice | `58%` | Conversation and realtime voice foundations are real and event-linked, and the websocket voice path now supports optional chunked input and output transport alongside the legacy blob-per-turn flow, but client-side progressive playback and deeper conversation-state architecture are still missing. |
+| `Milestone 4` | Conversation and realtime voice | `60%` | Conversation and realtime voice foundations are real and event-linked, the websocket voice path now supports optional chunked input and output transport with a progressive PCM fallback path, and pending event-followup state is now separated from plain turn history inside the coordinator, but the main avatar still lacks progressive lipsynced playback and the broader conversation-state model remains compatibility-first. |
 | `Milestone 5` | Actions and open loops | `42%` | Suggested actions, confirmations, follow-up prompts, camera hops, and snooze are live, but there is no dedicated ActionService or richer policy engine yet. |
 | `Milestone 6` | Admin, metrics, and productization | `64%` | Parallel runtime, runtime-path work, and installer groundwork exist, and the V2 admin now has a durable cross-event history feed with direct filtering, free-text search, saved presets, status-aware incident slicing, grouped history sections, real review paths for persisted and surface events, drill-down actions back into the archive filters, admin-side acknowledge/resolve/reopen actions, persisted admin notes on incident transitions, inline note visibility in the Event History list, and at-a-glance history metrics, but the broader admin event timeline and productization work are still mostly ahead. |
-| `Overall` | Weighted V2 roadmap progress | `67%` | Strong foundation and interaction model, with major architecture and productization milestones still incomplete. |
+| `Overall` | Weighted V2 roadmap progress | `68%` | Strong foundation and interaction model, with major architecture and productization milestones still incomplete. |
 
 ## Milestone Status
 
@@ -48,8 +48,8 @@ Status legend:
 
 | Ticket | Status | Notes |
 | --- | --- | --- |
-| `V2-030` | `in_progress` | `ConversationService` now exists as a compatibility-first coordinator, chat and voice are wired through it, it has a structured context builder plus an event-follow-up entrypoint, visual events persist `event_id` context for `/chat/followup-event`, the avatar voice websocket can carry active `event_id` context into the next spoken turn, and the avatar popup now exposes an explicit “Ask about this” follow-up action. Deeper conversation state and broader UI integration are still incomplete. |
-| `V2-031` | `in_progress` | `RealtimeVoiceService` exists and V2 now supports per-session turn state, interruption, `turn_started`, `turn_finished`, `turn_interrupted`, `audio_start`, turn-aware client playback handling, optional streamed audio input buffering with explicit start/commit/cancel frames, and opt-in chunked output transport negotiated through websocket capabilities. Remaining work: progressive output playback, deeper conversation integration, and provider-native realtime adapters. |
+| `V2-030` | `in_progress` | `ConversationService` now exists as a compatibility-first coordinator, chat and voice are wired through it, it has a structured context builder plus an event-follow-up entrypoint, visual events persist `event_id` context for `/chat/followup-event`, the avatar voice websocket can carry active `event_id` context into the next spoken turn, the avatar popup now exposes an explicit “Ask about this” follow-up action, and pending event-followup state is now stored separately from plain session history before the next turn executes. Deeper conversation state and broader UI integration are still incomplete. |
+| `V2-031` | `in_progress` | `RealtimeVoiceService` exists and V2 now supports per-session turn state, interruption, `turn_started`, `turn_finished`, `turn_interrupted`, `audio_start`, turn-aware client playback handling, optional streamed audio input buffering with explicit start/commit/cancel frames, negotiated output formats for streamed audio, and a progressive PCM fallback path for non-head clients. Remaining work: bringing progressive playback to the main lipsynced avatar path, deeper conversation integration, and provider-native realtime adapters. |
 
 ### Milestone 5: Actions and Open Loops
 
@@ -157,7 +157,7 @@ Current landed pieces:
 Still required before `V2-031` can be marked `completed`:
 
 - bringing progressive playback to the main lipsynced avatar path instead of limiting it to non-head fallback clients
-- deeper conversation-state integration beyond the current compatibility coordinator handoff
+- richer conversation-state integration beyond the current pending-event-context handoff
 - provider-adapter layer for future native realtime backends
 - stronger end-to-end validation beyond syntax checks
 
@@ -235,13 +235,15 @@ Current landed pieces:
 - new [conversation_service.py](/opt/avatar-server/avatar_backend/services/conversation_service.py)
 - new [context_builder.py](/opt/avatar-server/avatar_backend/services/context_builder.py)
 - [chat.py](/opt/avatar-server/avatar_backend/routers/chat.py) now routes text turns through `ConversationService`
-- [chat.py](/opt/avatar-server/avatar_backend/routers/chat.py) now exposes `/chat/followup-event` to resolve stored visual-event context into `ConversationService.handle_event_followup()`
+- [chat.py](/opt/avatar-server/avatar_backend/routers/chat.py) now exposes `/chat/followup-event` to resolve stored visual-event context into `ConversationService`
 - [realtime_voice_service.py](/opt/avatar-server/avatar_backend/services/realtime_voice_service.py) now routes voice turns through `ConversationService`
-- [realtime_voice_service.py](/opt/avatar-server/avatar_backend/services/realtime_voice_service.py) now accepts `turn_context` frames so the next voice turn can resolve stored event context into `ConversationService.handle_event_followup()`
+- [realtime_voice_service.py](/opt/avatar-server/avatar_backend/services/realtime_voice_service.py) now accepts `turn_context` frames so the next voice turn can resolve stored event context into `ConversationService`
+- [conversation_service.py](/opt/avatar-server/avatar_backend/services/conversation_service.py) now stores pending event-followup context separately from the underlying session history and consumes it on the next text or voice turn instead of requiring routers to execute a fully separate follow-up path
+- [chat.py](/opt/avatar-server/avatar_backend/routers/chat.py) and [realtime_voice_service.py](/opt/avatar-server/avatar_backend/services/realtime_voice_service.py) now register pending event context with `ConversationService` before the next ordinary turn runs, which makes the coordinator own the event-linked state boundary
 - [main.py](/opt/avatar-server/avatar_backend/main.py) wires `conversation_service` into `app.state`
 - [announce.py](/opt/avatar-server/avatar_backend/routers/announce.py) now assigns `event_id` to visual events and stores recent follow-up context for camera and visual flows
 - [avatar.html](/opt/avatar-server/static/avatar.html) now remembers the active visual-event `event_id`, sends it before the next recorded voice turn, and exposes an explicit “Ask about this” action on the popup
-- [test_conversation_service.py](/opt/avatar-server/tests/test_conversation_service.py) covers text context injection, raw voice-turn pass-through, and event-follow-up context shaping
+- [test_conversation_service.py](/opt/avatar-server/tests/test_conversation_service.py) covers text context injection, raw voice-turn pass-through, event-follow-up context shaping, and one-shot consumption of pending event context
 - [test_announce.py](/opt/avatar-server/tests/test_announce.py), [test_chat.py](/opt/avatar-server/tests/test_chat.py), and [test_realtime_voice_service.py](/opt/avatar-server/tests/test_realtime_voice_service.py) cover stored event context, `/chat/followup-event`, and event-linked voice follow-up routing
 - [proactive_service.py](/opt/avatar-server/avatar_backend/services/proactive_service.py) now expands aggregate `binary_sensor.house_needs_attention` events with the live `sensor.house_attention_summary` text before LLM triage, so generic household anomaly alerts can carry a concrete cause such as `back door open`
 
@@ -249,7 +251,7 @@ Still required before `V2-030` can be marked `completed`:
 
 - event-linked follow-up flows connected to broader UI controls beyond the active avatar popup and next-turn voice context
 - richer structured context building beyond compatibility prompt shaping
-- clearer separation between short-term conversation state and event-linked state
+- broader conversation-state structure beyond the current pending-event-context split
 - broader end-to-end validation of chat and voice through the new coordinator
 
 ## Next Recommended Ticket

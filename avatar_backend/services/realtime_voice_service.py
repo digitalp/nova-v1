@@ -15,7 +15,7 @@ from avatar_backend.services.speaker_service import SpeakerService
 from avatar_backend.services.stt_service import STTService
 from avatar_backend.services.tts_service import TTSService
 from avatar_backend.services.ws_manager import ConnectionManager
-from avatar_backend.services.conversation_service import EventFollowupRequest
+from avatar_backend.services.conversation_service import PendingEventFollowupContext
 
 _LOGGER = structlog.get_logger()
 
@@ -268,15 +268,18 @@ class RealtimeVoiceService:
                     stored = recent_events.get(event_id)
                     if stored:
                         _, event_context = stored
-                        result = await ctx.app.state.conversation_service.handle_event_followup(
-                            EventFollowupRequest(
-                                session_id=ctx.session_id,
-                                user_text=transcript,
+                        await ctx.app.state.conversation_service.set_event_followup_context(
+                            ctx.session_id,
+                            PendingEventFollowupContext(
                                 event_type=str(event_context.get("event_type", "event")),
                                 event_summary=str(event_context.get("event_summary", "")) or None,
                                 event_context=dict(event_context.get("event_context", {})),
                                 followup_prompt=followup_prompt,
                             )
+                        )
+                        result = await ctx.app.state.conversation_service.handle_voice_turn(
+                            session_id=ctx.session_id,
+                            user_text=transcript,
                         )
                     else:
                         result = await ctx.app.state.conversation_service.handle_voice_turn(
@@ -304,15 +307,18 @@ class RealtimeVoiceService:
                             stored = recent_events.get(event_id)
                             if stored:
                                 _, event_context = stored
-                                result = await ctx.app.state.conversation_service.handle_event_followup(
-                                    EventFollowupRequest(
-                                        session_id=ctx.session_id,
-                                        user_text=transcript,
+                                await ctx.app.state.conversation_service.set_event_followup_context(
+                                    ctx.session_id,
+                                    PendingEventFollowupContext(
                                         event_type=str(event_context.get("event_type", "event")),
                                         event_summary=str(event_context.get("event_summary", "")) or None,
                                         event_context=dict(event_context.get("event_context", {})),
                                         followup_prompt=followup_prompt,
                                     )
+                                )
+                                result = await ctx.app.state.conversation_service.handle_voice_turn(
+                                    session_id=ctx.session_id,
+                                    user_text=transcript,
                                 )
                             else:
                                 result = await ctx.app.state.conversation_service.handle_voice_turn(

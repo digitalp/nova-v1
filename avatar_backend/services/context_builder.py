@@ -35,8 +35,7 @@ class ContextBuilder:
             lines.append(f"  followup_prompt: {self._sanitize_value(followup_prompt)}")
         for key, value in self._sanitize_context(event_context).items():
             lines.append(f"  {key}: {value}")
-        parts.append("[Event context]")
-        parts.append("\n".join(lines))
+        parts.append("[Event context]\n" + "\n".join(lines))
         return "\n\n".join(parts)
 
     def _sanitize_context(self, context: dict[str, Any] | None) -> dict[str, str]:
