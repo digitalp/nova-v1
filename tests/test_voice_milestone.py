@@ -394,3 +394,78 @@ def test_voice_ws_combines_persisted_home_context_with_event_followup_overlay():
         "  camera_entity_id: camera.driveway\n"
         "  source: parcel"
     )
+
+
+def test_voice_ws_does_not_reuse_home_context_after_chat_explicitly_clears_it():
+    app = _build_test_app()
+
+    stt_mock = app.state.stt_service
+    stt_mock.transcribe = AsyncMock(return_value="What changed?")
+
+    llm_mock = app.state.llm_service
+    llm_mock.is_ready = AsyncMock(return_value=True)
+    llm_mock.chat = AsyncMock(side_effect=[
+        ("Driveway context captured.", []),
+        ("Cleared context.", []),
+        ("No sticky context remained.", []),
+    ])
+
+    app.state.session_manager = SessionManager("System prompt")
+    app.state.conversation_service = ConversationService(app)
+
+    with TestClient(app) as client:
+        set_resp = client.post(
+            "/chat",
+            json={
+                "session_id": "coordinator-clear",
+                "text": "Remember the driveway camera context.",
+                "context": {"camera": "driveway", "severity": "normal"},
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        assert set_resp.status_code == 200
+        assert set_resp.json()["text"] == "Driveway context captured."
+
+        clear_resp = client.post(
+            "/chat",
+            json={
+                "session_id": "coordinator-clear",
+                "text": "Clear that stored context.",
+                "context": {},
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        assert clear_resp.status_code == 200
+        assert clear_resp.json()["text"] == "Cleared context."
+
+        with client.websocket_connect("/ws/voice?api_key=test-key&session_id=coordinator-clear") as ws:
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "state"
+            assert msg["state"] == "idle"
+
+            msg = json.loads(ws.receive_text())
+            assert msg["type"] == "voice_capabilities"
+
+            ws.send_bytes(_make_silent_wav())
+
+            response_seen = False
+            audio_received = False
+            for _ in range(40):
+                data = ws.receive()
+                if data.get("bytes"):
+                    audio_received = True
+                    continue
+                msg = json.loads(data.get("text", ""))
+                if msg.get("type") == "response":
+                    response_seen = True
+                elif msg.get("type") == "state" and msg.get("state") == "idle" and response_seen:
+                    break
+                elif msg.get("type") == "error":
+                    pytest.fail(f"Got error from server: {msg}")
+
+    assert response_seen is True
+    assert audio_received is True
+    assert llm_mock.chat.await_count == 3
+    third_messages = llm_mock.chat.await_args_list[2].args[0]
+    assert third_messages[-1]["role"] == "user"
+    assert third_messages[-1]["content"] == "What changed?"
