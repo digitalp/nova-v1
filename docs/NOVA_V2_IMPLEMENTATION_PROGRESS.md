@@ -16,7 +16,7 @@ Status legend:
 | `Milestone 1` | Shared event model | `38%` | A canonical event normalizer now exists, multiple producers publish through it, visual-event publication plus recent-event context registration are centralized in the canonical layer, and direct motion archives now persist canonical event metadata, but there is still no broad event bus, persistent event store, or full cross-service adoption. |
 | `Milestone 2` | Camera event unification | `20%` | V2 routes real camera traffic and related-camera actions exist, but camera events still do not run through one canonical backend service. |
 | `Milestone 3` | Surface state and event delivery | `63%` | Surface snapshots, recent-event recovery, statuses, action acks, related-camera opens, and snooze all work, but this is still compatibility-first rather than canonical. |
-| `Milestone 4` | Conversation and realtime voice | `60%` | Conversation and realtime voice foundations are real and event-linked, the websocket voice path now supports optional chunked input and output transport with a progressive PCM fallback path, and pending event-followup state is now separated from plain turn history inside the coordinator, but the main avatar still lacks progressive lipsynced playback and the broader conversation-state model remains compatibility-first. |
+| `Milestone 4` | Conversation and realtime voice | `64%` | Conversation and realtime voice foundations are real and event-linked, the websocket voice path now supports optional chunked input and output transport, the main avatar now accepts progressive PCM segments instead of waiting for full-turn WAV buffering, and pending event-followup state is now separated from plain turn history inside the coordinator, but the broader conversation-state model remains compatibility-first and realtime-provider work is still pending. |
 | `Milestone 5` | Actions and open loops | `42%` | Suggested actions, confirmations, follow-up prompts, camera hops, and snooze are live, but there is no dedicated ActionService or richer policy engine yet. |
 | `Milestone 6` | Admin, metrics, and productization | `64%` | Parallel runtime, runtime-path work, and installer groundwork exist, and the V2 admin now has a durable cross-event history feed with direct filtering, free-text search, saved presets, status-aware incident slicing, grouped history sections, real review paths for persisted and surface events, drill-down actions back into the archive filters, admin-side acknowledge/resolve/reopen actions, persisted admin notes on incident transitions, inline note visibility in the Event History list, and at-a-glance history metrics, but the broader admin event timeline and productization work are still mostly ahead. |
 | `Overall` | Weighted V2 roadmap progress | `68%` | Strong foundation and interaction model, with major architecture and productization milestones still incomplete. |
@@ -49,7 +49,7 @@ Status legend:
 | Ticket | Status | Notes |
 | --- | --- | --- |
 | `V2-030` | `in_progress` | `ConversationService` now exists as a compatibility-first coordinator, chat and voice are wired through it, it has a structured context builder plus an event-follow-up entrypoint, visual events persist `event_id` context for `/chat/followup-event`, the avatar voice websocket can carry active `event_id` context into the next spoken turn, the avatar popup now exposes an explicit “Ask about this” follow-up action, and pending event-followup state is now stored separately from plain session history before the next turn executes. Deeper conversation state and broader UI integration are still incomplete. |
-| `V2-031` | `in_progress` | `RealtimeVoiceService` exists and V2 now supports per-session turn state, interruption, `turn_started`, `turn_finished`, `turn_interrupted`, `audio_start`, turn-aware client playback handling, optional streamed audio input buffering with explicit start/commit/cancel frames, negotiated output formats for streamed audio, and a progressive PCM fallback path for non-head clients. Remaining work: bringing progressive playback to the main lipsynced avatar path, deeper conversation integration, and provider-native realtime adapters. |
+| `V2-031` | `in_progress` | `RealtimeVoiceService` exists and V2 now supports per-session turn state, interruption, `turn_started`, `turn_finished`, `turn_interrupted`, `audio_start`, turn-aware client playback handling, optional streamed audio input buffering with explicit start/commit/cancel frames, negotiated output formats for streamed audio, and progressive PCM playback on both the fallback audio path and the main head-backed avatar path. Remaining work: richer lipsync on streamed chunks, deeper conversation integration, and provider-native realtime adapters. |
 
 ### Milestone 5: Actions and Open Loops
 
@@ -149,15 +149,15 @@ Current landed pieces:
 - explicit audio boundary via `audio_start`
 - optional streamed audio input via `input_audio_start`, `input_audio_commit`, and `input_audio_cancel`, while keeping the legacy one-blob turn path working
 - websocket capability advertisement via `voice_capabilities`, so newer clients can detect streamed transport support before switching protocols
-- opt-in chunked output transport via `client_capabilities`, `output_audio_start`, and `output_audio_end`, with a progressive PCM scheduling path available for non-head fallback clients
+- opt-in chunked output transport via `client_capabilities`, `output_audio_start`, and `output_audio_end`, with progressive PCM playback available for both fallback audio and the head-backed avatar client
 - [avatar.html](/opt/avatar-server/static/avatar.html) consumes interruption and turn-aware playback metadata
-- [avatar.html](/opt/avatar-server/static/avatar.html) now keeps the existing buffered WAV path for the lipsynced 3D head and only requests progressive PCM output when running without a head-backed avatar surface
+- [avatar.html](/opt/avatar-server/static/avatar.html) now requests streamed PCM whenever the browser can schedule audio locally, hands chunked PCM segments to the 3D head progressively, and slices server word timings into segment-local timings before each `speakAudio` call
 - [test_realtime_voice_service.py](/opt/avatar-server/tests/test_realtime_voice_service.py) covers happy-path interruption behavior, turn metadata, streamed-input commit/cancel behavior, and the PCM streaming metadata path
 - [test_voice_milestone.py](/opt/avatar-server/tests/test_voice_milestone.py) now exercises websocket capability negotiation and streamed output metadata through the real `/ws/voice` route using `TestClient`
 
 Still required before `V2-031` can be marked `completed`:
 
-- bringing progressive playback to the main lipsynced avatar path instead of limiting it to non-head fallback clients
+- improving lipsync continuity across streamed chunk boundaries on the main head-backed avatar path
 - richer conversation-state integration beyond the current pending-event-context handoff
 - provider-adapter layer for future native realtime backends
 - broader end-to-end validation beyond the current websocket transport negotiation slice

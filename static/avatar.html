@@ -608,6 +608,8 @@ let wsReady           = false;
 let currentPlaybackSource = null;
 let progressivePlaybackSources = [];
 let progressivePlaybackCursor = 0;
+let progressiveHeadSegments = [];
+let progressiveHeadDrainPromise = null;
 let pendingWordTimings = null;  // word timings arriving just before audio
 let pendingWordTimingsTurnId = null;
 let pendingAudioTurnId = null;
@@ -877,7 +879,7 @@ async function connectWs() {
   ws.onopen = () => {
     wsReady = true; reconnectDelay = 1000;
     $btnMic.disabled = false;
-    const wantsProgressiveOutput = !head;
+    const wantsProgressiveOutput = !!window.AudioContext;
     ws.send(JSON.stringify({
       type: 'client_capabilities',
       output_streaming: wantsProgressiveOutput,
@@ -923,6 +925,7 @@ async function connectWs() {
           sampleRate: msg.sample_rate || 22050,
           channels: msg.channels || 1,
           sampleWidthBytes: msg.sample_width_bytes || 2,
+          frameOffset: 0,
           chunks: [],
         };
         if (activeOutputStream.audioFormat === 'pcm_s16le') {
@@ -941,6 +944,11 @@ async function connectWs() {
           activeOutputStream = null;
           await playWav(buffer);
         } else {
+          if (activeOutputStream?.audioFormat === 'pcm_s16le' &&
+              pendingWordTimingsTurnId === (msg.turn_id ?? null)) {
+            pendingWordTimings = null;
+            pendingWordTimingsTurnId = null;
+          }
           activeOutputStream = null;
         }
       }
@@ -1011,6 +1019,8 @@ function stopActiveSpeechPlayback() {
   currentPlaybackTurnId = null;
   activeOutputStream = null;
   progressivePlaybackCursor = 0;
+  progressiveHeadSegments = [];
+  progressiveHeadDrainPromise = null;
   for (const src of progressivePlaybackSources) {
     try { src.stop(); } catch (_) {}
     try { src.disconnect(); } catch (_) {}
@@ -1037,6 +1047,8 @@ function handleTurnInterrupted(msg) {
     if (activeOutputStream?.turnId === msg.interrupted_turn_id) {
       activeOutputStream = null;
       progressivePlaybackCursor = 0;
+      progressiveHeadSegments = [];
+      progressiveHeadDrainPromise = null;
       for (const src of progressivePlaybackSources) {
         try { src.stop(); } catch (_) {}
         try { src.disconnect(); } catch (_) {}
@@ -1050,20 +1062,93 @@ function handleTurnInterrupted(msg) {
   handleState('idle');
 }
 
+function buildAudioBufferFromPcm(chunkBuffer, streamInfo) {
+  const pcm16 = new Int16Array(chunkBuffer);
+  const frameCount = Math.floor(pcm16.length / streamInfo.channels);
+  if (!frameCount) return null;
+  const audioBuffer = audioCtx.createBuffer(streamInfo.channels, frameCount, streamInfo.sampleRate);
+  for (let channel = 0; channel < streamInfo.channels; channel++) {
+    const channelData = audioBuffer.getChannelData(channel);
+    for (let i = 0; i < frameCount; i++) {
+      const sample = pcm16[i * streamInfo.channels + channel] || 0;
+      channelData[i] = sample / 32768;
+    }
+  }
+  return { audioBuffer, frameCount };
+}
+
+function consumeSegmentWordTimings(segmentStartMs, segmentEndMs, turnId) {
+  if (!pendingWordTimings || !pendingWordTimings.length) return null;
+  if (pendingWordTimingsTurnId !== null && pendingWordTimingsTurnId !== turnId) return null;
+  return pendingWordTimings
+    .filter(t => t.end_ms > segmentStartMs && t.start_ms < segmentEndMs)
+    .map(t => ({
+      word: t.word,
+      start_ms: Math.max(0, t.start_ms - segmentStartMs),
+      end_ms: Math.max(0, Math.min(segmentEndMs, t.end_ms) - segmentStartMs),
+    }))
+    .filter(t => t.end_ms > t.start_ms);
+}
+
+async function playHeadProgressiveSegment(segment) {
+  currentPlaybackTurnId = segment.turnId;
+  if (!head || typeof head.speakAudio !== 'function') return;
+  const speakOpts = { audio: segment.audio };
+  if (segment.wordTimings?.length) {
+    speakOpts.words = segment.wordTimings.map(t => t.word);
+    speakOpts.wtimes = segment.wordTimings.map(t => t.start_ms);
+    speakOpts.wdurations = segment.wordTimings.map(t => t.end_ms - t.start_ms);
+  }
+  const maybePromise = head.speakAudio(speakOpts);
+  if (maybePromise && typeof maybePromise.then === 'function') {
+    try {
+      await Promise.race([
+        maybePromise,
+        new Promise(resolve => setTimeout(resolve, Math.max(0, (segment.audio.duration * 1000) - 30))),
+      ]);
+      return;
+    } catch (_) {}
+  }
+  await new Promise(resolve => setTimeout(resolve, Math.max(0, (segment.audio.duration * 1000) - 30)));
+}
+
+async function drainHeadProgressiveSegments() {
+  if (progressiveHeadDrainPromise) return progressiveHeadDrainPromise;
+  progressiveHeadDrainPromise = (async () => {
+    while (progressiveHeadSegments.length) {
+      const segment = progressiveHeadSegments.shift();
+      if (!segment) continue;
+      await playHeadProgressiveSegment(segment);
+      if (!progressiveHeadSegments.length && !activeOutputStream) {
+        currentPlaybackTurnId = null;
+      }
+    }
+  })();
+  try {
+    await progressiveHeadDrainPromise;
+  } finally {
+    progressiveHeadDrainPromise = null;
+  }
+}
+
 async function queueProgressivePcmChunk(chunkBuffer, streamInfo) {
   try {
     if (!audioCtx) audioCtx = new AudioContext();
     if (audioCtx.state === 'suspended') await audioCtx.resume();
-    const pcm16 = new Int16Array(chunkBuffer);
-    const frameCount = Math.floor(pcm16.length / streamInfo.channels);
-    if (!frameCount) return;
-    const audioBuffer = audioCtx.createBuffer(streamInfo.channels, frameCount, streamInfo.sampleRate);
-    for (let channel = 0; channel < streamInfo.channels; channel++) {
-      const channelData = audioBuffer.getChannelData(channel);
-      for (let i = 0; i < frameCount; i++) {
-        const sample = pcm16[i * streamInfo.channels + channel] || 0;
-        channelData[i] = sample / 32768;
-      }
+    const built = buildAudioBufferFromPcm(chunkBuffer, streamInfo);
+    if (!built) return;
+    const { audioBuffer, frameCount } = built;
+    const segmentStartMs = (streamInfo.frameOffset / streamInfo.sampleRate) * 1000;
+    streamInfo.frameOffset += frameCount;
+    const segmentEndMs = (streamInfo.frameOffset / streamInfo.sampleRate) * 1000;
+    if (head && typeof head.speakAudio === 'function') {
+      progressiveHeadSegments.push({
+        turnId: streamInfo.turnId,
+        audio: audioBuffer,
+        wordTimings: consumeSegmentWordTimings(segmentStartMs, segmentEndMs, streamInfo.turnId),
+      });
+      void drainHeadProgressiveSegments();
+      return;
     }
     const src = audioCtx.createBufferSource();
     src.buffer = audioBuffer;
