@@ -79,7 +79,7 @@ async def run_chat(
     # Sanitize history: remove any trailing assistant tool-call turns that have no
     # corresponding tool-response. These cause Gemini HTTP 400 ("function call turn
     # comes immediately after a user turn").
-    messages = _drop_dangling_tool_calls(messages)
+    messages = _sanitize_history(messages)
 
     for round_num in range(_MAX_TOOL_ROUNDS + 1):
         text, tool_calls = await llm.chat(messages)
@@ -101,6 +101,11 @@ async def run_chat(
             for tc in tool_calls
         ]
         await sm.add_message(session_id, "assistant", text or "", tool_calls=raw_tcs)
+        messages = list(messages) + [{
+            "role": "assistant",
+            "content": text or "",
+            "tool_calls": raw_tcs,
+        }]
 
         for tc in tool_calls:
             if tc.function_name == "describe_camera":
@@ -126,14 +131,14 @@ async def run_chat(
             tc.acl_reason = result.message if not result.success else ""
             all_tool_calls.append(tc)
             await sm.add_message(session_id, "tool", result.message)
+            messages = list(messages) + [{"role": "tool", "content": result.message}]
 
-        messages = await sm.get_messages(session_id)
         if memory_service is not None:
             memory_context, memory_ids = memory_service.build_context(user_text)
             if memory_context:
                 messages = _inject_persistent_memory(messages, memory_context)
         messages = _inject_datetime(messages, now_str)  # now_str already has tz
-        messages = _drop_dangling_tool_calls(messages)
+        messages = _sanitize_history(messages)
 
         if round_num == _MAX_TOOL_ROUNDS:
             _LOGGER.warning("chat.max_tool_rounds_reached",
@@ -211,6 +216,40 @@ def _drop_dangling_tool_calls(messages: list[dict]) -> list[dict]:
         else:
             break
     return result
+
+
+def _drop_orphan_tool_messages(messages: list[dict]) -> list[dict]:
+    """Remove tool messages that no longer have a preceding assistant tool-call turn.
+
+    Session trimming can evict the assistant tool-call message while leaving later
+    tool responses behind. Gemini and Ollama both reject that conversation shape.
+    """
+    if len(messages) < 2:
+        return messages
+    result: list[dict] = []
+    pending_tool_results = 0
+    for index, msg in enumerate(messages):
+        role = msg.get("role")
+        if index == 0 and role == "system":
+            result.append(msg)
+            continue
+        if role == "assistant":
+            tool_calls = msg.get("tool_calls") or []
+            pending_tool_results = len(tool_calls)
+            result.append(msg)
+            continue
+        if role == "tool":
+            if pending_tool_results > 0:
+                result.append(msg)
+                pending_tool_results -= 1
+            continue
+        pending_tool_results = 0
+        result.append(msg)
+    return result
+
+
+def _sanitize_history(messages: list[dict]) -> list[dict]:
+    return _drop_dangling_tool_calls(_drop_orphan_tool_messages(messages))
 
 
 def _inject_datetime(messages: list[dict], now_str: str) -> list[dict]:

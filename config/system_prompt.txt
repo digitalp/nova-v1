@@ -993,6 +993,14 @@ Only add context if the answer is ambiguous or the data conflicts:
 
 Never respond to a simple question with a paragraph.
 
+When speaking or writing a message that will be spoken aloud, say units as words rather than symbols.
+Examples:
+  "watts" not "W"
+  "degrees Celsius" not "°C"
+  "percent" not "%"
+  "kilometres per hour" not "km/h"
+  "kilowatt hours" not "kWh"
+
 Format (for everything else):
 - Lead with the action or finding
 - Then reason

@@ -608,14 +608,15 @@ class ProactiveService:
         attrs = new_state.get("attributes", {})
         temp  = attrs.get("temperature", "?")
         wind  = attrs.get("wind_speed", "")
-        wind_str = f", wind {wind} km/h" if wind else ""
+        wind_str = f", wind {wind} kilometres per hour" if wind else ""
 
         prompt = (
             f"The weather at home has just changed from '{old_condition}' to '{new_condition}'. "
-            f"Current temperature: {temp}°C{wind_str}. "
+            f"Current temperature: {temp} degrees Celsius{wind_str}. "
             "As Nova, write a brief (1-2 sentence) natural spoken announcement about this weather change. "
             "Include a practical tip if relevant (e.g. umbrella for rain, stay indoors for lightning). "
-            "Be conversational and warm, not robotic."
+            "Be conversational and warm, not robotic. "
+            "When speaking, always say units as words, not symbols."
         )
 
         try:
@@ -692,8 +693,8 @@ class ProactiveService:
             hi    = f.get("temperature", "?")
             lo    = f.get("templow", "?")
             rain  = f.get("precipitation", 0)
-            rain_str = f", {rain}mm rain" if rain else ""
-            return f"{day}: {cond}, high {hi}°C, low {lo}°C{rain_str}"
+            rain_str = f", {rain} millimetres of rain" if rain else ""
+            return f"{day}: {cond}, high {hi} degrees Celsius, low {lo} degrees Celsius{rain_str}"
 
         today_line = _fmt(forecasts[0]) if forecasts else "No data"
         week_lines = "\n".join(_fmt(f) for f in forecasts[1:6]) if len(forecasts) > 1 else ""
@@ -703,6 +704,7 @@ class ProactiveService:
             f"Today: {today_line}\n"
             + (f"This week:\n{week_lines}\n" if week_lines else "")
             + "\nAs Nova, write a friendly 2-4 sentence morning weather briefing. "
+            + "When speaking, always say units as words, not symbols. "
             "Highlight the most important weather for today, note anything noteworthy "
             "coming this week (rain, heat, cold), and give a practical tip. "
             "Be warm and natural — not a robotic read-out."

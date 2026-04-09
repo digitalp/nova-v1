@@ -5,6 +5,7 @@ Ollama and ha_proxy are mocked so these run without real services.
 import pytest
 from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
+from avatar_backend.services.chat_service import _sanitize_history
 
 
 @pytest.fixture(autouse=True)
@@ -127,6 +128,22 @@ def test_session_history_grows(mock_chat, mock_ready, client):
         client.post("/chat", json={"session_id": "history_test", "text": f"msg {i}"}, headers=HEADERS)
     stats = client.get("/chat/sessions/stats", headers=HEADERS)
     assert stats.json()["active_sessions"] >= 1
+
+
+def test_sanitize_history_drops_orphan_tool_messages_after_trim():
+    messages = [
+        {"role": "system", "content": "sys"},
+        {"role": "tool", "content": "result 1"},
+        {"role": "tool", "content": "result 2"},
+        {"role": "user", "content": "hello"},
+    ]
+
+    sanitized = _sanitize_history(messages)
+
+    assert sanitized == [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "hello"},
+    ]
 
 
 @patch("avatar_backend.services.llm_service.LLMService.is_ready", new_callable=AsyncMock, return_value=True)

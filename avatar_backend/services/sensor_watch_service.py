@@ -74,6 +74,9 @@ _LEGACY_SNAPSHOT_EXCLUDE_PREFIXES: tuple[str, ...] = (
     "sensor.bedroom_1_thermo_valve",
     "sensor.back_door_device_temperature",
     "sensor.back_entrance_device_temperature",
+    "sensor.met_office_",
+    "sensor.openweathermap_dew_point",
+    "sensor.openweathermap_feels_like_temperature",
 )
 
 # ── Hard threshold rules — immediate announcement on WebSocket event ──────────
@@ -128,6 +131,15 @@ _LEGACY_TEMP_EXCLUDE_PREFIXES: tuple[str, ...] = (
     "sensor.back_door_device_",
     "sensor.back_entrance_device_",
     "sensor.bedroom_1_thermo_",
+    "sensor.met_office_",
+    "sensor.openweathermap_dew_point",
+    "sensor.openweathermap_feels_like_temperature",
+    "sensor.openweathermap_temperature",
+)
+
+_LEGACY_TEMP_EXCLUDE_SUBSTRINGS: tuple[str, ...] = (
+    "_thermo_local_temperature",
+    "_trv_local_temperature",
 )
 
 # ── Temperature thresholds applied to room temperature sensors ─────────────────
@@ -139,6 +151,20 @@ _BATTERY_LOW_PCT = 10.0
 
 # ── Noise states ──────────────────────────────────────────────────────────────
 _NOISE_STATES = {"unavailable", "unknown", "none", ""}
+
+
+def _spoken_unit(unit: str) -> str:
+    normalized = str(unit or "").strip()
+    return {
+        "%": " percent",
+        "W": " watts",
+        "kW": " kilowatts",
+        "kWh": " kilowatt hours",
+        "°C": " degrees Celsius",
+        "°F": " degrees Fahrenheit",
+        "km/h": " kilometres per hour",
+        "mph": " miles per hour",
+    }.get(normalized, f" {normalized}" if normalized else "")
 
 
 # ── Minimal inline Ollama client ──────────────────────────────────────────────
@@ -359,7 +385,7 @@ class SensorWatchService:
         except (ValueError, TypeError):
             return
 
-        unit = rule.get("unit", "")
+        unit = _spoken_unit(rule.get("unit", ""))
         msg  = None
         priority = "normal"
 
@@ -398,6 +424,8 @@ class SensorWatchService:
         # Skip non-room temperature sensors
         if any(entity_id.startswith(p) for p in self._temp_exclude_prefixes):
             return
+        if any(part in entity_id for part in _LEGACY_TEMP_EXCLUDE_SUBSTRINGS):
+            return
         if self._entity_on_cooldown(entity_id) or self._global_on_cooldown():
             return
         try:
@@ -406,10 +434,10 @@ class SensorWatchService:
             return
 
         if value > _TEMP_MAX_C:
-            msg = f"It's getting quite warm — {friendly} is reading {round(value, 1)}°C. You may want to open a window."
+            msg = f"It's getting quite warm — {friendly} is reading {round(value, 1)} degrees Celsius. You may want to open a window."
             await self._announce_now(entity_id, msg)
         elif value < _TEMP_MIN_C:
-            msg = f"The temperature near {friendly} has dropped to {round(value, 1)}°C. It's quite cold — you may want to check the heating."
+            msg = f"The temperature near {friendly} has dropped to {round(value, 1)} degrees Celsius. It's quite cold — you may want to check the heating."
             await self._announce_now(entity_id, msg)
 
     async def _check_battery(self, entity_id: str, friendly: str, raw_val: str) -> None:
@@ -421,7 +449,7 @@ class SensorWatchService:
             return
 
         if value < _BATTERY_LOW_PCT:
-            msg = f"Low battery alert — {friendly} is at {round(value, 0):.0f}%. It may need replacing soon."
+            msg = f"Low battery alert — {friendly} is at {round(value, 0):.0f} percent. It may need replacing soon."
             await self._announce_now(entity_id, msg)
 
     # ── Periodic snapshot review ───────────────────────────────────────────
