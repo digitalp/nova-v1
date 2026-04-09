@@ -6,6 +6,7 @@ from typing import Any
 
 _CTX_KEY_RE = re.compile(r"^[a-zA-Z0-9_\-\.]{1,64}$")
 _CTX_MAX_VAL = 256
+_CTX_MAX_ITEMS = 32
 
 
 class ContextBuilder:
@@ -45,11 +46,38 @@ class ContextBuilder:
         if not context:
             return {}
         sanitized: dict[str, str] = {}
-        for key, value in context.items():
-            if not isinstance(key, str) or not _CTX_KEY_RE.match(key):
-                continue
-            sanitized[key] = self._sanitize_value(value)
+        self._flatten_context(context, sanitized)
         return sanitized
+
+    def _flatten_context(
+        self,
+        value: Any,
+        sanitized: dict[str, str],
+        *,
+        path: tuple[str, ...] = (),
+    ) -> None:
+        if len(sanitized) >= _CTX_MAX_ITEMS:
+            return
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if not isinstance(key, str) or not _CTX_KEY_RE.match(key):
+                    continue
+                self._flatten_context(child, sanitized, path=(*path, key))
+                if len(sanitized) >= _CTX_MAX_ITEMS:
+                    return
+            return
+        if isinstance(value, (list, tuple)):
+            if not value and path:
+                sanitized[".".join(path)] = "[]"
+                return
+            for idx, child in enumerate(value):
+                self._flatten_context(child, sanitized, path=(*path, str(idx)))
+                if len(sanitized) >= _CTX_MAX_ITEMS:
+                    return
+            return
+        if not path:
+            return
+        sanitized[".".join(path)] = self._sanitize_value(value)
 
     @staticmethod
     def _sanitize_value(value: Any) -> str:

@@ -40,6 +40,8 @@ async def test_handle_text_turn_injects_sanitized_context():
             context={
                 "room": "Kitchen",
                 "active_device": "TV\nLiving room",
+                "lights": ["kitchen", "hallway"],
+                "climate": {"mode": "eco", "target": 21},
                 "bad key": "ignored",
             },
         )
@@ -50,7 +52,11 @@ async def test_handle_text_turn_injects_sanitized_context():
     assert captured["user_text"] == (
         "What is on?\n\n[Home context]\n"
         "  room: Kitchen\n"
-        "  active_device: TV Living room"
+        "  active_device: TV Living room\n"
+        "  lights.0: kitchen\n"
+        "  lights.1: hallway\n"
+        "  climate.mode: eco\n"
+        "  climate.target: 21"
     )
 
 
@@ -105,7 +111,12 @@ async def test_handle_event_followup_injects_event_context():
             user_text="What should I do?",
             event_type="package_delivery",
             event_summary="Package left at front door",
-            event_context={"camera": "front_door", "severity": "normal"},
+            event_context={
+                "camera": "front_door",
+                "severity": "normal",
+                "captures": ["snapshot", "overview"],
+                "source": {"entity_id": "camera.front_door"},
+            },
         )
     )
 
@@ -116,7 +127,10 @@ async def test_handle_event_followup_injects_event_context():
         "  type: package_delivery\n"
         "  summary: Package left at front door\n"
         "  camera: front_door\n"
-        "  severity: normal"
+        "  severity: normal\n"
+        "  captures.0: snapshot\n"
+        "  captures.1: overview\n"
+        "  source.entity_id: camera.front_door"
     )
 
 

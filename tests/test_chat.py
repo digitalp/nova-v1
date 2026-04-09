@@ -140,12 +140,20 @@ def test_chat_context_merges_incrementally_across_requests(mock_chat, mock_ready
 
     resp1 = client.post(
         "/chat",
-        json={"session_id": "context-merge", "text": "Remember the room.", "context": {"room": "Kitchen"}},
+        json={
+            "session_id": "context-merge",
+            "text": "Remember the room.",
+            "context": {"room": "Kitchen", "lights": ["kitchen", "hallway"]},
+        },
         headers=HEADERS,
     )
     resp2 = client.post(
         "/chat",
-        json={"session_id": "context-merge", "text": "Add the mode.", "context": {"mode": "Evening"}},
+        json={
+            "session_id": "context-merge",
+            "text": "Add the mode.",
+            "context": {"mode": "Evening", "climate": {"target": 21}},
+        },
         headers=HEADERS,
     )
     resp3 = client.post(
@@ -163,7 +171,10 @@ def test_chat_context_merges_incrementally_across_requests(mock_chat, mock_ready
     assert third_messages[-1]["content"] == (
         "What changed?\n\n[Home context]\n"
         "  room: Kitchen\n"
-        "  mode: Evening"
+        "  lights.0: kitchen\n"
+        "  lights.1: hallway\n"
+        "  mode: Evening\n"
+        "  climate.target: 21"
     )
 
 
