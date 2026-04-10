@@ -204,11 +204,13 @@ class SensorWatchService:
         ha_token: str,
         ollama_url: str,
         announce_fn: Callable[[str, str], Awaitable[None]],
+        issue_autofix_service=None,
     ) -> None:
         self._ha_url       = ha_url.rstrip("/")
         self._ha_token     = ha_token
         self._ollama_url   = ollama_url
         self._announce     = announce_fn
+        self._issue_autofix_service = issue_autofix_service
         runtime = load_home_runtime_config()
         self._snapshot_exclude_prefixes = tuple(
             dict.fromkeys(_LEGACY_SNAPSHOT_EXCLUDE_PREFIXES + tuple(runtime.sensor_snapshot_exclude_prefixes))
@@ -260,7 +262,14 @@ class SensorWatchService:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                _LOGGER.warning("sensor_watch.ws_disconnected", exc=str(exc), retry_in_s=backoff)
+                _LOGGER.warning("sensor_watch.ws_disconnected", exc=_format_exc(exc), retry_in_s=backoff)
+                if self._issue_autofix_service is not None:
+                    await self._issue_autofix_service.report_issue(
+                        "sensor_watch_ws_disconnected",
+                        source="sensor_watch._run",
+                        summary="Sensor watch websocket disconnected",
+                        details={"exc": _format_exc(exc), "retry_in_s": backoff},
+                    )
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 120)
 
@@ -297,6 +306,11 @@ class SensorWatchService:
                 raise RuntimeError(f"subscribe_events failed: {msg}")
 
             _LOGGER.info("sensor_watch.ws_ready")
+            if self._issue_autofix_service is not None:
+                await self._issue_autofix_service.resolve_issue(
+                    "sensor_watch_ws_disconnected",
+                    source="sensor_watch.ws_ready",
+                )
 
             review_task = asyncio.create_task(self._review_loop(), name="sensor_review")
             try:

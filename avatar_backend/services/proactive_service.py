@@ -175,6 +175,7 @@ class ProactiveService:
         system_prompt: str,
         event_service=None,
         camera_event_service=None,
+        issue_autofix_service=None,
     ) -> None:
         self._ha_url = ha_url.rstrip("/")
         self._ha_token = ha_token
@@ -185,6 +186,7 @@ class ProactiveService:
         self._system_prompt = system_prompt
         self._event_service = event_service
         self._camera_event_service = camera_event_service
+        self._issue_autofix_service = issue_autofix_service
         runtime = load_home_runtime_config()
         self._motion_camera_map = dict(_LEGACY_MOTION_CAMERA_MAP)
         self._motion_camera_map.update(runtime.motion_camera_map)
@@ -265,6 +267,13 @@ class ProactiveService:
                     exc=str(exc),
                     retry_in_s=backoff,
                 )
+                if self._issue_autofix_service is not None:
+                    await self._issue_autofix_service.report_issue(
+                        "proactive_ws_disconnected",
+                        source="proactive._run",
+                        summary="Proactive websocket disconnected",
+                        details={"exc": str(exc), "retry_in_s": backoff},
+                    )
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 120)
 
@@ -307,6 +316,11 @@ class ProactiveService:
                 raise RuntimeError(f"subscribe_events failed: {msg}")
 
             _LOGGER.info("proactive.subscribed_to_state_changed")
+            if self._issue_autofix_service is not None:
+                await self._issue_autofix_service.resolve_issue(
+                    "proactive_ws_disconnected",
+                    source="proactive.ws_ready",
+                )
 
             # Start batch processor, daily forecast, and heating control loops
             batch_task   = asyncio.create_task(self._batch_loop(), name="proactive_batcher")

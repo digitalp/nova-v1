@@ -38,6 +38,7 @@ from avatar_backend.services.proactive_service import ProactiveService
 from avatar_backend.services.open_loop_automation_service import OpenLoopAutomationService
 from avatar_backend.services.open_loop_workflow_service import OpenLoopWorkflowService
 from avatar_backend.services.sensor_watch_service import SensorWatchService
+from avatar_backend.services.issue_autofix_service import IssueAutoFixService
 from avatar_backend.services.metrics_db import MetricsDB
 from avatar_backend.services.motion_clip_service import MotionClipService
 from avatar_backend.services.system_metrics import SystemMetrics
@@ -190,6 +191,7 @@ async def lifespan(app: FastAPI):
     app.state.event_bus = EventBusService()
     app.state.event_service = EventService()
     app.state.metrics_db = MetricsDB()
+    app.state.issue_autofix_service = IssueAutoFixService(app)
     app.state.event_store = EventStoreService(app.state.metrics_db)
     app.state.camera_event_service = CameraEventService(
         ha_proxy=app.state.ha_proxy,
@@ -213,6 +215,7 @@ async def lifespan(app: FastAPI):
         db=app.state.metrics_db,
         ha_proxy=app.state.ha_proxy,
         llm_service=app.state.llm_service,
+        issue_autofix_service=app.state.issue_autofix_service,
         clip_duration_s=settings.motion_clip_duration_s,
         max_search_candidates=settings.motion_clip_search_candidates,
         max_search_results=settings.motion_clip_search_results,
@@ -261,6 +264,7 @@ async def lifespan(app: FastAPI):
         system_prompt=system_prompt,
         event_service=app.state.event_service,
         camera_event_service=app.state.camera_event_service,
+        issue_autofix_service=app.state.issue_autofix_service,
     )
     app.state.proactive_service = proactive
     await proactive.start()
@@ -270,6 +274,7 @@ async def lifespan(app: FastAPI):
         ha_token=settings.ha_token,
         ollama_url=settings.ollama_url,
         announce_fn=_proactive_announce,
+        issue_autofix_service=app.state.issue_autofix_service,
     )
     app.state.sensor_watch = sensor_watch
     await sensor_watch.start()

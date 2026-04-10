@@ -94,6 +94,18 @@ async def health_check(request: Request) -> dict:
     all_ok     = all(v in healthy for v in components.values())
     overall    = "ok" if all_ok else "degraded"
 
+    issue_autofix = getattr(request.app.state, "issue_autofix_service", None)
+    if issue_autofix is not None:
+        if ha_status == "timeout":
+            await issue_autofix.report_issue(
+                "home_assistant_timeout",
+                source="health_check",
+                summary="Home Assistant health probe timed out",
+                details={"components": components},
+            )
+        elif ha_status == "reachable":
+            await issue_autofix.resolve_issue("home_assistant_timeout", source="health_check")
+
     logger.info("health.checked", status=overall, components=components)
     return {"status": overall, "version": _VERSION, "components": components}
 

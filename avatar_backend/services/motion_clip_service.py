@@ -29,6 +29,7 @@ class MotionClipService:
         db,
         ha_proxy,
         llm_service,
+        issue_autofix_service=None,
         clip_duration_s: int = 8,
         max_search_candidates: int = 120,
         max_search_results: int = 24,
@@ -36,6 +37,7 @@ class MotionClipService:
         self._db = db
         self._ha = ha_proxy
         self._llm = llm_service
+        self._issue_autofix_service = issue_autofix_service
         self._clip_duration_s = max(3, int(clip_duration_s))
         self._max_search_candidates = max(20, int(max_search_candidates))
         self._max_search_results = max(5, int(max_search_results))
@@ -43,6 +45,15 @@ class MotionClipService:
         self._clips_dir.mkdir(parents=True, exist_ok=True)
         self._clips_dir_ready = self._ensure_clips_dir_ready()
         self._tasks: set[asyncio.Task] = set()
+
+    async def refresh_storage_status(self) -> bool:
+        self._clips_dir_ready = self._ensure_clips_dir_ready()
+        if self._clips_dir_ready and self._issue_autofix_service is not None:
+            await self._issue_autofix_service.resolve_issue(
+                "motion_clip_storage_unavailable",
+                source="motion_clip_service",
+            )
+        return self._clips_dir_ready
 
     def _ensure_clips_dir_ready(self) -> bool:
         try:
@@ -96,6 +107,13 @@ class MotionClipService:
                 camera=camera_entity_id,
                 clips_dir=str(self._clips_dir),
             )
+            if self._issue_autofix_service is not None:
+                await self._issue_autofix_service.report_issue(
+                    "motion_clip_storage_unavailable",
+                    source="motion_clip.capture_and_store",
+                    summary="Motion clip storage is unavailable",
+                    details={"camera_entity_id": camera_entity_id, "clips_dir": str(self._clips_dir)},
+                )
             return None
         now = datetime.now(timezone.utc)
         relpath = self._build_relpath(camera_entity_id, now)
@@ -109,7 +127,19 @@ class MotionClipService:
                 path=str(fullpath.parent),
                 exc=_format_exc(exc),
             )
+            if self._issue_autofix_service is not None:
+                await self._issue_autofix_service.report_issue(
+                    "motion_clip_storage_unavailable",
+                    source="motion_clip.capture_parent_mkdir_failed",
+                    summary="Motion clip storage parent directory could not be created",
+                    details={"camera_entity_id": camera_entity_id, "path": str(fullpath.parent)},
+                )
             return None
+        if self._issue_autofix_service is not None:
+            await self._issue_autofix_service.resolve_issue(
+                "motion_clip_storage_unavailable",
+                source="motion_clip.capture_and_store",
+            )
 
         status = "ready"
         if not await self._capture_clip(camera_entity_id, fullpath):
