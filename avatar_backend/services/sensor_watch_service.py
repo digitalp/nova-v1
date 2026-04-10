@@ -29,6 +29,11 @@ from avatar_backend.services.home_runtime import load_home_runtime_config
 
 _LOGGER = structlog.get_logger()
 
+
+def _format_exc(exc: BaseException) -> str:
+    message = str(exc).strip()
+    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+
 # ── Ollama config ─────────────────────────────────────────────────────────────
 _OLLAMA_MODEL = "gemma2:9b"
 
@@ -373,7 +378,7 @@ class SensorWatchService:
         try:
             await self._announce(message, priority)
         except Exception as exc:
-            _LOGGER.warning("sensor_watch.announce_failed", entity_id=entity_id, exc=str(exc))
+            _LOGGER.warning("sensor_watch.announce_failed", entity_id=entity_id, exc=_format_exc(exc))
 
     async def _check_threshold(
         self, entity_id: str, friendly: str, raw_val: str, rule: dict
@@ -464,7 +469,7 @@ class SensorWatchService:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                _LOGGER.warning("sensor_watch.review_error", exc=str(exc))
+                _LOGGER.warning("sensor_watch.review_error", exc=_format_exc(exc))
             await asyncio.sleep(_REVIEW_INTERVAL_S)
 
     async def _fetch_sensor_snapshot(self) -> list[dict]:
@@ -479,7 +484,7 @@ class SensorWatchService:
                 resp.raise_for_status()
                 all_states = resp.json()
         except Exception as exc:
-            _LOGGER.warning("sensor_watch.snapshot_fetch_failed", exc=str(exc))
+            _LOGGER.warning("sensor_watch.snapshot_fetch_failed", exc=_format_exc(exc))
             return []
 
         results = []
@@ -565,11 +570,11 @@ class SensorWatchService:
         try:
             raw = await _ollama_generate(prompt, self._ollama_url, timeout_s=90.0)
         except Exception as exc:
-            _LOGGER.warning("sensor_watch.review_ollama_failed", exc=str(exc))
+            _LOGGER.warning("sensor_watch.review_ollama_failed", exc=_format_exc(exc))
             if self._decision_log:
                 self._decision_log.record(
                     "sensor_review_error",
-                    reason=str(exc)[:200],
+                    reason=_format_exc(exc)[:200],
                     **self._llm_fields(),
                 )
             return
@@ -626,4 +631,4 @@ class SensorWatchService:
         try:
             await self._announce(message, priority)
         except Exception as exc:
-            _LOGGER.warning("sensor_watch.review_announce_failed", exc=str(exc))
+            _LOGGER.warning("sensor_watch.review_announce_failed", exc=_format_exc(exc))

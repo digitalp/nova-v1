@@ -32,7 +32,8 @@ async def _probe_ollama(url: str) -> str:
 
 async def _probe_ha(url: str, token: str) -> str:
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        timeout = httpx.Timeout(connect=3.0, read=8.0, write=5.0, pool=5.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.get(
                 f"{url}/api/",
                 headers={"Authorization": f"Bearer {token}"},

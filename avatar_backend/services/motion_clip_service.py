@@ -17,6 +17,11 @@ _LOGGER = structlog.get_logger()
 _SAFE_PATH_CHARS = re.compile(r"[^a-z0-9_-]+")
 
 
+def _format_exc(exc: BaseException) -> str:
+    message = str(exc).strip()
+    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+
+
 class MotionClipService:
     def __init__(
         self,
@@ -36,7 +41,23 @@ class MotionClipService:
         self._max_search_results = max(5, int(max_search_results))
         self._clips_dir = data_dir() / "motion_clips"
         self._clips_dir.mkdir(parents=True, exist_ok=True)
+        self._clips_dir_ready = self._ensure_clips_dir_ready()
         self._tasks: set[asyncio.Task] = set()
+
+    def _ensure_clips_dir_ready(self) -> bool:
+        try:
+            self._clips_dir.mkdir(parents=True, exist_ok=True)
+            probe = self._clips_dir / ".write_test"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return True
+        except Exception as exc:
+            _LOGGER.warning(
+                "motion_clip.storage_unavailable",
+                clips_dir=str(self._clips_dir),
+                exc=_format_exc(exc),
+            )
+            return False
 
     def schedule_capture(
         self,
@@ -69,10 +90,26 @@ class MotionClipService:
         description: str = "",
         extra: dict[str, Any] | None = None,
     ) -> int | None:
+        if not self._clips_dir_ready:
+            _LOGGER.warning(
+                "motion_clip.capture_skipped_storage_unavailable",
+                camera=camera_entity_id,
+                clips_dir=str(self._clips_dir),
+            )
+            return None
         now = datetime.now(timezone.utc)
         relpath = self._build_relpath(camera_entity_id, now)
         fullpath = self._clips_dir / relpath
-        fullpath.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            fullpath.parent.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            _LOGGER.warning(
+                "motion_clip.capture_parent_mkdir_failed",
+                camera=camera_entity_id,
+                path=str(fullpath.parent),
+                exc=_format_exc(exc),
+            )
+            return None
 
         status = "ready"
         if not await self._capture_clip(camera_entity_id, fullpath):
@@ -150,7 +187,7 @@ class MotionClipService:
         try:
             raw = (await self._llm.generate_text(prompt, timeout_s=20.0)).strip()
         except Exception as exc:
-            _LOGGER.warning("motion_clip.search_llm_failed", exc=str(exc))
+            _LOGGER.warning("motion_clip.search_llm_failed", exc=_format_exc(exc))
             return []
         if raw.startswith("```"):
             parts = raw.split("```")
@@ -201,7 +238,7 @@ class MotionClipService:
                 if sleep_for > 0:
                     await asyncio.sleep(sleep_for)
         except Exception as exc:
-            _LOGGER.warning("motion_clip.frame_sample_failed", camera=camera_entity_id, exc=str(exc))
+            _LOGGER.warning("motion_clip.frame_sample_failed", camera=camera_entity_id, exc=_format_exc(exc))
             shutil.rmtree(frame_dir, ignore_errors=True)
             return False
 
@@ -252,7 +289,7 @@ class MotionClipService:
                 _LOGGER.warning("motion_clip.capture_timeout", camera=camera_entity_id)
                 return False
         except Exception as exc:
-            _LOGGER.warning("motion_clip.capture_spawn_failed", camera=camera_entity_id, exc=str(exc))
+            _LOGGER.warning("motion_clip.capture_spawn_failed", camera=camera_entity_id, exc=_format_exc(exc))
             return False
         finally:
             shutil.rmtree(frame_dir, ignore_errors=True)
@@ -301,7 +338,7 @@ class MotionClipService:
         try:
             task.result()
         except Exception as exc:
-            _LOGGER.warning("motion_clip.task_failed", exc=str(exc))
+            _LOGGER.warning("motion_clip.task_failed", exc=_format_exc(exc))
 
     def _build_relpath(self, camera_entity_id: str, now: datetime) -> Path:
         camera_slug = _SAFE_PATH_CHARS.sub("-", camera_entity_id.lower()).strip("-") or "camera"
