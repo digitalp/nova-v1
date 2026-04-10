@@ -9,7 +9,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from avatar_backend.services.tts_service import TTSService, _silent_wav, _VOICES_DIR, _PIPER_BIN
+from avatar_backend.services.tts_service import PiperTTSService, _normalize_tts_text, _silent_wav, _VOICES_DIR, _PIPER_BIN
 
 
 # ── _silent_wav helper ────────────────────────────────────────────────────────
@@ -45,14 +45,14 @@ def _make_silent_wav_bytes(sample_rate: int = 22050, n_samples: int = 100) -> by
 
 @pytest.mark.asyncio
 async def test_synthesise_empty_text_returns_silent_wav():
-    svc = TTSService()
+    svc = PiperTTSService()
     wav = await svc.synthesise("")
     assert wav[:4] == b"RIFF"
 
 
 @pytest.mark.asyncio
 async def test_synthesise_whitespace_only_returns_silent_wav():
-    svc = TTSService()
+    svc = PiperTTSService()
     wav = await svc.synthesise("   ")
     assert wav[:4] == b"RIFF"
 
@@ -62,7 +62,7 @@ async def test_synthesise_calls_piper_binary():
     """_run_piper should be called with correct arguments."""
     fake_wav = _make_silent_wav_bytes()
 
-    svc = TTSService(voice_name="en_US-lessac-medium")
+    svc = PiperTTSService(voice_name="en_US-lessac-medium")
     # Patch _PIPER_BIN and model path existence checks
     with (
         patch("avatar_backend.services.tts_service._PIPER_BIN",
@@ -79,7 +79,7 @@ async def test_synthesise_calls_piper_binary():
 
 @pytest.mark.asyncio
 async def test_synthesise_raises_if_binary_missing():
-    svc = TTSService(voice_name="en_US-lessac-medium")
+    svc = PiperTTSService(voice_name="en_US-lessac-medium")
     with patch("avatar_backend.services.tts_service._PIPER_BIN",
                new=Path("/nonexistent/piper")):
         with pytest.raises(RuntimeError, match="Piper binary not found"):
@@ -90,7 +90,7 @@ async def test_synthesise_raises_if_binary_missing():
 async def test_synthesise_wav_is_parseable():
     """Result of synthesise (when mocked) should be valid WAV."""
     fake_wav = _make_silent_wav_bytes()
-    svc = TTSService(voice_name="en_US-lessac-medium")
+    svc = PiperTTSService(voice_name="en_US-lessac-medium")
 
     with (
         patch("avatar_backend.services.tts_service._PIPER_BIN",
@@ -107,14 +107,14 @@ async def test_synthesise_wav_is_parseable():
 
 
 def test_is_ready_false_when_binary_missing():
-    svc = TTSService()
+    svc = PiperTTSService()
     with patch("avatar_backend.services.tts_service._PIPER_BIN",
                new=Path("/nonexistent/piper")):
         assert svc.is_ready is False
 
 
 def test_is_ready_true_when_all_present():
-    svc = TTSService()
+    svc = PiperTTSService()
     with (
         patch("avatar_backend.services.tts_service._PIPER_BIN",
               new=Path("/fake/piper")),
@@ -124,5 +124,13 @@ def test_is_ready_true_when_all_present():
 
 
 def test_sample_rate_default():
-    svc = TTSService()
+    svc = PiperTTSService()
     assert svc.sample_rate in (16000, 22050)  # depends on config file presence
+
+
+def test_normalize_tts_text_strips_markdown_and_urls():
+    text = "Hello **Penn**.\nVisit https://example.com now... • Thanks!"
+
+    normalized = _normalize_tts_text(text)
+
+    assert normalized == "Hello Penn. Visit now. Thanks!"

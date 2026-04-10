@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from datetime import datetime, timezone
 from typing import Any
 
 import structlog
@@ -168,10 +167,16 @@ class PersistentMemoryService:
             f"Assistant:\n{assistant_text}\n"
         )
         try:
-            raw = await llm.generate_text_local(prompt, timeout_s=30.0)
+            raw = await llm.generate_text_local_resilient(
+                prompt,
+                timeout_s=20.0,
+                retry_delay_s=2.0,
+                fallback_timeout_s=12.0,
+                purpose="persistent_memory",
+            )
             memories = self._parse_memories(raw)
         except Exception as exc:
-            _LOGGER.warning("persistent_memory.learn_failed", session_id=session_id, exc=str(exc))
+            _LOGGER.warning("persistent_memory.learn_failed", session_id=session_id, exc=self._format_exc(exc))
             return
 
         inserted = 0
@@ -249,3 +254,8 @@ class PersistentMemoryService:
     @staticmethod
     def _tokens(text: str) -> set[str]:
         return {t for t in re.findall(r"[a-z0-9_]{3,}", text) if t not in {"the", "and", "with", "that", "have", "this"}}
+
+    @staticmethod
+    def _format_exc(exc: BaseException) -> str:
+        message = str(exc).strip()
+        return f"{type(exc).__name__}: {message}" if message else type(exc).__name__

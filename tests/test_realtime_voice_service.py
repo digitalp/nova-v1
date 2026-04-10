@@ -684,6 +684,58 @@ async def test_client_output_streaming_sends_chunked_audio_messages():
 
 
 @pytest.mark.asyncio
+async def test_client_output_streaming_starts_with_first_sentence_before_full_reply_audio():
+    service = RealtimeVoiceService()
+    ws = FakeWebSocket()
+    ws_mgr = MagicMock(spec=ConnectionManager)
+    ws_mgr.broadcast_json = AsyncMock()
+
+    tts = MagicMock()
+    first_wav = _pcm_wav_bytes(4000)
+    rest_wav = _pcm_wav_bytes(6000)
+    tts.synthesise_with_timing = AsyncMock(side_effect=[
+        (first_wav, [{"word": "Hello", "start_ms": 0, "end_ms": 300}]),
+        (rest_wav, [{"word": "there", "start_ms": 0, "end_ms": 300}]),
+    ])
+
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            speaker_service=None,
+        )
+    )
+    ws.app = app
+
+    ctx = VoiceTurnContext(
+        ws=ws,
+        ws_mgr=ws_mgr,
+        session_id="voice_test",
+        stt=MagicMock(),
+        tts=tts,
+        speaker=None,
+        app=app,
+    )
+
+    session = await service._get_or_create_session("voice_test:socket")
+    session.current_turn_id = 1
+    session.output_streaming_enabled = True
+    session.output_audio_format = "pcm_s16le"
+
+    streamed = await service._send_sentence_first_audio(
+        ctx,
+        DefaultRealtimeVoiceAdapter(),
+        session_key="voice_test:socket",
+        turn_id=1,
+        reply_text="Hello there, I have started processing your request. This is the rest of a longer reply for streaming, with enough extra detail to trigger sentence-first audio delivery.",
+        offset_s=0.0,
+    )
+
+    assert streamed is True
+    assert tts.synthesise_with_timing.await_count == 2
+    assert _messages_of_type(ws, "output_audio_start")
+    assert _messages_of_type(ws, "output_audio_end")
+
+
+@pytest.mark.asyncio
 async def test_realtime_voice_service_uses_custom_app_adapter():
     service = RealtimeVoiceService()
     ws = FakeWebSocket()

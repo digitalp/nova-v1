@@ -24,6 +24,23 @@ _VOICES_DIR = Path("/opt/avatar-server/config/piper_voices")
 _PIPER_BIN  = Path("/opt/avatar-server/piper/piper")
 
 
+def _normalize_tts_text(text: str) -> str:
+    text = (text or "").strip()
+    if not text:
+        return ""
+    text = text.replace("\r", "\n")
+    text = re.sub(r"`([^`]*)`", r"\1", text)
+    text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
+    text = re.sub(r"\*([^*]+)\*", r"\1", text)
+    text = text.replace("•", ". ").replace("–", "-").replace("—", "-")
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"\s*\n\s*", ". ", text)
+    text = re.sub(r"\.{2,}", ".", text)
+    text = re.sub(r"([!?]){2,}", r"\1", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
 # ── Base ──────────────────────────────────────────────────────────────────────
 
 class BaseTTSService(ABC):
@@ -65,7 +82,7 @@ class PiperTTSService(BaseTTSService):
         return wav_bytes, _estimate_word_timings(text, wav_bytes)
 
     async def synthesise(self, text: str) -> bytes:
-        text = (text or "").strip()
+        text = _normalize_tts_text(text)
         if not text:
             return _silent_wav(self._sample_rate)
         if not _PIPER_BIN.exists():
@@ -216,6 +233,7 @@ class AfroTTSService(BaseTTSService):
 def create_tts_service(settings) -> BaseTTSService:
     """Return the configured TTS service based on settings.tts_provider."""
     provider = (settings.tts_provider or "piper").lower().strip()
+    structlog.stdlib.logging.getLogger("phonemizer").setLevel("ERROR")
     if provider == "elevenlabs":
         _LOGGER.info("tts.provider", provider="elevenlabs",
                      voice_id=settings.elevenlabs_voice_id)

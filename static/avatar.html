@@ -967,7 +967,11 @@ async function connectWs() {
         }
       }
       if (msg.type === 'word_timings') {
-        pendingWordTimings = msg.word_timings;
+        if (msg.append && Array.isArray(pendingWordTimings) && (pendingWordTimingsTurnId === (msg.turn_id ?? null))) {
+          pendingWordTimings = pendingWordTimings.concat(msg.word_timings || []);
+        } else {
+          pendingWordTimings = msg.word_timings;
+        }
         pendingWordTimingsTurnId = msg.turn_id ?? null;
       }
       if (msg.type === 'announce') {

@@ -4399,6 +4399,10 @@ const _kindMeta = {
   chat_response:   { label:'💬 CHAT',    bg:'rgba(34,211,238,.12)', color:'#22d3ee' },
   motion_announce: { label:'📷 MOTION',  bg:'rgba(245,158,11,.15)', color:'#f59e0b' },
   weather_announce:{ label:'🌤 WEATHER', bg:'rgba(56,189,248,.12)', color:'#38bdf8' },
+  heating_shadow_eval_start: { label:'♨ SHADOW', bg:'rgba(250,204,21,.12)', color:'#facc15' },
+  heating_shadow_action:     { label:'♨ SHADOW', bg:'rgba(250,204,21,.12)', color:'#facc15' },
+  heating_shadow_eval_silent:{ label:'♨ SHADOW', bg:'rgba(250,204,21,.12)', color:'#facc15' },
+  heating_shadow_eval_error: { label:'♨ SHADOW', bg:'rgba(250,204,21,.12)', color:'#facc15' },
   auto_fix_issue_attempt: { label:'🛠 AUTO-FIX', bg:'rgba(250,204,21,.12)', color:'#facc15' },
   auto_fix_issue_resolved:{ label:'✓ FIXED',    bg:'rgba(74,222,128,.12)', color:'#4ade80' },
 };
@@ -4408,11 +4412,26 @@ function _kindBadge(kind) {
   return `<span style="background:${m.bg};color:${m.color};padding:1px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.3px;flex-shrink:0;">${m.label}</span>`;
 }
 
-function _decEntryHTML(e) {
+function _heatingShadowOutcome(idx, entries) {
+  for (let i = idx + 1; i < entries.length; i += 1) {
+    const row = entries[i];
+    if (row.kind === 'heating_shadow_eval_start') return '';
+    if (row.kind === 'heating_shadow_eval_error') {
+      return '<span style="background:rgba(244,63,94,.14);color:#fda4af;padding:1px 8px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.2px;flex-shrink:0;">FAILED</span>';
+    }
+    if (row.kind === 'heating_shadow_action' || row.kind === 'heating_shadow_eval_silent') {
+      return '<span style="background:rgba(74,222,128,.14);color:#86efac;padding:1px 8px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.2px;flex-shrink:0;">SUCCEEDED</span>';
+    }
+  }
+  return '';
+}
+
+function _decEntryHTML(e, idx = -1, entries = _decEntries) {
   let detail = '';
   const llmBadge = e.llm_tag
     ? `<span style="background:rgba(34,211,238,.12);color:#67e8f9;padding:1px 8px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.2px;flex-shrink:0;">${e.llm_tag}</span>`
     : '';
+  let outcomeBadge = '';
   if (e.kind === 'triage_announce' || e.kind === 'triage_silence') {
     const ents = (e.entities || []).join(', ');
     detail = `<span style="color:var(--text3);">${ents}</span>`;
@@ -4443,6 +4462,16 @@ function _decEntryHTML(e) {
     const issue = e.issue_kind || 'unknown_issue';
     detail = `<span style="color:#4ade80;">${issue}</span>`;
     if (e.source) detail += ` <span style="color:var(--text3);">resolved via ${e.source}</span>`;
+  } else if (e.kind === 'heating_shadow_eval_start') {
+    detail = `<span style="color:#facc15;">Local heating shadow evaluation</span>`;
+    if (e.season) detail += ` <span style="color:var(--text3);">(${e.season})</span>`;
+    outcomeBadge = idx >= 0 ? _heatingShadowOutcome(idx, entries) : '';
+  } else if (e.kind === 'heating_shadow_action') {
+    detail = `<span style="color:#86efac;">${e.message || 'Shadow proposed an action'}</span>`;
+  } else if (e.kind === 'heating_shadow_eval_silent') {
+    detail = `<span style="color:var(--text3);">${e.reason || 'No local action suggested'}</span>`;
+  } else if (e.kind === 'heating_shadow_eval_error') {
+    detail = `<span style="color:#fda4af;">${e.reason || 'Shadow evaluation failed'}</span>`;
   }
   return `<div class="dec-entry" data-kind="${e.kind}"
                style="padding:5px 18px;border-bottom:1px solid rgba(255,255,255,.03);
@@ -4450,6 +4479,7 @@ function _decEntryHTML(e) {
     <span style="color:var(--text3);min-width:58px;flex-shrink:0;">${e.ts}</span>
     ${_kindBadge(e.kind)}
     ${llmBadge}
+    ${outcomeBadge}
     <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${detail}</span>
   </div>`;
 }
@@ -4457,11 +4487,14 @@ function _decEntryHTML(e) {
 function _appendDecEntry(e) {
   _decEntries.push(e);
   if (_decEntries.length > 500) _decEntries.shift();
-  if (_decFilter !== 'all' && e.kind !== _decFilter) return;
   const log = document.getElementById('dec-log');
   if (!log) return;
-  if (log.querySelector('div[style*="Waiting"]')) log.innerHTML = '';
-  log.insertAdjacentHTML('beforeend', _decEntryHTML(e));
+  const entries = _decFilter === 'all' ? _decEntries : _decEntries.filter(row => row.kind === _decFilter);
+  if (entries.length === 0) {
+    log.innerHTML = '<div style="padding:12px 18px;color:var(--text3);">No entries for this filter.</div>';
+  } else {
+    log.innerHTML = entries.map((row, index) => _decEntryHTML(row, index, entries)).join('');
+  }
   if (document.getElementById('dec-autoscroll')?.checked) log.scrollTop = log.scrollHeight;
 }
 
@@ -4475,7 +4508,7 @@ function filterDecisions(btn) {
   if (entries.length === 0) {
     log.innerHTML = '<div style="padding:12px 18px;color:var(--text3);">No entries for this filter.</div>';
   } else {
-    log.innerHTML = entries.map(_decEntryHTML).join('');
+    log.innerHTML = entries.map((row, index) => _decEntryHTML(row, index, entries)).join('');
     log.scrollTop = log.scrollHeight;
   }
 }

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import re
 import wave
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -27,6 +28,7 @@ ERROR = "error"
 
 LLM_TIMEOUT_MSG = "I'm having trouble thinking right now. Please try again in a moment."
 LLM_OFFLINE_MSG = "I can't reach my brain right now. Please check that Ollama is running."
+_STREAMING_SENTENCE_RE = re.compile(r"^(.+?[.!?])(?:\s+|$)(.*)$", re.DOTALL)
 
 
 @dataclass
@@ -445,29 +447,36 @@ class RealtimeVoiceService:
                 try:
                     from avatar_backend.config import get_settings as _get_settings
                     offset_s = _get_settings().speaker_audio_offset_ms / 1000.0
-
-                    wav_bytes, word_timings = await adapter.synthesise_reply(ctx, reply_text)
-                    if session_key and not await self._is_current_turn(session_key, turn_id):
-                        finish_reason = "superseded"
-                        await self._finish_turn(ctx.ws, session_key, turn_id, finish_reason)
-                        finish_sent = True
-                        return
-
                     if ctx.speaker and ctx.speaker.is_configured:
                         speaker_task = asyncio.create_task(ctx.speaker.speak(reply_text))
+                    streamed = await self._send_sentence_first_audio(
+                        ctx,
+                        adapter,
+                        session_key=session_key,
+                        turn_id=turn_id,
+                        reply_text=reply_text,
+                        offset_s=offset_s,
+                    )
+                    if not streamed:
+                        wav_bytes, word_timings = await adapter.synthesise_reply(ctx, reply_text)
+                        if session_key and not await self._is_current_turn(session_key, turn_id):
+                            finish_reason = "superseded"
+                            await self._finish_turn(ctx.ws, session_key, turn_id, finish_reason)
+                            finish_sent = True
+                            return
 
-                    if offset_s > 0 and speaker_task is not None:
-                        await asyncio.sleep(offset_s)
+                        if offset_s > 0 and speaker_task is not None:
+                            await asyncio.sleep(offset_s)
 
-                    await self._send_json(ctx.ws, {
-                        "type": "audio_start",
-                        "byte_length": len(wav_bytes),
-                    }, turn_id=turn_id)
-                    await self._send_json(ctx.ws, {
-                        "type": "word_timings",
-                        "word_timings": word_timings,
-                    }, turn_id=turn_id)
-                    await self._send_audio_output(ctx.ws, session_key, wav_bytes, turn_id=turn_id)
+                        await self._send_json(ctx.ws, {
+                            "type": "audio_start",
+                            "byte_length": len(wav_bytes),
+                        }, turn_id=turn_id)
+                        await self._send_json(ctx.ws, {
+                            "type": "word_timings",
+                            "word_timings": word_timings,
+                        }, turn_id=turn_id)
+                        await self._send_audio_output(ctx.ws, session_key, wav_bytes, turn_id=turn_id)
 
                     if speaker_task is not None:
                         await speaker_task
@@ -580,6 +589,104 @@ class RealtimeVoiceService:
                 }, turn_id=turn_id)
                 return
         await self._send_wav(ws, wav_bytes)
+
+    async def _send_sentence_first_audio(
+        self,
+        ctx: VoiceTurnContext,
+        adapter: RealtimeVoiceAdapter,
+        *,
+        session_key: str | None,
+        turn_id: int | None,
+        reply_text: str,
+        offset_s: float,
+    ) -> bool:
+        segment_texts = self._split_reply_for_progressive_audio(reply_text)
+        if not segment_texts or not session_key:
+            return False
+        session = await self._get_or_create_session(session_key)
+        if not session.output_streaming_enabled or session.output_audio_format != "pcm_s16le":
+            return False
+
+        first_text, remaining_text = segment_texts
+        remainder_task = asyncio.create_task(adapter.synthesise_reply(ctx, remaining_text))
+        first_wav, first_word_timings = await adapter.synthesise_reply(ctx, first_text)
+
+        if session_key and not await self._is_current_turn(session_key, turn_id):
+            remainder_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await remainder_task
+            return True
+
+        pcm_bytes, sample_rate, channels, sample_width_bytes = self._extract_pcm_stream(first_wav)
+        chunk_size = 32 * 1024
+        first_chunks = [pcm_bytes[i:i + chunk_size] for i in range(0, len(pcm_bytes), chunk_size)] or [b""]
+        await self._send_json(ctx.ws, {
+            "type": "audio_start",
+            "byte_length": len(first_wav),
+        }, turn_id=turn_id)
+        await self._send_json(ctx.ws, {
+            "type": "output_audio_start",
+            "audio_format": "pcm_s16le",
+            "byte_length": len(pcm_bytes),
+            "chunk_count": len(first_chunks),
+            "sample_rate": sample_rate,
+            "channels": channels,
+            "sample_width_bytes": sample_width_bytes,
+        }, turn_id=turn_id)
+        await self._send_json(ctx.ws, {
+            "type": "word_timings",
+            "word_timings": first_word_timings,
+            "append": False,
+        }, turn_id=turn_id)
+
+        if offset_s > 0 and ctx.speaker and ctx.speaker.is_configured:
+            await asyncio.sleep(offset_s)
+
+        for chunk in first_chunks:
+            await self._send_wav(ctx.ws, chunk)
+
+        remaining_wav, remaining_word_timings = await remainder_task
+        if session_key and not await self._is_current_turn(session_key, turn_id):
+            return True
+
+        remaining_pcm, _, _, _ = self._extract_pcm_stream(remaining_wav)
+        remaining_chunks = [remaining_pcm[i:i + chunk_size] for i in range(0, len(remaining_pcm), chunk_size)] or [b""]
+        offset_ms = self._wav_duration_ms(first_wav)
+        adjusted_word_timings = [
+            {
+                "word": str(item.get("word") or ""),
+                "start_ms": int(item.get("start_ms", 0) + offset_ms),
+                "end_ms": int(item.get("end_ms", 0) + offset_ms),
+            }
+            for item in (remaining_word_timings or [])
+        ]
+        if adjusted_word_timings:
+            await self._send_json(ctx.ws, {
+                "type": "word_timings",
+                "word_timings": adjusted_word_timings,
+                "append": True,
+            }, turn_id=turn_id)
+        for chunk in remaining_chunks:
+            await self._send_wav(ctx.ws, chunk)
+        await self._send_json(ctx.ws, {"type": "output_audio_end"}, turn_id=turn_id)
+        return True
+
+    def _split_reply_for_progressive_audio(self, reply_text: str) -> tuple[str, str] | None:
+        text = (reply_text or "").strip()
+        if len(text) < 80:
+            return None
+        match = _STREAMING_SENTENCE_RE.match(text)
+        if not match:
+            return None
+        first = match.group(1).strip()
+        rest = match.group(2).strip()
+        if len(first) < 24 or len(rest) < 24:
+            return None
+        return first, rest
+
+    def _wav_duration_ms(self, wav_bytes: bytes) -> int:
+        with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+            return round((wf.getnframes() / wf.getframerate()) * 1000)
 
     def _extract_pcm_stream(self, wav_bytes: bytes) -> tuple[bytes, int, int, int]:
         with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
