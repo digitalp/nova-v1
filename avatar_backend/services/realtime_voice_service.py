@@ -4,6 +4,8 @@ import asyncio
 import io
 import json
 import re
+import time
+import uuid
 import wave
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -29,6 +31,7 @@ ERROR = "error"
 LLM_TIMEOUT_MSG = "I'm having trouble thinking right now. Please try again in a moment."
 LLM_OFFLINE_MSG = "I can't reach my brain right now. Please check that Ollama is running."
 _STREAMING_SENTENCE_RE = re.compile(r"^(.+?[.!?])(?:\s+|$)(.*)$", re.DOTALL)
+_AUDIO_CACHE_TTL = 60
 
 
 @dataclass
@@ -453,15 +456,28 @@ class RealtimeVoiceService:
                 await self._send_state(ctx.ws, ctx.ws_mgr, SPEAKING, session_key=session_key, turn_id=turn_id)
                 try:
                     from avatar_backend.config import get_settings as _get_settings
-                    offset_s = _get_settings().speaker_audio_offset_ms / 1000.0
-                    if ctx.speaker and ctx.speaker.is_configured:
-                        speaker_task = asyncio.create_task(ctx.speaker.speak(reply_text, area_aware=True))
+                    _settings = _get_settings()
+                    offset_s = _settings.speaker_audio_offset_ms / 1000.0
                     wav_bytes, word_timings = await adapter.synthesise_reply(ctx, reply_text)
                     if session_key and not await self._is_current_turn(session_key, turn_id):
                         finish_reason = "superseded"
                         await self._finish_turn(ctx.ws, session_key, turn_id, finish_reason)
                         finish_sent = True
                         return
+                    if ctx.speaker and ctx.speaker.is_configured:
+                        public_url = (_settings.public_url or "").rstrip("/")
+                        if public_url:
+                            token = uuid.uuid4().hex
+                            expiry = time.time() + _AUDIO_CACHE_TTL
+                            cache = ctx.app.state.audio_cache
+                            expired = [k for k, (_, exp) in cache.items() if time.time() > exp]
+                            for k in expired:
+                                cache.pop(k, None)
+                            cache[token] = (wav_bytes, expiry)
+                            audio_url = f"{public_url}/tts/audio/{token}"
+                            speaker_task = asyncio.create_task(ctx.speaker.speak_wav(reply_text, audio_url, area_aware=True))
+                        else:
+                            speaker_task = asyncio.create_task(ctx.speaker.speak(reply_text, area_aware=True))
 
                     if offset_s > 0 and speaker_task is not None:
                         await asyncio.sleep(offset_s)

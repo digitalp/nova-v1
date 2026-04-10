@@ -6,6 +6,7 @@ Select provider via TTS_PROVIDER env var: "piper" (default) or "elevenlabs".
 from __future__ import annotations
 import asyncio
 import base64
+import contextlib
 import io
 import json
 import os
@@ -43,6 +44,13 @@ def _normalize_tts_text(text: str) -> str:
     text = re.sub(r"([!?]){2,}", r"\1", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+@contextlib.contextmanager
+def _suppress_python_output():
+    with open(os.devnull, "w") as devnull:
+        with contextlib.redirect_stderr(devnull), contextlib.redirect_stdout(devnull):
+            yield
 
 
 # ── Base ──────────────────────────────────────────────────────────────────────
@@ -186,11 +194,12 @@ class AfroTTSService(BaseTTSService):
 
     def _get_pipeline(self):
         if self._pipeline is None:
-            with _suppress_process_stderr():
-                from kokoro import KPipeline  # type: ignore[import]
-                # lang_code 'a' = American English, 'b' = British English
-                lang = 'a' if self._voice[:1].lower() == 'a' else 'b'
-                self._pipeline = KPipeline(lang_code=lang, device='cpu')
+            with _suppress_python_output():
+                with _suppress_process_stderr():
+                    from kokoro import KPipeline  # type: ignore[import]
+                    # lang_code 'a' = American English, 'b' = British English
+                    lang = 'a' if self._voice[:1].lower() == 'a' else 'b'
+                    self._pipeline = KPipeline(lang_code=lang, device='cpu')
             _LOGGER.info('tts.afrotts.pipeline_loaded', voice=self._voice, lang=lang)
         return self._pipeline
 
@@ -211,15 +220,16 @@ class AfroTTSService(BaseTTSService):
         import io as _io
         import wave as _wave
         import numpy as np
-        pipeline = self._get_pipeline()
-        chunks: list = []
-        with _suppress_process_stderr():
-            for _, _, audio in pipeline(text, voice=self._voice, speed=self._speed):
-                if audio is not None:
-                    # Kokoro yields PyTorch tensors — convert to numpy
-                    if hasattr(audio, 'detach'):
-                        audio = audio.detach().cpu().numpy()
-                    chunks.append(audio)
+        with _suppress_python_output():
+            pipeline = self._get_pipeline()
+            chunks: list = []
+            with _suppress_process_stderr():
+                for _, _, audio in pipeline(text, voice=self._voice, speed=self._speed):
+                    if audio is not None:
+                        # Kokoro yields PyTorch tensors — convert to numpy
+                        if hasattr(audio, 'detach'):
+                            audio = audio.detach().cpu().numpy()
+                        chunks.append(audio)
         if not chunks:
             return _silent_wav(self._sample_rate)
         audio_np = np.concatenate(chunks) if len(chunks) > 1 else chunks[0]

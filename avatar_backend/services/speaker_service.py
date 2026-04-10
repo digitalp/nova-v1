@@ -144,7 +144,8 @@ class SpeakerService:
         """Play synthesised audio on all speakers.
 
         Non-Alexa (Sonos, etc.) → media_player.play_media with Nova server URL.
-        Alexa/Echo → notify.alexa_media TTS (Echo does not support custom audio streaming).
+        Alexa/Echo → notify.alexa_media TTS. Echo devices do not support Nova's
+        direct media URL playback path, so preserve compatibility there.
         """
         speakers = await self._resolve_speakers(
             target_areas=target_areas or [],
@@ -156,7 +157,7 @@ class SpeakerService:
         tasks = []
         for entity_id, alexa in speakers:
             if alexa:
-                tasks.append(self._speak_on(entity_id, text, alexa=True))
+                tasks.append(self._speak_on(entity_id, text, True))
             else:
                 tasks.append(self._play_media(entity_id, audio_url))
 

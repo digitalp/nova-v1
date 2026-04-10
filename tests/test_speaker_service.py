@@ -181,6 +181,31 @@ async def test_speak_area_aware_honours_explicit_target_area(monkeypatch):
     assert mock_post.call_args[1]["json"]["media_player_entity_id"] == "media_player.bedroom_sonos"
 
 
+@pytest.mark.asyncio
+async def test_speak_wav_uses_alexa_notify_for_echo_devices():
+    svc = _make_svc(["media_player.echo_living_room"])
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=_mock_resp(200)) as mock_post:
+        await svc.speak_wav("Hello there", "https://nova.local/audio.wav")
+
+    mock_post.assert_called_once()
+    assert "/api/services/notify/alexa_media_echo_living_room" in mock_post.call_args.args[0]
+    assert mock_post.call_args.kwargs["json"]["message"] == "Hello there"
+
+
+@pytest.mark.asyncio
+async def test_speak_wav_uses_play_media_for_non_echo_devices():
+    svc = _make_svc(["media_player.living_room_sonos"])
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=_mock_resp(200)) as mock_post:
+        await svc.speak_wav("Hello there", "https://nova.local/audio.wav")
+
+    mock_post.assert_called_once()
+    assert "/api/services/media_player/play_media" in mock_post.call_args.args[0]
+    assert mock_post.call_args.kwargs["json"]["entity_id"] == "media_player.living_room_sonos"
+    assert mock_post.call_args.kwargs["json"]["media_content_id"] == "https://nova.local/audio.wav"
+
+
 def test_set_speaker_preferences_disables_unchecked_default_speakers(tmp_path):
     svc = SpeakerService(
         ha_url="http://ha.local:8123",
