@@ -111,8 +111,11 @@ class IssueAutoFixService:
 
     async def resolve_issue(self, issue_kind: str, *, source: str = "") -> None:
         async with self._lock:
+            had_state = issue_kind in self._events or issue_kind in self._last_action_ts
             self._events.pop(issue_kind, None)
             self._last_action_ts.pop(issue_kind, None)
+        if not had_state:
+            return
         self._record_decision("auto_fix_issue_resolved", issue_kind=issue_kind, source=source)
 
     async def _recommend_action(

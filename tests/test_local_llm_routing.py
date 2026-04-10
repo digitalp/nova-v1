@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from avatar_backend.services import llm_service as llm_module
+from avatar_backend.services import sensor_watch_service as sensor_watch_module
 from avatar_backend.services.sensor_watch_service import SensorWatchService
 from avatar_backend.services.motion_clip_service import MotionClipService
 from avatar_backend.services.persistent_memory import PersistentMemoryService
@@ -47,6 +48,46 @@ def test_select_local_text_model_prefers_best_installed():
         assert llm_module._select_local_text_model(settings) == "mistral-nemo:12b"
     finally:
         llm_module.httpx.Client = original
+
+
+def test_select_sensor_watch_model_prefers_faster_review_model():
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "models": [
+                    {"name": "mistral-nemo:12b"},
+                    {"name": "qwen2.5:7b"},
+                ]
+            }
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url):
+            return FakeResponse()
+
+    settings = SimpleNamespace(
+        sensor_watch_ollama_model="",
+        ollama_local_text_model="",
+        ollama_url="http://localhost:11434",
+        ollama_model="mistral-nemo:12b",
+    )
+    original_client = sensor_watch_module.httpx.Client
+    try:
+        sensor_watch_module.httpx.Client = FakeClient
+        assert sensor_watch_module._select_sensor_watch_model(settings) == "qwen2.5:7b"
+    finally:
+        sensor_watch_module.httpx.Client = original_client
 
 
 @pytest.mark.asyncio
@@ -108,10 +149,6 @@ async def test_sensor_watch_uses_preferred_local_model_and_timeout(monkeypatch):
             ollama_model="llama3.1:8b-instruct-q4_K_M",
         ),
     )
-    monkeypatch.setattr(
-        "avatar_backend.services.sensor_watch_service._select_local_text_model",
-        lambda settings: "mistral-nemo:12b",
-    )
     service = SensorWatchService(
         ha_url="http://ha.local",
         ha_token="token",
@@ -140,5 +177,5 @@ async def test_sensor_watch_uses_preferred_local_model_and_timeout(monkeypatch):
     await service._run_snapshot_review()
 
     assert calls["ollama_url"] == "http://localhost:11434"
-    assert calls["model"] == "mistral-nemo:12b"
+    assert calls["model"] == "qwen2.5:7b"
     assert calls["timeout_s"] == 150.0

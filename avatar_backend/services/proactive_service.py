@@ -31,6 +31,11 @@ from avatar_backend.services.home_runtime import load_home_runtime_config
 
 _LOGGER = structlog.get_logger()
 
+
+def _format_exc(exc: BaseException) -> str:
+    message = str(exc).strip()
+    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+
 # Motion sensor → camera mapping.
 # When a motion sensor fires, Nova fetches the associated camera and describes what it sees.
 # Duplicate sensors for the same camera share the same camera cooldown.
@@ -808,7 +813,7 @@ class ProactiveService:
         try:
             raw = await self._llm.generate_text_local(prompt, timeout_s=60.0)
         except Exception as exc:
-            _LOGGER.warning("proactive.llm_failed", exc=str(exc))
+            _LOGGER.warning("proactive.llm_failed", exc=_format_exc(exc))
             return
 
         raw = raw.strip()

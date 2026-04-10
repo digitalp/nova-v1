@@ -36,6 +36,32 @@ def _format_exc(exc: BaseException) -> str:
     message = str(exc).strip()
     return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
 
+
+_SENSOR_WATCH_MODEL_PREFERENCES: tuple[str, ...] = (
+    "qwen2.5:7b",
+    "llama3.1:8b-instruct-q4_K_M",
+    "llama3.1:8b",
+    "mistral-nemo:12b",
+    "gemma2:9b",
+)
+
+
+def _select_sensor_watch_model(settings) -> str:
+    configured = (getattr(settings, "sensor_watch_ollama_model", "") or "").strip()
+    if configured:
+        return configured
+    try:
+        with httpx.Client(timeout=2.0) as client:
+            resp = client.get(f"{settings.ollama_url.rstrip('/')}/api/tags")
+            resp.raise_for_status()
+        installed = {str(model.get("name") or "").strip() for model in resp.json().get("models", [])}
+    except Exception:
+        installed = set()
+    for candidate in _SENSOR_WATCH_MODEL_PREFERENCES:
+        if candidate in installed:
+            return candidate
+    return _select_local_text_model(settings)
+
 # ── Timing ────────────────────────────────────────────────────────────────────
 # How often to run the periodic snapshot review
 _REVIEW_INTERVAL_S = 1800          # 30 minutes
@@ -184,7 +210,7 @@ async def _ollama_generate(
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "stream": False,
-        "options": {"temperature": 0.2, "num_ctx": 8192, "num_predict": 300},
+        "options": {"temperature": 0.1, "num_ctx": 4096, "num_predict": 120},
     }
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
         resp = await client.post(f"{ollama_url.rstrip('/')}/api/chat", json=payload)
@@ -216,8 +242,7 @@ class SensorWatchService:
         self._announce     = announce_fn
         self._issue_autofix_service = issue_autofix_service
         settings = get_settings()
-        configured_model = (settings.sensor_watch_ollama_model or "").strip()
-        self._ollama_model = configured_model or _select_local_text_model(settings)
+        self._ollama_model = _select_sensor_watch_model(settings)
         self._review_timeout_s = max(30.0, float(settings.sensor_watch_review_timeout_s))
         runtime = load_home_runtime_config()
         self._snapshot_exclude_prefixes = tuple(

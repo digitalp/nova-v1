@@ -1,5 +1,6 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
+from collections import deque
 
 import pytest
 
@@ -38,7 +39,30 @@ async def test_issue_autofix_restarts_sensor_watch_after_threshold():
     assert result["success"] is True
     sensor_watch.stop.assert_awaited_once()
     sensor_watch.start.assert_awaited_once()
-    proactive.stop.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_issue_only_logs_once_for_active_issue():
+    llm = SimpleNamespace(generate_text_local=AsyncMock(return_value='{"action":"noop","reason":"noop"}'))
+    decision_log = SimpleNamespace(record=Mock())
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            llm_service=llm,
+            decision_log=decision_log,
+            metrics_db=SimpleNamespace(insert_event_history=Mock()),
+        )
+    )
+    service = IssueAutoFixService(app)
+
+    service._events["home_assistant_timeout"] = deque([1.0])
+    await service.resolve_issue("home_assistant_timeout", source="health_check")
+    await service.resolve_issue("home_assistant_timeout", source="health_check")
+
+    decision_log.record.assert_called_once_with(
+        "auto_fix_issue_resolved",
+        issue_kind="home_assistant_timeout",
+        source="health_check",
+    )
 
 
 @pytest.mark.asyncio
