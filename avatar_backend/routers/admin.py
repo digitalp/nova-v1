@@ -838,6 +838,7 @@ async def get_event_history_workflow_status(request: Request):
 class AnnounceBody(BaseModel):
     message:  str
     priority: str = "normal"
+    target_area: str = ""
 
 
 class EventHistoryActionBody(BaseModel):
@@ -987,7 +988,11 @@ async def test_announce(body: AnnounceBody, request: Request):
     _require_session(request, min_role="admin")
     from avatar_backend.routers.announce import AnnounceRequest, announce_handler
     return await announce_handler(
-        AnnounceRequest(message=body.message, priority=body.priority),  # type: ignore[arg-type]
+        AnnounceRequest(
+            message=body.message,
+            priority=body.priority,
+            target_areas=[body.target_area.strip()] if body.target_area.strip() else [],
+        ),  # type: ignore[arg-type]
         request,
     )
 
@@ -1058,6 +1063,52 @@ async def save_avatar_settings(body: AvatarSettings, request: Request):
     _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     _AVATAR_SETTINGS_FILE.write_text(_json.dumps(body.model_dump()))
     _LOGGER.info("admin.avatar_settings_saved", skin_tone=body.skin_tone)
+    return {"saved": True}
+
+
+class SpeakerPreferenceEntry(BaseModel):
+    entity_id: str
+    enabled: bool = True
+
+
+class SpeakerSettingsBody(BaseModel):
+    speakers: list[SpeakerPreferenceEntry] = []
+
+
+@router.get("/speakers")
+async def get_speakers(request: Request):
+    _require_session(request, min_role="viewer")
+    speaker = getattr(request.app.state, "speaker_service", None)
+    if speaker is None:
+        return {"areas": [], "occupied_areas": []}
+    catalog = await speaker.get_speaker_catalog(force_refresh=True)
+    occupied = await speaker.get_occupied_areas(force_refresh=True)
+    grouped: dict[str, list[dict]] = {}
+    for item in catalog:
+        area_name = str(item.get("area_name") or "Unassigned")
+        grouped.setdefault(area_name, []).append(item)
+    areas = [
+        {
+            "area_name": area_name,
+            "speakers": sorted(items, key=lambda row: str(row.get("friendly_name") or "").lower()),
+        }
+        for area_name, items in sorted(grouped.items(), key=lambda pair: pair[0].lower())
+    ]
+    return {"areas": areas, "occupied_areas": occupied}
+
+
+@router.post("/speakers")
+async def save_speakers(body: SpeakerSettingsBody, request: Request):
+    _require_session(request, min_role="admin")
+    speaker = getattr(request.app.state, "speaker_service", None)
+    if speaker is None:
+        raise HTTPException(status_code=503, detail="Speaker service unavailable")
+    speaker.set_speaker_preferences([item.model_dump() for item in body.speakers])
+    _LOGGER.info(
+        "admin.speaker_settings_saved",
+        enabled=sum(1 for item in body.speakers if item.enabled),
+        total=len(body.speakers),
+    )
     return {"saved": True}
 
 

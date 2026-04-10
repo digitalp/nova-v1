@@ -230,7 +230,9 @@ async def test_process_audio_happy_path_emits_expected_messages():
     tts = MagicMock()
     tts.synthesise_with_timing = AsyncMock(return_value=(b"RIFF" + b"\x00" * 40, []))
 
-    speaker = None
+    speaker = MagicMock()
+    speaker.is_configured = True
+    speaker.speak = AsyncMock()
 
     llm = MagicMock()
     session_manager = MagicMock()
@@ -287,6 +289,9 @@ async def test_process_audio_happy_path_emits_expected_messages():
     assert THINKING in states
     assert SPEAKING in states
     assert states[-1] == IDLE
+    speaker.speak.assert_awaited_once()
+    assert speaker.speak.await_args.args[0] == "OK, I've turned on the kitchen light."
+    assert speaker.speak.await_args.kwargs["area_aware"] is True
     for message_type in ("turn_started", "transcript", "response", "audio_start", "word_timings", "turn_finished"):
         for payload in _messages_of_type(ws, message_type):
             assert payload["turn_id"] == 1

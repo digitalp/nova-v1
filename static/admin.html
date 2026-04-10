@@ -1566,6 +1566,10 @@ tr:hover td { background: rgba(255,255,255,.02); color: var(--text); }
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
       Configuration
     </div>
+    <div class="nav-item" data-section="speakers" onclick="navigate(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+      Speakers
+    </div>
     <div class="nav-item" data-section="prompt" onclick="navigate(this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       System Prompt
@@ -1739,6 +1743,25 @@ tr:hover td { background: rgba(255,255,255,.02); color: var(--text); }
         <div style="display:flex;gap:8px;">
           <button class="btn btn-primary" onclick="saveConfig()">Save Changes</button>
           <button class="btn btn-outline" onclick="loadConfig()">Discard</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="section-speakers" class="section">
+      <div class="page-header">
+        <div class="page-title">Speakers</div>
+        <div class="page-sub">Group speakers by area, enable or disable each one, and route Nova voice to occupied rooms only</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Speaker Routing</div>
+        <p style="font-size:12px;color:var(--text3);margin-bottom:12px;">
+          Speakers are grouped by Home Assistant area. Check the speakers Nova is allowed to use. Nova speaker audio will prefer occupied areas based on each room's presence or motion sensors.
+        </p>
+        <div id="speaker-occupied-areas" style="font-size:12px;color:var(--text3);margin-bottom:12px;">Loading speaker areas…</div>
+        <div id="speaker-config" style="display:grid;gap:12px;"></div>
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button class="btn btn-primary" onclick="saveSpeakerConfig()">Save Speaker Routing</button>
+          <button class="btn btn-outline" onclick="loadSpeakerConfig()">Refresh</button>
         </div>
       </div>
     </div>
@@ -2382,6 +2405,12 @@ tr:hover td { background: rgba(255,255,255,.02); color: var(--text); }
               <option value="alert">Alert</option>
             </select>
           </div>
+          <div class="field">
+            <label for="announce-target-area">Target Area</label>
+            <select id="announce-target-area">
+              <option value="">Auto (occupied areas)</option>
+            </select>
+          </div>
         </div>
         <button class="btn btn-primary" onclick="testAnnounce()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
@@ -2572,7 +2601,7 @@ init();
 // ── Navigation ────────────────────────────────────────────────────────────────
 
 const TITLES = {
-  dashboard:'Dashboard', config:'Configuration', prompt:'System Prompt',
+  dashboard:'Dashboard', config:'Configuration', speakers:'Speakers', prompt:'System Prompt',
   acl:'ACL Rules', sessions:'Sessions', memory:'Memory',
   avatar:'Avatar', tools:'Tools', users:'Users',
   decisions:'AI Decisions', motion:'Find Anything',
@@ -2736,6 +2765,7 @@ function navigate(el) {
   if (sec === 'dashboard') loadDashboard();
   if (sec === 'users')     loadUsers();
   if (sec === 'metrics')   loadMetrics();
+  if (sec === 'speakers')  loadSpeakerConfig();
   if (sec === 'pylog')     initPylog();
   if (sec === 'motion')    loadMotionClips();
 }
@@ -4115,6 +4145,66 @@ async function saveConfig() {
   } catch(e) { toast('Save failed: ' + e.message, 'err'); }
 }
 
+async function loadSpeakerConfig() {
+  const container = document.getElementById('speaker-config');
+  const occupied = document.getElementById('speaker-occupied-areas');
+  const targetArea = document.getElementById('announce-target-area');
+  if (!container || !occupied) return;
+  try {
+    const data = await api('GET', '/admin/speakers');
+    const areas = data.areas || [];
+    const occupiedAreas = data.occupied_areas || [];
+    occupied.textContent = occupiedAreas.length
+      ? `Occupied areas right now: ${occupiedAreas.join(', ')}`
+      : 'Occupied areas right now: none detected';
+    if (targetArea) {
+      targetArea.innerHTML = '<option value="">Auto (occupied areas)</option>' +
+        areas.map(area => `<option value="${esc(area.area_name)}">${esc(area.area_name)}</option>`).join('');
+    }
+    if (!areas.length) {
+      container.innerHTML = '<div style="color:var(--text3);font-size:13px;">No Home Assistant media players were discovered.</div>';
+      return;
+    }
+    container.innerHTML = areas.map(area => `
+      <div style="border:1px solid var(--border);border-radius:12px;padding:14px 16px;background:var(--surface);">
+        <div style="font-weight:600;color:var(--text1);margin-bottom:10px;display:flex;justify-content:space-between;gap:12px;">
+          <span>${esc(area.area_name)}</span>
+          <span style="font-size:11px;color:var(--text3);">${area.speakers.length} speaker${area.speakers.length === 1 ? '' : 's'}</span>
+        </div>
+        <div style="display:grid;gap:8px;">
+          ${area.speakers.map(sp => `
+            <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:10px;background:var(--surface2);">
+              <span>
+                <span style="display:block;color:var(--text1);font-weight:500;">${esc(sp.friendly_name || sp.entity_id)}</span>
+                <span style="display:block;font-size:11px;color:var(--text3);">${esc(sp.entity_id)} · ${sp.use_alexa ? 'Alexa notify' : 'HA TTS/media'}</span>
+              </span>
+              <input type="checkbox" data-speaker-entity="${esc(sp.entity_id)}" ${sp.enabled ? 'checked' : ''} />
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    container.innerHTML = '<div style="color:#fca5a5;font-size:13px;">Failed to load speaker routing.</div>';
+    occupied.textContent = 'Occupied areas right now: unavailable';
+    toast('Failed to load speakers: ' + e.message, 'err');
+  }
+}
+
+async function saveSpeakerConfig() {
+  const entries = [...document.querySelectorAll('[data-speaker-entity]')].map(el => ({
+    entity_id: el.dataset.speakerEntity,
+    enabled: !!el.checked,
+  }));
+  try {
+    await api('POST', '/admin/speakers', { speakers: entries });
+    toast('Speaker routing saved', 'ok');
+    await loadSpeakerConfig();
+  } catch (e) {
+    toast('Failed to save speaker routing: ' + e.message, 'err');
+  }
+}
+
 // ── System Prompt ─────────────────────────────────────────────────────────────
 
 async function loadPrompt() {
@@ -4288,9 +4378,10 @@ async function restartServer() {
 async function testAnnounce() {
   const message  = document.getElementById('announce-msg').value.trim();
   const priority = document.getElementById('announce-priority').value;
+  const targetArea = document.getElementById('announce-target-area')?.value || '';
   if (!message) { toast('Enter a message', 'warn'); return; }
   try {
-    await api('POST', '/admin/announce/test', { message, priority });
+    await api('POST', '/admin/announce/test', { message, priority, target_area: targetArea });
     toast('Announcement sent', 'ok');
   } catch(e) { toast('Announce failed: ' + e.message, 'err'); }
 }

@@ -50,6 +50,7 @@ _MOTION_ANNOUNCE_COOLDOWN_S = 600  # 10 minutes per camera for direct /announce/
 class AnnounceRequest(BaseModel):
     message:  str = Field(..., min_length=1, max_length=2000)
     priority: Literal["normal", "alert"] = "normal"
+    target_areas: list[str] = Field(default_factory=list)
 
 
 class AnnounceResponse(BaseModel):
@@ -80,7 +81,8 @@ async def announce_handler(body: AnnounceRequest, request: Request):
     surface_state = getattr(request.app.state, "surface_state_service", None)
 
     text = body.message.strip()
-    _LOGGER.info("announce.received", chars=len(text), priority=body.priority)
+    target_areas = [str(area).strip() for area in body.target_areas if str(area).strip()]
+    _LOGGER.info("announce.received", chars=len(text), priority=body.priority, target_areas=target_areas)
 
     # 1. Show alert or speaking state on avatar card
     initial_state = "alert" if body.priority == "alert" else "speaking"
@@ -134,9 +136,13 @@ async def announce_handler(body: AnnounceRequest, request: Request):
                     cache.pop(k, None)
                 cache[token] = (wav_bytes, expiry)
                 audio_url = f"{public_url}/tts/audio/{token}"
-                speaker_task = asyncio.create_task(speaker.speak_wav(text, audio_url))
+                speaker_task = asyncio.create_task(
+                    speaker.speak_wav(text, audio_url, target_areas=target_areas, area_aware=True)
+                )
             else:
-                speaker_task = asyncio.create_task(speaker.speak(text))
+                speaker_task = asyncio.create_task(
+                    speaker.speak(text, target_areas=target_areas, area_aware=True)
+                )
         except Exception as exc:
             _LOGGER.warning("announce.speaker_error", exc=str(exc))
 

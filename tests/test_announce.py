@@ -133,6 +133,22 @@ def test_announce_calls_speaker_speak():
         assert args[1].startswith("http")
 
 
+def test_announce_passes_target_area_to_speaker_service():
+    app, _, speaker_mock, _ = _make_app()
+    client = TestClient(app)
+    client.post(
+        "/announce",
+        json={"message": "Bedroom reminder", "priority": "normal", "target_areas": ["Main Bedroom"]},
+        headers={"X-API-Key": API_KEY},
+    )
+    if speaker_mock.speak.await_count:
+        assert speaker_mock.speak.await_args.kwargs["target_areas"] == ["Main Bedroom"]
+        assert speaker_mock.speak.await_args.kwargs["area_aware"] is True
+    else:
+        assert speaker_mock.speak_wav.await_args.kwargs["target_areas"] == ["Main Bedroom"]
+        assert speaker_mock.speak_wav.await_args.kwargs["area_aware"] is True
+
+
 def test_announce_broadcasts_voice_payload_and_audio():
     app, _, _, ws_mock = _make_app()
     client = TestClient(app)

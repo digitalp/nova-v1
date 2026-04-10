@@ -448,7 +448,7 @@ class RealtimeVoiceService:
                     from avatar_backend.config import get_settings as _get_settings
                     offset_s = _get_settings().speaker_audio_offset_ms / 1000.0
                     if ctx.speaker and ctx.speaker.is_configured:
-                        speaker_task = asyncio.create_task(ctx.speaker.speak(reply_text))
+                        speaker_task = asyncio.create_task(ctx.speaker.speak(reply_text, area_aware=True))
                     streamed = await self._send_sentence_first_audio(
                         ctx,
                         adapter,
