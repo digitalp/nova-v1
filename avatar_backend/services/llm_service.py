@@ -132,6 +132,13 @@ _DEFAULT_MODELS = {
     "google":    "gemini-2.5-flash",
     "anthropic": "claude-haiku-4-5-20251001",
 }
+_LOCAL_TEXT_MODEL_PREFERENCES = (
+    "mistral-nemo:12b",
+    "llama3.1:8b-instruct-q4_K_M",
+    "gemma2:9b",
+    "qwen2.5:7b",
+    "llama3.1:8b",
+)
 
 
 # ── Tool call parsing helpers ─────────────────────────────────────────────────
@@ -706,6 +713,23 @@ class _OllamaFallbackBackend:
         return self._model
 
 
+def _select_local_text_model(settings) -> str:
+    configured = (getattr(settings, "ollama_local_text_model", "") or "").strip()
+    if configured:
+        return configured
+    try:
+        with httpx.Client(timeout=2.0) as client:
+            resp = client.get(f"{settings.ollama_url.rstrip('/')}/api/tags")
+            resp.raise_for_status()
+        installed = {str(model.get("name") or "").strip() for model in resp.json().get("models", [])}
+    except Exception:
+        installed = set()
+    for candidate in _LOCAL_TEXT_MODEL_PREFERENCES:
+        if candidate in installed:
+            return candidate
+    return settings.ollama_model
+
+
 # ── Public service ────────────────────────────────────────────────────────────
 
 class LLMService:
@@ -736,9 +760,12 @@ class LLMService:
             )
         else:
             self._fallback = None
+        self._local_text_model = _select_local_text_model(settings)
+        self._local_text_backend = _OllamaFallbackBackend(settings.ollama_url, self._local_text_model)
 
         logger.info("llm.provider", provider=provider, model=self._backend.model_name,
                     fallback=self._FALLBACK_MODEL if self._fallback else None)
+        logger.info("llm.local_text_provider", provider="ollama", model=self._local_text_model)
 
     async def chat(
         self,
@@ -804,6 +831,10 @@ class LLMService:
             except Exception as fb_exc:
                 raise RuntimeError(f"LLM fallback also failed: {fb_exc}") from fb_exc
 
+    async def generate_text_local(self, prompt: str, timeout_s: float = 120.0) -> str:
+        """Strictly local text generation via the preferred Ollama model."""
+        return await self._local_text_backend.generate_text(prompt, timeout_s=timeout_s)
+
     async def describe_image(self, image_bytes: bytes, prompt: str | None = None, system_instruction: str | None = None) -> str:
         """Describe a camera image using vision capability of the active LLM provider."""
         _prompt = prompt or _DEFAULT_IMAGE_PROMPT
@@ -843,6 +874,10 @@ class LLMService:
     @property
     def provider_name(self) -> str:
         return self._provider
+
+    @property
+    def local_text_model_name(self) -> str:
+        return self._local_text_model
 
     @property
     def gemini_model_name(self) -> str:

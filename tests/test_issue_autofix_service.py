@@ -9,7 +9,7 @@ from avatar_backend.services.issue_autofix_service import IssueAutoFixService
 
 @pytest.mark.asyncio
 async def test_issue_autofix_restarts_sensor_watch_after_threshold():
-    llm = SimpleNamespace(generate_text=AsyncMock(return_value='{"action":"restart_sensor_watch","reason":"reconnect watcher"}'))
+    llm = SimpleNamespace(generate_text_local=AsyncMock(return_value='{"action":"restart_sensor_watch","reason":"reconnect watcher"}'))
     sensor_watch = SimpleNamespace(stop=AsyncMock(), start=AsyncMock())
     proactive = SimpleNamespace(stop=AsyncMock(), start=AsyncMock())
     decision_log = SimpleNamespace(record=AsyncMock())
@@ -43,7 +43,7 @@ async def test_issue_autofix_restarts_sensor_watch_after_threshold():
 
 @pytest.mark.asyncio
 async def test_issue_autofix_refreshes_motion_clip_storage():
-    llm = SimpleNamespace(generate_text=AsyncMock(return_value='{"action":"refresh_motion_clip_storage","reason":"probe storage"}'))
+    llm = SimpleNamespace(generate_text_local=AsyncMock(return_value='{"action":"refresh_motion_clip_storage","reason":"probe storage"}'))
     motion_clip = SimpleNamespace(refresh_storage_status=AsyncMock(return_value=True))
     app = SimpleNamespace(
         state=SimpleNamespace(

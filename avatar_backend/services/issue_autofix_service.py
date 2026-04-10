@@ -140,7 +140,7 @@ class IssueAutoFixService:
             "Never invent a new action."
         )
         try:
-            raw = (await llm.generate_text(prompt, timeout_s=8.0)).strip()
+            raw = (await llm.generate_text_local(prompt, timeout_s=8.0)).strip()
             if raw.startswith("```"):
                 parts = raw.split("```")
                 raw = parts[1].lstrip("json").strip() if len(parts) > 1 else raw

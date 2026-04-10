@@ -168,7 +168,7 @@ class PersistentMemoryService:
             f"Assistant:\n{assistant_text}\n"
         )
         try:
-            raw = await llm.generate_text(prompt, timeout_s=30.0)
+            raw = await llm.generate_text_local(prompt, timeout_s=30.0)
             memories = self._parse_memories(raw)
         except Exception as exc:
             _LOGGER.warning("persistent_memory.learn_failed", session_id=session_id, exc=str(exc))

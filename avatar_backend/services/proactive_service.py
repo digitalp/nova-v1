@@ -603,7 +603,7 @@ class ProactiveService:
         )
 
         try:
-            message = await self._llm.generate_text(prompt, timeout_s=20.0)
+            message = await self._llm.generate_text_local(prompt, timeout_s=20.0)
             message = message.strip()
             if message:
                 self._last_weather_announce_time = time.monotonic()
@@ -694,7 +694,7 @@ class ProactiveService:
         )
 
         try:
-            message = await self._llm.generate_text(prompt, timeout_s=30.0)
+            message = await self._llm.generate_text_local(prompt, timeout_s=30.0)
             message = message.strip()
             if message:
                 await self._announce(message, "normal")
@@ -797,7 +797,7 @@ class ProactiveService:
         )
 
         try:
-            raw = await self._llm.generate_text(prompt, timeout_s=60.0)
+            raw = await self._llm.generate_text_local(prompt, timeout_s=60.0)
         except Exception as exc:
             _LOGGER.warning("proactive.llm_failed", exc=str(exc))
             return

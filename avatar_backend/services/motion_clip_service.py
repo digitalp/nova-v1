@@ -215,7 +215,7 @@ class MotionClipService:
             "Candidates:\n" + "\n".join(lines)
         )
         try:
-            raw = (await self._llm.generate_text(prompt, timeout_s=20.0)).strip()
+            raw = (await self._llm.generate_text_local(prompt, timeout_s=20.0)).strip()
         except Exception as exc:
             _LOGGER.warning("motion_clip.search_llm_failed", exc=_format_exc(exc))
             return []
