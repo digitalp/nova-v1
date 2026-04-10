@@ -13,11 +13,13 @@ from avatar_backend.services.speaker_service import SpeakerService
 def _make_svc(speakers=None):
     if speakers is None:
         speakers = ["media_player.echo_living_room"]
-    return SpeakerService(
+    svc = SpeakerService(
         ha_url="http://ha.local:8123",
         ha_token="test-token",
         speakers=speakers,
     )
+    svc._prefs = {}
+    return svc
 
 
 def _mock_resp(status_code: int, text: str = "[]"):

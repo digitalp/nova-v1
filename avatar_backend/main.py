@@ -91,7 +91,13 @@ def configure_logging(log_level: str) -> None:
     # Suppress uvicorn access log — it records full URLs including ?api_key= query params.
     # Application-level request logging is handled by structlog instead.
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-    logging.getLogger("phonemizer").setLevel(logging.ERROR)
+    for noisy_logger in (
+        "phonemizer",
+        "phonemizer.logger",
+        "huggingface_hub",
+        "huggingface_hub.utils._http",
+    ):
+        logging.getLogger(noisy_logger).setLevel(logging.ERROR)
 
 
 def _load_system_prompt() -> str:

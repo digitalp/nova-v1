@@ -449,34 +449,25 @@ class RealtimeVoiceService:
                     offset_s = _get_settings().speaker_audio_offset_ms / 1000.0
                     if ctx.speaker and ctx.speaker.is_configured:
                         speaker_task = asyncio.create_task(ctx.speaker.speak(reply_text, area_aware=True))
-                    streamed = await self._send_sentence_first_audio(
-                        ctx,
-                        adapter,
-                        session_key=session_key,
-                        turn_id=turn_id,
-                        reply_text=reply_text,
-                        offset_s=offset_s,
-                    )
-                    if not streamed:
-                        wav_bytes, word_timings = await adapter.synthesise_reply(ctx, reply_text)
-                        if session_key and not await self._is_current_turn(session_key, turn_id):
-                            finish_reason = "superseded"
-                            await self._finish_turn(ctx.ws, session_key, turn_id, finish_reason)
-                            finish_sent = True
-                            return
+                    wav_bytes, word_timings = await adapter.synthesise_reply(ctx, reply_text)
+                    if session_key and not await self._is_current_turn(session_key, turn_id):
+                        finish_reason = "superseded"
+                        await self._finish_turn(ctx.ws, session_key, turn_id, finish_reason)
+                        finish_sent = True
+                        return
 
-                        if offset_s > 0 and speaker_task is not None:
-                            await asyncio.sleep(offset_s)
+                    if offset_s > 0 and speaker_task is not None:
+                        await asyncio.sleep(offset_s)
 
-                        await self._send_json(ctx.ws, {
-                            "type": "audio_start",
-                            "byte_length": len(wav_bytes),
-                        }, turn_id=turn_id)
-                        await self._send_json(ctx.ws, {
-                            "type": "word_timings",
-                            "word_timings": word_timings,
-                        }, turn_id=turn_id)
-                        await self._send_audio_output(ctx.ws, session_key, wav_bytes, turn_id=turn_id)
+                    await self._send_json(ctx.ws, {
+                        "type": "audio_start",
+                        "byte_length": len(wav_bytes),
+                    }, turn_id=turn_id)
+                    await self._send_json(ctx.ws, {
+                        "type": "word_timings",
+                        "word_timings": word_timings,
+                    }, turn_id=turn_id)
+                    await self._send_audio_output(ctx.ws, session_key, wav_bytes, turn_id=turn_id)
 
                     if speaker_task is not None:
                         await speaker_task

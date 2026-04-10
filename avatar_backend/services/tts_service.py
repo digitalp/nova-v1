@@ -233,7 +233,13 @@ class AfroTTSService(BaseTTSService):
 def create_tts_service(settings) -> BaseTTSService:
     """Return the configured TTS service based on settings.tts_provider."""
     provider = (settings.tts_provider or "piper").lower().strip()
-    structlog.stdlib.logging.getLogger("phonemizer").setLevel("ERROR")
+    for noisy_logger in (
+        "phonemizer",
+        "phonemizer.logger",
+        "huggingface_hub",
+        "huggingface_hub.utils._http",
+    ):
+        structlog.stdlib.logging.getLogger(noisy_logger).setLevel("ERROR")
     if provider == "elevenlabs":
         _LOGGER.info("tts.provider", provider="elevenlabs",
                      voice_id=settings.elevenlabs_voice_id)

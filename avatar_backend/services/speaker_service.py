@@ -193,7 +193,7 @@ class SpeakerService:
             seen.add(entity_id)
             area_name = str(item.get("area_name") or _AREA_FALLBACK)
             if area_name == _AREA_FALLBACK:
-                area_name = prompt_areas.get(entity_id, area_name)
+                area_name = prompt_areas.get(entity_id.lower(), area_name)
             merged.append({
                 "entity_id": entity_id,
                 "friendly_name": str(item.get("friendly_name") or entity_id),
@@ -208,7 +208,7 @@ class SpeakerService:
             merged.append({
                 "entity_id": entity_id,
                 "friendly_name": entity_id.split(".", 1)[-1].replace("_", " ").title(),
-                "area_name": prompt_areas.get(entity_id, _AREA_FALLBACK),
+                "area_name": prompt_areas.get(entity_id.lower(), _AREA_FALLBACK),
                 "enabled": self._is_enabled(entity_id),
                 "use_alexa": self._use_alexa(entity_id),
             })

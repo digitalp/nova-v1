@@ -884,11 +884,10 @@ async function connectWs() {
   ws.onopen = () => {
     wsReady = true; reconnectDelay = 1000;
     $btnMic.disabled = false;
-    const wantsProgressiveOutput = !!window.AudioContext;
     ws.send(JSON.stringify({
       type: 'client_capabilities',
-      output_streaming: wantsProgressiveOutput,
-      output_audio_format: wantsProgressiveOutput ? 'pcm_s16le' : 'wav',
+      output_streaming: false,
+      output_audio_format: 'wav',
     }));
     startWakeWord();
   };
