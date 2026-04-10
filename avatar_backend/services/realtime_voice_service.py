@@ -252,6 +252,7 @@ class RealtimeVoiceService:
             adapter = self._resolve_adapter_for_ws(ws)
             session = await self._get_or_create_session(session_key)
             capabilities = data if isinstance(data, dict) else {}
+            metadata = capabilities.get("client_metadata") or {}
             session.output_streaming_enabled = bool(capabilities.get("output_streaming")) and bool(
                 getattr(adapter, "supports_output_streaming", True)
             )
@@ -261,6 +262,12 @@ class RealtimeVoiceService:
             session.output_audio_format = (
                 output_audio_format if output_audio_format in supported_formats else default_output_audio_format
             )
+            app = getattr(ws, "app", None)
+            session_id = getattr(ws, "_nova_session_id", "")
+            if app is not None and session_id and isinstance(metadata, dict):
+                session_manager = getattr(app.state, "session_manager", None)
+                if session_manager is not None:
+                    await session_manager.set_metadata(session_id, metadata)
             await self._send_json(ws, {
                 "type": "client_capabilities_ack",
                 "output_streaming": session.output_streaming_enabled,

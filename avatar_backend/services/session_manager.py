@@ -18,6 +18,7 @@ class Session:
         ]
         self.created_at = time.time()
         self.last_used  = time.time()
+        self.metadata: dict[str, Any] = {}
 
     def add_message(
         self,
@@ -50,6 +51,10 @@ class Session:
 
     def message_count(self) -> int:
         return len(self.messages) - 1   # exclude system prompt
+
+    def set_metadata(self, metadata: dict[str, Any]) -> None:
+        self.metadata.update({k: v for k, v in metadata.items() if v not in (None, "")})
+        self.last_used = time.time()
 
 
 class SessionManager:
@@ -87,6 +92,12 @@ class SessionManager:
                 total=session.message_count(),
             )
 
+    async def set_metadata(self, session_id: str, metadata: dict[str, Any]) -> None:
+        session = await self.get_or_create(session_id)
+        async with self._lock:
+            session.set_metadata(metadata)
+            logger.debug("session.metadata_updated", session_id=session_id, keys=sorted(metadata.keys()))
+
     async def get_messages(self, session_id: str) -> list[dict[str, Any]]:
         session = await self.get_or_create(session_id)
         return session.get_messages()
@@ -108,3 +119,18 @@ class SessionManager:
 
     def active_count(self) -> int:
         return len(self._sessions)
+
+    def list_active(self) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        now = time.time()
+        for session in self._sessions.values():
+            rows.append({
+                "session_id": session.id,
+                "created_at": session.created_at,
+                "last_used": session.last_used,
+                "idle_seconds": round(max(0.0, now - session.last_used), 1),
+                "message_count": session.message_count(),
+                "metadata": dict(session.metadata),
+            })
+        rows.sort(key=lambda row: row["last_used"], reverse=True)
+        return rows

@@ -167,11 +167,11 @@ class PersistentMemoryService:
             f"Assistant:\n{assistant_text}\n"
         )
         try:
-            raw = await llm.generate_text_local_resilient(
+            raw = await llm.generate_text_local_fast_resilient(
                 prompt,
-                timeout_s=20.0,
+                timeout_s=8.0,
                 retry_delay_s=2.0,
-                fallback_timeout_s=12.0,
+                fallback_timeout_s=10.0,
                 purpose="persistent_memory",
             )
             memories = self._parse_memories(raw)

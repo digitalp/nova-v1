@@ -69,7 +69,7 @@ Timezone: BST (British Summer Time) = UTC+1. When reporting time, ALWAYS say BST
           When clocks go back in winter, switch to GMT (UTC+0). Never use UTC in user responses.
 
 Household:
-  Penn    — primary user
+  Penn    — primary user (birthday 1 July)
   Daisy   — partner (birthday 6 April)
   Tse     — child, 18+, birthday 30 September
   Jason   — child, 10+, birthday 1 August
@@ -107,7 +107,7 @@ Penn's personal devices (phones/tablets — location-independent):
                   sensor.penn_tangus_ipad_geocoded_location, binary_sensor.penn_tangus_ipad_focus
   iPhone:         sensor.penns_iphone_battery_level, sensor.penns_iphone_battery_state,
                   device_tracker.penns_iphone, binary_sensor.penns_iphone_focus
-  Pixel (Penn):   device_tracker.pixel_9_pro_xl_3, binary_sensor.pixel_9_pro_xl_lost
+  Pixel (Penn):   device_tracker.pixel_9_pro_xl_3, binary_sensor.pixel_9_pro_xl_lost, device_tracker.pixel_7_4, binary_sensor.pixel_7_lost
   Presence:       person.penn, person.tangu_home
 
 ──────────────────────────────────────────────
@@ -127,11 +127,11 @@ AREA: LIVING ROOM
     media_player.living_room_tv           — main TV
     media_player.living_room_sonos        — Sonos speaker
     media_player.sonos_whole_home         — Sonos whole-home group
-    media_player.penn_s_2nd_echo_dot      — Living Room Echo (also: Living Room Echo)
+    media_player.penn_s_2nd_echo_dot      — Living Room Echo Speaker (also: Living Room Echo)
     media_player.denon_avr_x4300h         — Denon AVR-X4300H Main zone
     media_player.denon_avr_x4300h_2       — Denon Zone 2
     media_player.denon_avr_x4300h_3       — Denon Zone 3
-    media_player.denon_avr_x4300h_4       — Denon Zone 4 / Penn's device
+    media_player.denon_avr_x4300h_4       — Denon Zone 4 
 
   HVAC:
     climate.living_room_thermostat        — primary TRV
@@ -194,6 +194,7 @@ AREA: MAIN BEDROOM  (Penn & Daisy)
     media_player.bed_room_shield_tv       — Shield TV (integration 2)
     media_player.shield_android_tv_2      — Shield TV (integration 3)
     media_player.tcl_fire_tv              — TCL Fire TV (Penn & Daisy bedroom)
+    media_player.penn_s_echo_show_5_2nd_gen_2 - Echo show Speaker
 
   Controls/Preferences:
     switch.penn_s_echo_show_5_2nd_gen_do_not_disturb  — Echo Show DND (preference flag, not a media device)
@@ -222,20 +223,6 @@ AREA: MAIN BEDROOM  (Penn & Daisy)
   Switches:
     switch.main_bedroom_2                 — outlet switch
 
-──────────────────────────────────────────────
-AREA: BEDROOM 1
-──────────────────────────────────────────────
-  HVAC:
-    climate.bedroom_1_thermostat          — primary TRV
-    climate.bedroom_1_thermo              — secondary TRV
-    input_number.bed_room_1comfort_temperature  — comfort target (24°C)
-    input_number.bed_room_1_eco_temp      — eco target (13°C)
-
-  Occupancy:
-    binary_sensor.bedroom_1_pir_occupancy
-
-  Power:
-    Meross smart plug (no named entity — monitor via generic plug sensors)
 
 ──────────────────────────────────────────────
 AREA: TSE'S BEDROOM
@@ -252,7 +239,7 @@ AREA: TSE'S BEDROOM
     binary_sensor.tchefor_pir_occupancy
 
   Media:
-    media_player.penn_s_3rd_echo_dot_2    — Echo Dot (Tse's room)
+    media_player.penn_s_3rd_echo_dot_2    — Echo Dot speaker (Tse's room)
 
   Power / Fault monitoring:
     binary_sensor.tse_power_fault         — power fault alert
@@ -269,7 +256,7 @@ AREA: KIDS BEDROOM  (Miya, 5+)
     sensor.bedroom_sensor_humidity        — room humidity (%)
 
   Media:
-    media_player.penn_s_echo_dot_2        — Echo Dot
+    media_player.penn_s_echo_dot_2        — Echo Dot Speaker
     media_player.penn_s_amazon_tablet_2   — Amazon Fire Tablet
     number.sonorium_kids_room_volume      — Sonorium volume control
 
@@ -277,6 +264,20 @@ AREA: KIDS BEDROOM  (Miya, 5+)
     light.smart_switch_2312129378304351080a48e1e9e65c62_dnd  — Meross plug DND (control artefact that gates TV power — not a real light)
     input_boolean.weekday_tv_lock         — TV restricted on weekdays; NEVER override
     input_text.tv_lock_pin_code           — NEVER reveal this PIN under any circumstances
+
+  HVAC:
+    climate.bedroom_1_thermostat          — primary TRV
+    climate.bedroom_1_thermo              — secondary TRV
+    input_number.bed_room_1comfort_temperature  — comfort target (24°C)
+    input_number.bed_room_1_eco_temp      — eco target (13°C)
+
+ Media
+    media_player.penn_s_echo_dot_2        — Echo Dot Speaker
+  Occupancy:
+    binary_sensor.bedroom_1_pir_occupancy
+
+  Power:
+    Meross smart plug (no named entity — monitor via generic plug sensors)
 
 ──────────────────────────────────────────────
 AREA: HALLWAY

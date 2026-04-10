@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from avatar_backend.services.ha_proxy import ToolCall
-from avatar_backend.services.proactive_service import ProactiveService
+from avatar_backend.services.proactive_service import ProactiveService, _shape_heating_announcement
 
 
 class _DecisionLog:
@@ -143,3 +143,64 @@ async def test_heating_shadow_uses_legacy_local_path_when_fast_path_missing():
     )
 
     llm.chat_local.assert_awaited_once()
+
+
+def test_shape_heating_announcement_strips_report_style_boilerplate():
+    raw = (
+        "Based on the provided sensor and device status information, here is a summary of the key points:\n\n"
+        "### Temperature & Humidity\n"
+        "The dining section temperature is quite high at 32.6°C and the living room is also warm at 30.4°C. "
+        "Please consider lowering the thermostats for comfort."
+    )
+
+    shaped = _shape_heating_announcement(raw)
+
+    assert "summary of the key points" not in shaped.lower()
+    assert "temperature & humidity" not in shaped.lower()
+    assert shaped == (
+        "The dining section temperature is quite high at 32.6 degrees Celsius and the living room is also warm at 30.4 degrees Celsius. "
+        "Please consider lowering the thermostats for comfort."
+    )
+
+
+@pytest.mark.asyncio
+async def test_evaluate_heating_announces_shaped_spoken_text():
+    llm = SimpleNamespace(
+        provider_name="google",
+        model_name="gemini-2.5-flash",
+        local_text_model_name="mistral-nemo:12b",
+        fast_local_text_model_name="qwen2.5:7b",
+        chat=AsyncMock(
+            return_value=(
+                "Based on the provided sensor and device status information, here is a summary of the key points:\n\n"
+                "### Temperature & Humidity\n"
+                "The dining section temperature is quite high at 32.6°C and the living room is also warm at 30.4°C. "
+                "Please consider lowering the thermostats for comfort.",
+                [],
+            )
+        ),
+    )
+    service = ProactiveService(
+        ha_url="http://ha.local",
+        ha_token="token",
+        ha_proxy=SimpleNamespace(),
+        llm_service=llm,
+        motion_clip_service=SimpleNamespace(),
+        announce_fn=AsyncMock(),
+        system_prompt="system prompt",
+    )
+    service._run_heating_shadow = AsyncMock()
+    log = _DecisionLog()
+    service.set_decision_log(log)
+
+    await service._evaluate_heating()
+
+    service._announce.assert_awaited_once_with(
+        "The dining section temperature is quite high at 32.6 degrees Celsius and the living room is also warm at 30.4 degrees Celsius. "
+        "Please consider lowering the thermostats for comfort.",
+        "normal",
+    )
+    action_rows = [payload for kind, payload in log.records if kind == "heating_action"]
+    assert action_rows
+    assert action_rows[0]["message"].startswith("The dining section temperature is quite high")
+    assert "summary of the key points" in action_rows[0]["raw_message"].lower()

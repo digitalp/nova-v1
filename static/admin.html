@@ -1894,8 +1894,8 @@ tr:hover td { background: rgba(255,255,255,.02); color: var(--text); }
       </div>
       <div class="card card-flush">
         <table>
-          <thead><tr><th>Session ID</th><th style="width:120px;">Action</th></tr></thead>
-          <tbody id="sessions-tbody"><tr><td colspan="2" style="color:var(--text3);">Loading…</td></tr></tbody>
+          <thead><tr><th>Session ID</th><th>Host</th><th>Device</th><th style="width:110px;">Idle</th><th style="width:90px;">Msgs</th><th style="width:120px;">Action</th></tr></thead>
+          <tbody id="sessions-tbody"><tr><td colspan="6" style="color:var(--text3);">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -4245,14 +4245,46 @@ async function loadSessions() {
     const tbody = document.getElementById('sessions-tbody');
     tbody.innerHTML = '';
     const count = d.active_sessions || 0;
+    const sessions = d.sessions || [];
     if (count === 0) {
-      tbody.innerHTML = '<tr><td colspan="2" style="color:var(--text3)">No active sessions</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text3)">No active sessions</td></tr>';
       return;
     }
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${count} active session(s)</td><td></td>`;
-    tbody.appendChild(tr);
+    sessions.forEach(sess => {
+      const meta = sess.metadata || {};
+      const tr = document.createElement('tr');
+      const host = meta.host_label || meta.host || '—';
+      const device = [meta.platform, meta.screen].filter(Boolean).join(' · ') || '—';
+      const idle = typeof sess.idle_seconds === 'number' ? `${Math.round(sess.idle_seconds)}s` : '—';
+      const msgCount = Number(sess.message_count || 0);
+      tr.innerHTML = `
+        <td>
+          <div style="font-weight:600;color:var(--text1);">${esc(sess.session_id || 'unknown')}</div>
+          ${meta.page_url ? `<div style="font-size:11px;color:var(--text3);word-break:break-all;">${esc(meta.page_url)}</div>` : ''}
+        </td>
+        <td>${esc(host)}</td>
+        <td>
+          <div>${esc(device)}</div>
+          ${meta.user_agent ? `<div style="font-size:11px;color:var(--text3);max-width:340px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(meta.user_agent)}</div>` : ''}
+        </td>
+        <td>${esc(idle)}</td>
+        <td>${msgCount}</td>
+        <td><button class="btn btn-outline btn-xs" onclick="clearSession('${esc(sess.session_id || '')}')">Clear</button></td>
+      `;
+      tbody.appendChild(tr);
+    });
   } catch(e) { toast('Failed to load sessions: ' + e.message, 'err'); }
+}
+
+async function clearSession(sessionId) {
+  if (!sessionId) return;
+  try {
+    await api('DELETE', '/admin/sessions/' + encodeURIComponent(sessionId));
+    await loadSessions();
+    toast('Session cleared', 'ok');
+  } catch (e) {
+    toast('Failed to clear session: ' + e.message, 'err');
+  }
 }
 
 // ── Persistent memory ────────────────────────────────────────────────────────

@@ -137,9 +137,9 @@ class HAProxy:
             )
 
         args = tool_call.arguments
-        domain    = args.get("domain", "").strip()
-        service   = args.get("service", "").strip()
-        entity_id = args.get("entity_id", "").strip()
+        domain    = str(args.get("domain") or "").strip()
+        service   = str(args.get("service") or "").strip()
+        entity_id = str(args.get("entity_id") or "").strip()
         service_data: dict[str, Any] = args.get("service_data") or {}
 
         # Validate required fields before hitting ACL or HA

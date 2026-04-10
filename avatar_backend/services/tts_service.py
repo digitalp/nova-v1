@@ -8,17 +8,21 @@ import asyncio
 import base64
 import io
 import json
+import os
 import re
 import struct
 import subprocess
+import threading
 import wave
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from pathlib import Path
 
 import httpx
 import structlog
 
 _LOGGER = structlog.get_logger()
+_STDERR_REDIRECT_LOCK = threading.Lock()
 
 _VOICES_DIR = Path("/opt/avatar-server/config/piper_voices")
 _PIPER_BIN  = Path("/opt/avatar-server/piper/piper")
@@ -182,10 +186,11 @@ class AfroTTSService(BaseTTSService):
 
     def _get_pipeline(self):
         if self._pipeline is None:
-            from kokoro import KPipeline  # type: ignore[import]
-            # lang_code 'a' = American English, 'b' = British English
-            lang = 'a' if self._voice[:1].lower() == 'a' else 'b'
-            self._pipeline = KPipeline(lang_code=lang, device='cpu')
+            with _suppress_process_stderr():
+                from kokoro import KPipeline  # type: ignore[import]
+                # lang_code 'a' = American English, 'b' = British English
+                lang = 'a' if self._voice[:1].lower() == 'a' else 'b'
+                self._pipeline = KPipeline(lang_code=lang, device='cpu')
             _LOGGER.info('tts.afrotts.pipeline_loaded', voice=self._voice, lang=lang)
         return self._pipeline
 
@@ -208,12 +213,13 @@ class AfroTTSService(BaseTTSService):
         import numpy as np
         pipeline = self._get_pipeline()
         chunks: list = []
-        for _, _, audio in pipeline(text, voice=self._voice, speed=self._speed):
-            if audio is not None:
-                # Kokoro yields PyTorch tensors — convert to numpy
-                if hasattr(audio, 'detach'):
-                    audio = audio.detach().cpu().numpy()
-                chunks.append(audio)
+        with _suppress_process_stderr():
+            for _, _, audio in pipeline(text, voice=self._voice, speed=self._speed):
+                if audio is not None:
+                    # Kokoro yields PyTorch tensors — convert to numpy
+                    if hasattr(audio, 'detach'):
+                        audio = audio.detach().cpu().numpy()
+                    chunks.append(audio)
         if not chunks:
             return _silent_wav(self._sample_rate)
         audio_np = np.concatenate(chunks) if len(chunks) > 1 else chunks[0]
@@ -260,6 +266,23 @@ def create_tts_service(settings) -> BaseTTSService:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+@contextmanager
+def _suppress_process_stderr():
+    saved_stderr_fd = None
+    devnull_fd = None
+    with _STDERR_REDIRECT_LOCK:
+        try:
+            saved_stderr_fd = os.dup(2)
+            devnull_fd = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull_fd, 2)
+            yield
+        finally:
+            if saved_stderr_fd is not None:
+                os.dup2(saved_stderr_fd, 2)
+                os.close(saved_stderr_fd)
+            if devnull_fd is not None:
+                os.close(devnull_fd)
 
 def _el_alignment_to_word_timings(alignment: dict) -> list[dict]:
     """Convert ElevenLabs character-level alignment to word-level timings."""

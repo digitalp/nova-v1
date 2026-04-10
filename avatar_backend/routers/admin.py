@@ -388,7 +388,9 @@ async def restart_server(request: Request):
 @router.get("/sessions")
 async def list_sessions(request: Request):
     _require_session(request)
-    return {"active_sessions": request.app.state.session_manager.active_count()}
+    manager = request.app.state.session_manager
+    sessions = manager.list_active()
+    return {"active_sessions": len(sessions), "sessions": sessions}
 
 
 @router.delete("/sessions/{session_id}")

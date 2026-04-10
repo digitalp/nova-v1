@@ -534,6 +534,21 @@ const API_KEY = params.get('api_key')    || '';
 const SESSION = params.get('session_id') || 'avatar';
 const SERVER  = (params.get('server') || location.origin).replace(/\/$/, '');
 const WS_BASE = SERVER.replace(/^http/, 'ws') + `/ws/voice?session_id=${encodeURIComponent(SESSION)}`;
+function _avatarClientMetadata() {
+  const ua = navigator.userAgent || '';
+  const platform = navigator.userAgentData?.platform || navigator.platform || '';
+  const host = location.hostname || '';
+  const label = params.get('host_label') || host || platform || 'unknown';
+  return {
+    host,
+    host_label: label,
+    page_url: location.href,
+    platform,
+    user_agent: ua,
+    screen: `${window.screen?.width || 0}x${window.screen?.height || 0}`,
+    language: navigator.language || '',
+  };
+}
 let AVATAR_URL = `${SERVER}/static/avatars/brunette.glb`;
 let _skinToneIndex = 0;
 
@@ -888,6 +903,7 @@ async function connectWs() {
       type: 'client_capabilities',
       output_streaming: false,
       output_audio_format: 'wav',
+      client_metadata: _avatarClientMetadata(),
     }));
     startWakeWord();
   };

@@ -219,7 +219,7 @@ async def test_persistent_memory_uses_local_text_generation():
             records.append(kwargs)
 
     llm = SimpleNamespace(
-        generate_text_local_resilient=AsyncMock(
+        generate_text_local_fast_resilient=AsyncMock(
             return_value='[{"summary":"Penn prefers the lounge warm.","category":"comfort","confidence":0.9}]'
         )
     )
@@ -232,7 +232,7 @@ async def test_persistent_memory_uses_local_text_generation():
         llm=llm,
     )
 
-    llm.generate_text_local_resilient.assert_awaited_once()
+    llm.generate_text_local_fast_resilient.assert_awaited_once()
     assert records
     assert records[0]["category"] == "comfort"
 
