@@ -74,6 +74,7 @@ _GLOBAL_COOLDOWN_S = 900           # 15 minutes
 
 # Min seconds between snapshot-review announcements (separate from threshold ones)
 _REVIEW_ANNOUNCE_COOLDOWN_S = 3600 # 1 hour
+_MAX_REVIEW_SNAPSHOT_ITEMS = 24
 
 # ── Device classes to include in periodic snapshot review ─────────────────────
 # These are read from HA REST at review time (no WebSocket needed for snapshot).
@@ -197,6 +198,56 @@ def _spoken_unit(unit: str) -> str:
     }.get(normalized, f" {normalized}" if normalized else "")
 
 
+def _review_priority(sensor: dict) -> tuple[int, str]:
+    entity_id = str(sensor.get("entity_id") or "")
+    device_class = str(sensor.get("device_class") or "")
+    state = str(sensor.get("state") or "")
+    score = 0
+
+    if entity_id in _LEGACY_THRESHOLD_RULES:
+        score += 100
+    if device_class == "battery":
+        try:
+            score += max(0, int(30 - float(state)))
+        except (TypeError, ValueError):
+            score += 10
+    elif device_class == "temperature":
+        try:
+            value = float(state)
+            if value < 14 or value > 30:
+                score += 80
+            elif value < 16 or value > 27:
+                score += 30
+        except (TypeError, ValueError):
+            pass
+    elif device_class == "humidity":
+        try:
+            value = float(state)
+            if value < 15 or value > 80:
+                score += 70
+            elif value < 20 or value > 75:
+                score += 25
+        except (TypeError, ValueError):
+            pass
+    elif device_class == "monetary":
+        try:
+            value = float(state)
+            if value > 8:
+                score += 60
+            elif value > 5:
+                score += 20
+        except (TypeError, ValueError):
+            pass
+
+    return (-score, entity_id)
+
+
+def _compress_snapshot_for_review(snapshot: list[dict], limit: int = _MAX_REVIEW_SNAPSHOT_ITEMS) -> list[dict]:
+    if len(snapshot) <= limit:
+        return snapshot
+    return sorted(snapshot, key=_review_priority)[:limit]
+
+
 # ── Minimal inline Ollama client ──────────────────────────────────────────────
 
 async def _ollama_generate(
@@ -234,12 +285,14 @@ class SensorWatchService:
         ha_token: str,
         ollama_url: str,
         announce_fn: Callable[[str, str], Awaitable[None]],
+        llm_service=None,
         issue_autofix_service=None,
     ) -> None:
         self._ha_url       = ha_url.rstrip("/")
         self._ha_token     = ha_token
         self._ollama_url   = ollama_url
         self._announce     = announce_fn
+        self._llm_service = llm_service
         self._issue_autofix_service = issue_autofix_service
         settings = get_settings()
         self._ollama_model = _select_sensor_watch_model(settings)
@@ -588,6 +641,8 @@ class SensorWatchService:
         if not snapshot:
             _LOGGER.debug("sensor_watch.review_empty_snapshot")
             return
+        raw_count = len(snapshot)
+        snapshot = _compress_snapshot_for_review(snapshot)
 
         now_str  = datetime.datetime.now().strftime("%A %H:%M")
         lines    = "\n".join(
@@ -619,24 +674,23 @@ class SensorWatchService:
         )
 
         try:
-            raw = await _ollama_generate(
-                prompt,
-                self._ollama_url,
-                model=self._ollama_model,
-                timeout_s=self._review_timeout_s,
-            )
+            raw = await self._generate_review_text(prompt)
         except Exception as exc:
             _LOGGER.warning(
                 "sensor_watch.review_ollama_failed",
                 exc=_format_exc(exc),
                 model=self._ollama_model,
                 timeout_s=self._review_timeout_s,
+                sensor_count=len(snapshot),
+                raw_sensor_count=raw_count,
             )
             if self._decision_log:
                 self._decision_log.record(
                     "sensor_review_error",
                     reason=_format_exc(exc)[:200],
                     timeout_s=self._review_timeout_s,
+                    sensor_count=len(snapshot),
+                    raw_sensor_count=raw_count,
                     **self._llm_fields(),
                 )
             return
@@ -665,6 +719,7 @@ class SensorWatchService:
                 self._decision_log.record(
                     "sensor_review_silence",
                     sensor_count=len(snapshot),
+                    raw_sensor_count=raw_count,
                     **self._llm_fields(),
                 )
             return
@@ -685,6 +740,7 @@ class SensorWatchService:
             self._decision_log.record(
                 "sensor_review_announce",
                 sensor_count=len(snapshot),
+                raw_sensor_count=raw_count,
                 priority=priority,
                 message=message[:300],
                 **self._llm_fields(),
@@ -694,3 +750,43 @@ class SensorWatchService:
             await self._announce(message, priority)
         except Exception as exc:
             _LOGGER.warning("sensor_watch.review_announce_failed", exc=_format_exc(exc))
+
+    async def _generate_review_text(self, prompt: str) -> str:
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            try:
+                return await _ollama_generate(
+                    prompt,
+                    self._ollama_url,
+                    model=self._ollama_model,
+                    timeout_s=self._review_timeout_s,
+                )
+            except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+                last_exc = exc
+                if attempt == 0:
+                    _LOGGER.warning(
+                        "sensor_watch.review_retry_scheduled",
+                        model=self._ollama_model,
+                        retry_delay_s=2.0,
+                        exc=_format_exc(exc),
+                    )
+                    await asyncio.sleep(2.0)
+                    continue
+                break
+
+        if self._llm_service is not None and getattr(self._llm_service, "provider_name", "ollama") != "ollama":
+            _LOGGER.warning(
+                "sensor_watch.review_local_failed_using_cloud",
+                local_model=self._ollama_model,
+                provider=getattr(self._llm_service, "provider_name", "unknown"),
+                cloud_model=getattr(self._llm_service, "model_name", "unknown"),
+                exc=_format_exc(last_exc)[:200] if last_exc else "local_failed",
+            )
+            return await self._llm_service.generate_text(
+                prompt,
+                timeout_s=min(self._review_timeout_s, 25.0),
+            )
+
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("sensor review generation failed")

@@ -274,6 +274,7 @@ async def lifespan(app: FastAPI):
         ha_token=settings.ha_token,
         ollama_url=settings.ollama_url,
         announce_fn=_proactive_announce,
+        llm_service=app.state.llm_service,
         issue_autofix_service=app.state.issue_autofix_service,
     )
     app.state.sensor_watch = sensor_watch

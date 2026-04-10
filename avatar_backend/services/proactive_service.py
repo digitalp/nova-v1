@@ -236,6 +236,15 @@ class ProactiveService:
             "llm_tag": f"{provider}:{model}",
         }
 
+    def _fast_local_llm_fields(self) -> dict[str, str]:
+        provider = "ollama"
+        model = getattr(self._llm, "fast_local_text_model_name", getattr(self._llm, "local_text_model_name", "unknown"))
+        return {
+            "llm_provider": provider,
+            "llm_model": model,
+            "llm_tag": f"{provider}:{model}",
+        }
+
     def _gemini_llm_fields(self) -> dict[str, str]:
         provider = getattr(self._llm, "gemini_vision_provider_name", "google")
         model = getattr(self._llm, "gemini_vision_effective_model_name", "gemini")
@@ -617,7 +626,13 @@ class ProactiveService:
         )
 
         try:
-            message = await self._llm.generate_text_local(prompt, timeout_s=20.0)
+            message = await self._llm.generate_text_local_fast_resilient(
+                prompt,
+                timeout_s=20.0,
+                retry_delay_s=2.0,
+                fallback_timeout_s=20.0,
+                purpose="weather_announce",
+            )
             message = message.strip()
             if message:
                 self._last_weather_announce_time = time.monotonic()
@@ -629,7 +644,7 @@ class ProactiveService:
                         old=old_condition,
                         new=new_condition,
                         message=message[:300],
-                        **self._active_llm_fields(),
+                        **self._fast_local_llm_fields(),
                     )
                 _LOGGER.info("proactive.weather_announced", old=old_condition, new=new_condition)
         except Exception as exc:
@@ -708,7 +723,13 @@ class ProactiveService:
         )
 
         try:
-            message = await self._llm.generate_text_local(prompt, timeout_s=30.0)
+            message = await self._llm.generate_text_local_fast_resilient(
+                prompt,
+                timeout_s=30.0,
+                retry_delay_s=2.0,
+                fallback_timeout_s=25.0,
+                purpose="forecast_announce",
+            )
             message = message.strip()
             if message:
                 await self._announce(message, "normal")
@@ -716,7 +737,7 @@ class ProactiveService:
                     self._decision_log.record(
                         "forecast_announce",
                         message=message[:300],
-                        **self._active_llm_fields(),
+                        **self._fast_local_llm_fields(),
                     )
                 _LOGGER.info("proactive.forecast_announced", chars=len(message))
         except Exception as exc:
@@ -811,7 +832,13 @@ class ProactiveService:
         )
 
         try:
-            raw = await self._llm.generate_text_local(prompt, timeout_s=60.0)
+            raw = await self._llm.generate_text_local_fast_resilient(
+                prompt,
+                timeout_s=45.0,
+                retry_delay_s=2.0,
+                fallback_timeout_s=20.0,
+                purpose="proactive_triage",
+            )
         except Exception as exc:
             _LOGGER.warning("proactive.llm_failed", exc=_format_exc(exc))
             return
@@ -1054,11 +1081,12 @@ class ProactiveService:
         try:
             text, tool_calls = await self._llm.chat_local(list(messages), use_tools=True)
         except Exception as exc:
-            _LOGGER.warning("heating.shadow_eval_failed", exc=str(exc)[:200])
+            formatted_exc = _format_exc(exc)
+            _LOGGER.warning("heating.shadow_eval_failed", exc=formatted_exc[:200])
             if self._decision_log:
                 self._decision_log.record(
                     "heating_shadow_eval_error",
-                    reason=str(exc)[:200],
+                    reason=formatted_exc[:200],
                     **self._local_llm_fields(),
                 )
             return

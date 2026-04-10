@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.1:8b-instruct-q4_K_M"
     ollama_vision_model: str = "llama3.2-vision:11b-instruct-q4_K_M"
     ollama_local_text_model: str = ""
+    proactive_ollama_model: str = ""
     sensor_watch_ollama_model: str = ""
     sensor_watch_review_timeout_s: float = 120.0
 

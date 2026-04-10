@@ -82,3 +82,34 @@ async def test_heating_shadow_logs_silence_when_local_model_suggests_no_change()
     kinds = [kind for kind, _ in log.records]
     assert "heating_shadow_eval_start" in kinds
     assert "heating_shadow_eval_silent" in kinds
+
+
+@pytest.mark.asyncio
+async def test_heating_shadow_logs_typed_error_reason():
+    llm = SimpleNamespace(
+        provider_name="google",
+        model_name="gemini-2.5-flash",
+        local_text_model_name="mistral-nemo:12b",
+        chat_local=AsyncMock(side_effect=TimeoutError()),
+    )
+    service = ProactiveService(
+        ha_url="http://ha.local",
+        ha_token="token",
+        ha_proxy=SimpleNamespace(),
+        llm_service=llm,
+        motion_clip_service=SimpleNamespace(),
+        announce_fn=AsyncMock(),
+        system_prompt="system prompt",
+    )
+    log = _DecisionLog()
+    service.set_decision_log(log)
+
+    await service._run_heating_shadow(
+        [{"role": "system", "content": "system prompt"}, {"role": "user", "content": "evaluate heating"}],
+        season="autumn/winter",
+        now_str="Friday, 10 April 2026 20:00",
+    )
+
+    error_rows = [payload for kind, payload in log.records if kind == "heating_shadow_eval_error"]
+    assert error_rows
+    assert error_rows[0]["reason"] == "TimeoutError"

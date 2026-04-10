@@ -9,6 +9,7 @@ Set LLM_PROVIDER in .env to switch providers:
   LLM_PROVIDER=anthropic   + ANTHROPIC_API_KEY + CLOUD_MODEL (e.g. claude-haiku-4-5-20251001)
 """
 from __future__ import annotations
+import asyncio
 import json
 import time
 from typing import Any
@@ -22,6 +23,14 @@ from avatar_backend.services.cost_log import CostLog as _CostLog
 
 logger = structlog.get_logger()
 _cost_log: _CostLog | None = None
+
+_FAST_LOCAL_TEXT_MODEL_PREFERENCES: tuple[str, ...] = (
+    "qwen2.5:7b",
+    "llama3.1:8b-instruct-q4_K_M",
+    "llama3.1:8b",
+    "mistral-nemo:12b",
+    "gemma2:9b",
+)
 
 # ── Tool schemas (OpenAI/Ollama format) ───────────────────────────────────────
 
@@ -730,6 +739,23 @@ def _select_local_text_model(settings) -> str:
     return settings.ollama_model
 
 
+def _select_fast_local_text_model(settings) -> str:
+    configured = (getattr(settings, "proactive_ollama_model", "") or "").strip()
+    if configured:
+        return configured
+    try:
+        with httpx.Client(timeout=2.0) as client:
+            resp = client.get(f"{settings.ollama_url.rstrip('/')}/api/tags")
+            resp.raise_for_status()
+        installed = {str(model.get("name") or "").strip() for model in resp.json().get("models", [])}
+    except Exception:
+        installed = set()
+    for candidate in _FAST_LOCAL_TEXT_MODEL_PREFERENCES:
+        if candidate in installed:
+            return candidate
+    return _select_local_text_model(settings)
+
+
 # ── Public service ────────────────────────────────────────────────────────────
 
 class LLMService:
@@ -762,10 +788,13 @@ class LLMService:
             self._fallback = None
         self._local_text_model = _select_local_text_model(settings)
         self._local_text_backend = _OllamaFallbackBackend(settings.ollama_url, self._local_text_model)
+        self._fast_local_text_model = _select_fast_local_text_model(settings)
+        self._fast_local_text_backend = _OllamaFallbackBackend(settings.ollama_url, self._fast_local_text_model)
 
         logger.info("llm.provider", provider=provider, model=self._backend.model_name,
                     fallback=self._FALLBACK_MODEL if self._fallback else None)
         logger.info("llm.local_text_provider", provider="ollama", model=self._local_text_model)
+        logger.info("llm.fast_local_text_provider", provider="ollama", model=self._fast_local_text_model)
 
     async def chat(
         self,
@@ -835,6 +864,87 @@ class LLMService:
         """Strictly local text generation via the preferred Ollama model."""
         return await self._local_text_backend.generate_text(prompt, timeout_s=timeout_s)
 
+    async def generate_text_local_fast(self, prompt: str, timeout_s: float = 60.0) -> str:
+        """Strictly local text generation via the faster preferred Ollama model."""
+        return await self._fast_local_text_backend.generate_text(prompt, timeout_s=timeout_s)
+
+    async def _generate_text_local_resilient(
+        self,
+        *,
+        backend: _OllamaFallbackBackend,
+        prompt: str,
+        timeout_s: float,
+        retry_delay_s: float,
+        purpose: str,
+        fallback_timeout_s: float | None = None,
+    ) -> str:
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            try:
+                return await backend.generate_text(prompt, timeout_s=timeout_s)
+            except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+                last_exc = exc
+                if attempt == 0:
+                    logger.warning(
+                        "llm.local_retry_scheduled",
+                        purpose=purpose,
+                        model=backend.model_name,
+                        retry_delay_s=retry_delay_s,
+                        reason=str(exc)[:120],
+                    )
+                    await asyncio.sleep(retry_delay_s)
+                    continue
+                break
+
+        if self._provider != "ollama":
+            logger.warning(
+                "llm.local_failed_using_cloud",
+                purpose=purpose,
+                local_model=backend.model_name,
+                provider=self._provider,
+                cloud_model=self._backend.model_name,
+                reason=str(last_exc)[:120] if last_exc else "local_failed",
+            )
+            return await self.generate_text(prompt, timeout_s=fallback_timeout_s or min(timeout_s, 45.0))
+
+        if last_exc is not None:
+            raise RuntimeError(f"Local LLM unavailable after retry: {last_exc}") from last_exc
+        raise RuntimeError("Local LLM unavailable after retry")
+
+    async def generate_text_local_resilient(
+        self,
+        prompt: str,
+        timeout_s: float = 120.0,
+        retry_delay_s: float = 2.0,
+        fallback_timeout_s: float | None = None,
+        purpose: str = "local_text",
+    ) -> str:
+        return await self._generate_text_local_resilient(
+            backend=self._local_text_backend,
+            prompt=prompt,
+            timeout_s=timeout_s,
+            retry_delay_s=retry_delay_s,
+            purpose=purpose,
+            fallback_timeout_s=fallback_timeout_s,
+        )
+
+    async def generate_text_local_fast_resilient(
+        self,
+        prompt: str,
+        timeout_s: float = 60.0,
+        retry_delay_s: float = 2.0,
+        fallback_timeout_s: float | None = None,
+        purpose: str = "fast_local_text",
+    ) -> str:
+        return await self._generate_text_local_resilient(
+            backend=self._fast_local_text_backend,
+            prompt=prompt,
+            timeout_s=timeout_s,
+            retry_delay_s=retry_delay_s,
+            purpose=purpose,
+            fallback_timeout_s=fallback_timeout_s,
+        )
+
     async def chat_local(
         self,
         messages: list[dict[str, Any]],
@@ -886,6 +996,10 @@ class LLMService:
     @property
     def local_text_model_name(self) -> str:
         return self._local_text_model
+
+    @property
+    def fast_local_text_model_name(self) -> str:
+        return self._fast_local_text_model
 
     @property
     def gemini_model_name(self) -> str:
