@@ -33,6 +33,16 @@ _FAST_LOCAL_TEXT_MODEL_PREFERENCES: tuple[str, ...] = (
 )
 
 
+def _build_operational_backend(settings) -> tuple[Any | None, str | None]:
+    if settings.google_api_key:
+        return _GeminiBackend(settings), "google"
+    if settings.openai_api_key:
+        return _OpenAICompatBackend(settings), "openai"
+    if settings.anthropic_api_key:
+        return _AnthropicBackend(settings), "anthropic"
+    return None, None
+
+
 def _format_exc_reason(exc: Exception | None) -> str:
     if exc is None:
         return "unknown"
@@ -799,11 +809,20 @@ class LLMService:
         self._local_text_backend = _OllamaFallbackBackend(settings.ollama_url, self._local_text_model)
         self._fast_local_text_model = _select_fast_local_text_model(settings)
         self._fast_local_text_backend = _OllamaFallbackBackend(settings.ollama_url, self._fast_local_text_model)
+        self._operational_backend, self._operational_provider = _build_operational_backend(settings)
+        if self._operational_backend is not None and self._operational_provider == provider:
+            self._operational_backend = self._backend
 
         logger.info("llm.provider", provider=provider, model=self._backend.model_name,
                     fallback=self._FALLBACK_MODEL if self._fallback else None)
         logger.info("llm.local_text_provider", provider="ollama", model=self._local_text_model)
         logger.info("llm.fast_local_text_provider", provider="ollama", model=self._fast_local_text_model)
+        if self._operational_backend is not None:
+            logger.info(
+                "llm.operational_provider",
+                provider=self._operational_provider or provider,
+                model=self._operational_backend.model_name,
+            )
 
     async def chat(
         self,
@@ -824,6 +843,29 @@ class LLMService:
                 return await self._fallback.chat(messages, use_tools)
             except Exception as fb_exc:
                 raise RuntimeError(f"LLM fallback also failed: {fb_exc}") from fb_exc
+
+    async def chat_operational(
+        self,
+        messages: list[dict[str, Any]],
+        use_tools: bool = True,
+        purpose: str = "operational_chat",
+    ) -> tuple[str, list[ToolCall]]:
+        backend = self._operational_backend
+        if backend is None:
+            return await self.chat(messages, use_tools=use_tools)
+        if backend is self._backend:
+            return await self.chat(messages, use_tools=use_tools)
+        try:
+            return await backend.chat(messages, use_tools)
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+            logger.warning(
+                "llm.operational_failed_using_default",
+                purpose=purpose,
+                provider=self._operational_provider or self._provider,
+                model=backend.model_name,
+                reason=_format_exc_reason(exc),
+            )
+            return await self.chat(messages, use_tools=use_tools)
 
     def set_cost_log(self, log: _CostLog) -> None:
         global _cost_log
@@ -1066,6 +1108,15 @@ class LLMService:
     @property
     def provider_name(self) -> str:
         return self._provider
+
+    @property
+    def operational_model_name(self) -> str:
+        backend = self._operational_backend
+        return backend.model_name if backend is not None else self._backend.model_name
+
+    @property
+    def operational_provider_name(self) -> str:
+        return self._operational_provider or self._provider
 
     @property
     def local_text_model_name(self) -> str:

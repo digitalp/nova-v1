@@ -33,6 +33,22 @@ _DATE_QUERY_RE = re.compile(
     r"\b(what(?:'s|\s+is)?\s+the\s+date|what\s+day\s+is\s+it|today'?s\s+date|current\s+date|date\s+today)\b",
     re.IGNORECASE,
 )
+_OPERATIONAL_SESSION_HINTS = {
+    "ha_power_alert": (
+        "This is an automated Home Assistant power alert session. "
+        "Read sensor values with get_entity_state only. "
+        "Do not call any sensor services. "
+        "Never invent services like sensor.tts.say. "
+        "If you need to speak, respond with plain text only and the system will announce it. "
+        "Use call_ha_service only for actual controllable domains such as climate, light, switch, lock, fan, cover, media_player, button, or input_boolean."
+    ),
+    "ha_car_warning": (
+        "This is an automated car warning session. "
+        "Read warning sensors and lock state with get_entity_state only. "
+        "Do not call binary_sensor.turn_on, binary_sensor.turn_off, binary_sensor.toggle, or binary_sensor.update_entity. "
+        "If a refresh is truly needed, only homeassistant.update_entity is valid, but prefer reading current state first."
+    ),
+}
 
 
 @dataclass
@@ -69,6 +85,9 @@ async def run_chat(
 
     await sm.add_message(session_id, "user", user_text)
     messages = await sm.get_messages(session_id)
+    operational_prompt = _operational_prompt_for_session(session_id, user_text)
+    if operational_prompt:
+        messages = _inject_operational_prompt(messages, operational_prompt)
 
     memory_ids: list[int] = []
     enforced_memory_ids: list[int] = []
@@ -135,8 +154,8 @@ async def run_chat(
     messages = _sanitize_history(messages)
 
     for round_num in range(_MAX_TOOL_ROUNDS + 1):
-        text, tool_calls = await llm.chat(messages)
-        model_name = llm.model_name
+        text, tool_calls = await _chat_for_session(llm, session_id, messages, use_tools=True)
+        model_name = _model_name_for_session(llm, session_id)
 
         if not tool_calls:
             await sm.add_message(session_id, "assistant", text)
@@ -204,13 +223,15 @@ async def run_chat(
                     )
                 messages = _inject_persistent_memory(messages, memory_context)
         messages = _inject_datetime(messages, now_str)  # now_str already has tz
+        if operational_prompt:
+            messages = _inject_operational_prompt(messages, operational_prompt)
         messages = _sanitize_history(messages)
 
         if round_num == _MAX_TOOL_ROUNDS:
             _LOGGER.warning("chat.max_tool_rounds_reached",
                             session_id=session_id, rounds=round_num + 1)
             # Ask the LLM for a final summary without triggering more tools
-            text2, _ = await llm.chat(messages)
+            text2, _ = await _chat_for_session(llm, session_id, messages, use_tools=False)
             await sm.add_message(session_id, "assistant", text2)
             final_text = text2
 
@@ -265,6 +286,51 @@ def _inject_persistent_memory(messages: list[dict], memory_context: str) -> list
         sys_msg["content"] = f"{original}\n\n{memory_context}".strip()
     result[0] = sys_msg
     return result
+
+
+def _operational_prompt_for_session(session_id: str, user_text: str) -> str:
+    session_key = (session_id or "").strip().lower()
+    if session_key in _OPERATIONAL_SESSION_HINTS:
+        return _OPERATIONAL_SESSION_HINTS[session_key]
+    text = (user_text or "").lower()
+    if "weather" in text:
+        return (
+            "For weather reads, use get_entity_state('weather.met_office_ince_in_makerfield'). "
+            "Do not call weather.get_state or any other weather service unless you are explicitly requesting forecasts through the dedicated backend path."
+        )
+    return ""
+
+
+def _inject_operational_prompt(messages: list[dict], operational_prompt: str) -> list[dict]:
+    if not messages or not operational_prompt:
+        return messages
+    result = list(messages)
+    for idx, message in enumerate(result):
+        if message.get("role") == "system":
+            updated = dict(message)
+            content = str(updated.get("content") or "").strip()
+            updated["content"] = f"{operational_prompt}\n\n{content}".strip() if content else operational_prompt
+            result[idx] = updated
+            return result
+    return [{"role": "system", "content": operational_prompt}, *result]
+
+
+async def _chat_for_session(
+    llm: LLMService,
+    session_id: str,
+    messages: list[dict],
+    *,
+    use_tools: bool,
+) -> tuple[str, list[ToolCall]]:
+    if (session_id or "").strip().lower().startswith("ha_") and hasattr(llm, "chat_operational"):
+        return await llm.chat_operational(messages, use_tools=use_tools, purpose=session_id)
+    return await llm.chat(messages, use_tools=use_tools)
+
+
+def _model_name_for_session(llm: LLMService, session_id: str) -> str:
+    if (session_id or "").strip().lower().startswith("ha_") and hasattr(llm, "operational_model_name"):
+        return llm.operational_model_name
+    return llm.model_name
 
 
 def _inject_enforced_preferences(messages: list[dict], memory_context: str) -> list[dict]:

@@ -22,6 +22,8 @@ _MAX_SD_KEYS     = 10
 _MAX_STR_LEN     = 512
 # entity_id is always set explicitly by call_service — block LLM from overriding it
 _FORBIDDEN_KEYS  = frozenset({"entity_id"})
+_READ_ONLY_DOMAINS = frozenset({"sensor", "binary_sensor", "weather"})
+_NON_ACTION_SERVICES = frozenset({"get_state"})
 _LEGACY_CAMERA_ALIASES: dict[str, str] = {
     "camera.doorbell": "camera.reolink_video_doorbell_poe_fluent",
     "camera.front_door": "camera.reolink_video_doorbell_poe_fluent",
@@ -65,6 +67,39 @@ def _validate_service_data(data: dict) -> dict[str, Any]:
             raise ValueError(f"service_data[{k!r}] string value too long")
         clean[k] = v
     return clean
+
+
+def _validate_domain_service(domain: str, service: str, entity_id: str) -> str | None:
+    service = (service or "").strip()
+    domain = (domain or "").strip()
+    entity_id = (entity_id or "").strip()
+
+    if "." in service:
+        return (
+            f"Invalid Home Assistant service '{service}'. "
+            "Use a plain service name like 'turn_on' and put the integration in the domain field. "
+            "For state reads, use get_entity_state instead of call_ha_service."
+        )
+
+    if service in _NON_ACTION_SERVICES:
+        return (
+            f"Do not call {domain}.{service} for '{entity_id}'. "
+            "Use get_entity_state to read entity state."
+        )
+
+    if service == "update_entity" and domain != "homeassistant":
+        return (
+            f"Invalid service target {domain}.update_entity for '{entity_id}'. "
+            "If you need to refresh an entity, use domain 'homeassistant' with service 'update_entity'."
+        )
+
+    if domain in _READ_ONLY_DOMAINS and service in {"turn_on", "turn_off", "toggle"}:
+        return (
+            f"Domain '{domain}' is not switchable for '{entity_id}'. "
+            "Use get_entity_state for reads, or target the actual controllable entity domain."
+        )
+
+    return None
 
 
 class HAProxy:
@@ -163,6 +198,22 @@ class HAProxy:
                 ),
             )
 
+        invalid = _validate_domain_service(domain, service, entity_id)
+        if invalid:
+            logger.warning(
+                "ha_proxy.invalid_service_call",
+                domain=domain,
+                service=service,
+                entity_id=entity_id,
+                detail=invalid,
+            )
+            return ToolResult(
+                success=False,
+                message=invalid,
+                entity_id=entity_id,
+                service_called=f"{domain}.{service}",
+            )
+
         return await self.call_service(domain, service, entity_id, service_data)
 
     async def get_entities(self, domain: str) -> ToolResult:
@@ -220,8 +271,64 @@ class HAProxy:
             return ToolResult(success=False, message=f"Could not reach Home Assistant: {exc}")
 
         if resp.status_code == 404:
+            parts = entity_id.split(".")
+            domain = parts[0] if parts else ""
+
+            # ── Attribute-suffix intercept ─────────────────────────────────
+            # LLMs sometimes hallucinate 'domain.entity.attribute' entity IDs.
+            # If the ID has exactly 3 dot-parts, try the 2-part base entity and
+            # surface the named attribute so the LLM gets a useful answer.
+            if len(parts) == 3:
+                base_entity = f"{parts[0]}.{parts[1]}"
+                attr_name = parts[2]
+                logger.warning(
+                    "ha_proxy.entity_attr_intercept",
+                    hallucinated=entity_id,
+                    base=base_entity,
+                    attr=attr_name,
+                )
+                try:
+                    async with httpx.AsyncClient(timeout=5.0) as _client:
+                        _resp = await _client.get(
+                            f"{self._ha_url}/api/states/{base_entity}",
+                            headers={"Authorization": self._headers["Authorization"]},
+                        )
+                    if _resp.status_code == 200:
+                        _s = _resp.json()
+                        _val = _s["attributes"].get(attr_name)
+                        _unit = _s["attributes"].get("unit_of_measurement", "")
+                        if _val is not None:
+                            return ToolResult(
+                                success=True,
+                                message=(
+                                    f"{attr_name}: {_val} {_unit}".strip()
+                                    + f" (from {base_entity} attribute '{attr_name}')"
+                                ),
+                            )
+                        # Attribute not found — return full entity so LLM can see
+                        # which attributes actually exist
+                        _unit2 = _s["attributes"].get("unit_of_measurement", "")
+                        _state_str = f"{_s['state']} {_unit2}".strip()
+                        _extras = [
+                            f"{k}: {v}" for k, v in _s["attributes"].items()
+                            if k not in {
+                                "friendly_name", "icon", "unit_of_measurement",
+                                "attribution", "restored", "supported_features",
+                                "supported_color_modes", "assumed_state", "editable",
+                            }
+                        ]
+                        _msg = (
+                            f"Entity '{attr_name}' attribute not found on {base_entity}. "
+                            f"State: {_state_str}"
+                        )
+                        if _extras:
+                            _msg += "\nAttributes:\n  " + "\n  ".join(_extras)
+                        return ToolResult(success=True, message=_msg)
+                except Exception:
+                    pass  # fall through to normal 404 handling
+            # ── /Attribute-suffix intercept ────────────────────────────────
+
             # Auto-discover: fetch all entities in the same domain to guide the LLM
-            domain = entity_id.split(".")[0] if "." in entity_id else ""
             hint = ""
             if domain:
                 try:
@@ -385,7 +492,11 @@ class HAProxy:
 
         logger.error(
             "ha_proxy.unexpected_status",
-            status=resp.status_code, body=resp.text[:200],
+            domain=domain,
+            service=service,
+            entity_id=entity_id,
+            status=resp.status_code,
+            body=resp.text[:200],
         )
         return ToolResult(
             success=False,

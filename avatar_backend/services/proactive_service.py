@@ -1072,11 +1072,19 @@ class ProactiveService:
 
         task_msg = (
             f"[Autonomous heating evaluation — {now_str}, {season}] "
-            "Read all room temperature sensors, the outdoor temperature, and current presence. "
-            "Then apply the heating decision rules from your system prompt and take action if needed. "
-            "If something changed, the final response must be spoken-home-audio style only: "
-            "no markdown, no bullets, no headings, no sensor summary, and at most two short sentences "
-            "that say only what changed and what action was taken. Be silent otherwise."
+            "Use ONLY the exact entity IDs from your system prompt. "
+            "Room sensors: sensor.living_room_sensor_temperature, sensor.main_bedroom_temp_temperature, "
+            "sensor.bedroom_sensor_temperature, sensor.tchefor_temp_humidity_temperature. "
+            "Outdoor temperature: call get_entity_state('weather.met_office_ince_in_makerfield') — the 'temperature' attribute in the response is the outdoor temp. Do NOT append '.temperature' to the entity ID. "
+            "Boiler: climate.hive_receiver_climate. "
+            "For all reads, prefer get_entity_state over call_ha_service. "
+            "Do NOT call weather.get_state, sensor.tts.say, binary_sensor.turn_on, binary_sensor.turn_off, binary_sensor.toggle, or binary_sensor.update_entity. "
+            "If you must control something, use call_ha_service only on real controllable domains such as climate, light, switch, lock, fan, cover, media_player, button, or input_boolean. "
+            "Do NOT guess or invent entity IDs — use only those listed above and in your system prompt. "
+            "Read the temperatures, check presence, then apply your system prompt heating rules. "
+            "If something changed, respond in spoken-home-audio style only: "
+            "no markdown, no bullets, no headings, at most two short sentences "
+            "saying only what changed and what action was taken. Be silent otherwise."
         )
 
         messages = [
@@ -1098,7 +1106,14 @@ class ProactiveService:
         all_tool_calls: list[str] = []
 
         for round_num in range(_MAX_ROUNDS):
-            text, tool_calls = await self._llm.chat(messages, use_tools=True)
+            if hasattr(self._llm, "chat_operational"):
+                text, tool_calls = await self._llm.chat_operational(
+                    messages,
+                    use_tools=True,
+                    purpose="heating_eval",
+                )
+            else:
+                text, tool_calls = await self._llm.chat(messages, use_tools=True)
 
             if not tool_calls:
                 # LLM gave a final text response

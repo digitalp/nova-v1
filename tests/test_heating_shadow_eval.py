@@ -168,9 +168,11 @@ async def test_evaluate_heating_announces_shaped_spoken_text():
     llm = SimpleNamespace(
         provider_name="google",
         model_name="gemini-2.5-flash",
+        operational_provider_name="google",
+        operational_model_name="gemini-2.5-flash",
         local_text_model_name="mistral-nemo:12b",
         fast_local_text_model_name="qwen2.5:7b",
-        chat=AsyncMock(
+        chat_operational=AsyncMock(
             return_value=(
                 "Based on the provided sensor and device status information, here is a summary of the key points:\n\n"
                 "### Temperature & Humidity\n"
@@ -195,6 +197,10 @@ async def test_evaluate_heating_announces_shaped_spoken_text():
 
     await service._evaluate_heating()
 
+    llm.chat_operational.assert_awaited_once()
+    prompt_text = llm.chat_operational.await_args.args[0][1]["content"]
+    assert "Do NOT call weather.get_state" in prompt_text
+    assert "prefer get_entity_state over call_ha_service" in prompt_text
     service._announce.assert_awaited_once_with(
         "The dining section temperature is quite high at 32.6 degrees Celsius and the living room is also warm at 30.4 degrees Celsius. "
         "Please consider lowering the thermostats for comfort.",

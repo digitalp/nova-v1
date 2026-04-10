@@ -177,6 +177,46 @@ async def test_missing_required_arguments(proxy):
     assert "missing" in result.message.lower()
 
 
+@pytest.mark.asyncio
+async def test_rejects_dotted_service_names_before_hitting_ha(proxy):
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        tc = _tool_call("sensor", "tts.say", "sensor.total_power")
+        result = await proxy.execute_tool_call(tc)
+    assert result.success is False
+    assert "invalid home assistant service" in result.message.lower()
+    mock_post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rejects_get_state_service_and_redirects_to_state_tool(proxy):
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        tc = _tool_call("weather", "get_state", "weather.met_office_ince_in_makerfield")
+        result = await proxy.execute_tool_call(tc)
+    assert result.success is False
+    assert "use get_entity_state" in result.message.lower()
+    mock_post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rejects_switch_calls_on_read_only_domains(proxy):
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        tc = _tool_call("binary_sensor", "turn_on", "binary_sensor.car_tire_pressure_warning_ko66ewx")
+        result = await proxy.execute_tool_call(tc)
+    assert result.success is False
+    assert "not switchable" in result.message.lower()
+    mock_post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rejects_update_entity_outside_homeassistant_domain(proxy):
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        tc = _tool_call("binary_sensor", "update_entity", "binary_sensor.car_tire_warning")
+        result = await proxy.execute_tool_call(tc)
+    assert result.success is False
+    assert "homeassistant" in result.message.lower()
+    mock_post.assert_not_called()
+
+
 # ── No ACL (permissive mode) ──────────────────────────────────────────────────
 
 @pytest.mark.asyncio

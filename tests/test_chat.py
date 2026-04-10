@@ -234,6 +234,38 @@ def test_chat_always_injects_enforced_preference_memories(mock_chat, mock_ready,
 
 
 @patch("avatar_backend.services.llm_service.LLMService.is_ready", new_callable=AsyncMock, return_value=True)
+@patch("avatar_backend.services.llm_service.LLMService.chat_operational", new_callable=AsyncMock, return_value=("Power looks high.", []))
+def test_operational_session_uses_operational_llm_and_injects_power_hint(mock_chat_operational, mock_ready, client):
+    resp = client.post(
+        "/chat",
+        json={"session_id": "ha_power_alert", "text": "Power alert at home."},
+        headers=HEADERS,
+    )
+
+    assert resp.status_code == 200
+    first_messages = mock_chat_operational.await_args_list[0].args[0]
+    system_text = first_messages[0]["content"]
+    assert "automated Home Assistant power alert session" in system_text
+    assert "Never invent services like sensor.tts.say" in system_text
+
+
+@patch("avatar_backend.services.llm_service.LLMService.is_ready", new_callable=AsyncMock, return_value=True)
+@patch("avatar_backend.services.llm_service.LLMService.chat_operational", new_callable=AsyncMock, return_value=("Tyre warning acknowledged.", []))
+def test_operational_session_injects_car_warning_hint(mock_chat_operational, mock_ready, client):
+    resp = client.post(
+        "/chat",
+        json={"session_id": "ha_car_warning", "text": "Car warning detected."},
+        headers=HEADERS,
+    )
+
+    assert resp.status_code == 200
+    first_messages = mock_chat_operational.await_args_list[0].args[0]
+    system_text = first_messages[0]["content"]
+    assert "automated car warning session" in system_text
+    assert "Do not call binary_sensor.turn_on" in system_text
+
+
+@patch("avatar_backend.services.llm_service.LLMService.is_ready", new_callable=AsyncMock, return_value=True)
 @patch("avatar_backend.services.llm_service.LLMService.chat",     new_callable=AsyncMock)
 def test_chat_empty_context_clears_persisted_context_for_later_requests(mock_chat, mock_ready, client):
     mock_chat.side_effect = [
