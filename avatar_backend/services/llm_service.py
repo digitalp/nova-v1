@@ -720,12 +720,14 @@ class _OllamaFallbackBackend:
         self._model    = model
 
     async def chat(self, messages: list[dict], use_tools: bool) -> tuple[str, list[ToolCall]]:
-        # gemma2 does not support tool_calls natively — strip tools, rely on text
+        # gemma2 does not support tool_calls natively — strip tools, rely on text.
+        # num_ctx must cover the full system prompt (~16k tokens for Nova's 63KB prompt)
+        # plus multi-round tool conversation. mistral-nemo:12b supports 128k natively.
         payload: dict[str, Any] = {
             "model":    self._model,
             "messages": _to_ollama_messages(messages),
             "stream":   False,
-            "options":  {"temperature": 0.7, "num_ctx": 4096, "num_predict": 400},
+            "options":  {"temperature": 0.7, "num_ctx": 32768, "num_predict": 400},
         }
         if use_tools:
             payload["tools"] = HA_TOOLS
