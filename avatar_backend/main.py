@@ -7,6 +7,9 @@ import structlog
 import structlog.stdlib
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response as StarletteResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -91,13 +94,6 @@ def configure_logging(log_level: str) -> None:
     # Suppress uvicorn access log — it records full URLs including ?api_key= query params.
     # Application-level request logging is handled by structlog instead.
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-    for noisy_logger in (
-        "phonemizer",
-        "phonemizer.logger",
-        "huggingface_hub",
-        "huggingface_hub.utils._http",
-    ):
-        logging.getLogger(noisy_logger).setLevel(logging.ERROR)
 
 
 def _load_system_prompt() -> str:
@@ -272,7 +268,6 @@ async def lifespan(app: FastAPI):
         event_service=app.state.event_service,
         camera_event_service=app.state.camera_event_service,
         issue_autofix_service=app.state.issue_autofix_service,
-        memory_service=app.state.memory_service,
     )
     app.state.proactive_service = proactive
     await proactive.start()
@@ -342,6 +337,35 @@ async def lifespan(app: FastAPI):
     logger.info("avatar_backend.stopped")
 
 
+
+# M1 security fix: add standard security headers to all responses.
+# CSP is only applied to /admin paths — the avatar page loads Three.js and
+# TalkingHead from cdn.jsdelivr.net via importmap and needs broad connect-src
+# for the HA camera proxy, Google TTS, and WebSocket voice pipeline.
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next) -> StarletteResponse:
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        # Only set restrictive CSP on admin pages — avatar/static need broad access
+        path = request.url.path
+        if path.startswith("/admin"):
+            response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+            response.headers.setdefault(
+                "Content-Security-Policy",
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
+                "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; "
+                "img-src 'self' data: blob: https:; "
+                "media-src 'self' blob:; "
+                "connect-src 'self' ws: wss: https:; "
+                "frame-ancestors 'none'"
+            )
+        return response
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
 
@@ -361,6 +385,9 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "DELETE"],
         allow_headers=["X-API-Key", "Content-Type"],
     )
+
+    # M1 security fix: standard security headers on all responses
+    app.add_middleware(SecurityHeadersMiddleware)
 
     app.include_router(health.router)
     app.include_router(chat.router)

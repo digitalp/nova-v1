@@ -583,7 +583,7 @@ class SensorWatchService:
             "Content-Type": "application/json",
         }
         try:
-            async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+            async with httpx.AsyncClient(timeout=15.0) as client:  # L3: removed verify=False
                 resp = await client.get(f"{self._ha_url}/api/states", headers=headers)
                 resp.raise_for_status()
                 all_states = resp.json()

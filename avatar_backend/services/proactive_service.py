@@ -21,7 +21,6 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
-import re
 import time
 from typing import Awaitable, Callable
 
@@ -36,81 +35,6 @@ _LOGGER = structlog.get_logger()
 def _format_exc(exc: BaseException) -> str:
     message = str(exc).strip()
     return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
-
-
-_SPOKEN_ANNOUNCEMENT_STYLE = (
-    "Write natural spoken home audio, not a summary. "
-    "Lead with the concrete subject first: what happened, where, and why it matters. "
-    "Use plain everyday English. "
-    "Avoid vague wording like 'it seems', 'it looks like', 'there is', 'relevant information', "
-    "'here is a summary', or 'something happened'. "
-    "Do not narrate your role or say 'As Nova'. "
-    "Do not hedge unless the data is genuinely uncertain. "
-    "Keep sentences short and direct."
-)
-
-
-def _polish_spoken_announcement(message: str, *, max_sentences: int = 2) -> str:
-    text = " ".join((message or "").split()).strip()
-    if not text:
-        return ""
-    text = text.removeprefix("Nova:").strip()
-    text = text.removeprefix("As Nova,").strip()
-    text = text.removeprefix("As Nova").strip()
-    text = text.removeprefix("Here is a summary:").strip()
-    text = text.removeprefix("Summary:").strip()
-    text = text.replace("degrees C", "degrees Celsius")
-    text = text.replace("°C", " degrees Celsius")
-    parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
-    if parts:
-        text = " ".join(parts[:max_sentences])
-    return text
-
-
-def _shape_heating_announcement(message: str) -> str:
-    text = str(message or "")
-    if not text:
-        return ""
-
-    boilerplate_patterns = (
-        r"^based on the provided sensor and device status information[:,]?\s*",
-        r"^here is a summary of the key points[:,]?\s*",
-        r"^summary[:,]?\s*",
-    )
-    for pattern in boilerplate_patterns:
-        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
-
-    text = re.sub(r"^\s*#+\s*temperature\s*&\s*humidity\s*$", "", text, flags=re.IGNORECASE | re.MULTILINE)
-    text = re.sub(r"^\s*#+\s*temperature\s*&\s*humi\w*\s*$", "", text, flags=re.IGNORECASE | re.MULTILINE)
-    text = " ".join(text.split()).strip()
-    text = re.sub(r"#+\s*", " ", text)
-    text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
-    text = re.sub(r"\s{2,}", " ", text).strip(" -:\n\t")
-
-    parts = [part.strip(" -") for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
-    drop_markers = (
-        "summary of the key points",
-        "temperature & humi",
-        "temperature and humi",
-        "sensor and device status information",
-        "key points",
-    )
-    kept = [
-        part for part in parts
-        if not any(marker in part.lower() for marker in drop_markers)
-    ]
-    if not kept:
-        kept = parts
-
-    text = " ".join(kept[:2]).strip()
-    text = _polish_spoken_announcement(text, max_sentences=2)
-
-    if len(text) > 220:
-        shortened = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
-        text = " ".join(shortened[:2]).strip()[:220].rstrip()
-        if text and text[-1] not in ".!?":
-            text += "."
-    return text
 
 # Motion sensor → camera mapping.
 # When a motion sensor fires, Nova fetches the associated camera and describes what it sees.
@@ -257,7 +181,6 @@ class ProactiveService:
         event_service=None,
         camera_event_service=None,
         issue_autofix_service=None,
-        memory_service=None,
     ) -> None:
         self._ha_url = ha_url.rstrip("/")
         self._ha_token = ha_token
@@ -269,7 +192,6 @@ class ProactiveService:
         self._event_service = event_service
         self._camera_event_service = camera_event_service
         self._issue_autofix_service = issue_autofix_service
-        self._memory_service = memory_service
         runtime = load_home_runtime_config()
         self._motion_camera_map = dict(_LEGACY_MOTION_CAMERA_MAP)
         self._motion_camera_map.update(runtime.motion_camera_map)
@@ -336,15 +258,6 @@ class ProactiveService:
         """Called by sync-prompt to keep the proactive context current."""
         self._system_prompt = prompt
         _LOGGER.info("proactive.prompt_updated", chars=len(prompt))
-
-    def _enforced_preferences_prompt(self) -> str:
-        memory_service = self._memory_service
-        if memory_service is None:
-            return ""
-        context, _ = memory_service.build_enforced_preferences_context()
-        if not context:
-            return ""
-        return context
 
     # ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -672,7 +585,7 @@ class ProactiveService:
         for svc in ("notify/mobile_app_pixel_7", "notify/mobile_app_pixel_9_pro_xl"):
             url = f"{self._ha_url}/api/services/{svc}"
             try:
-                async with _httpx.AsyncClient(timeout=10.0, verify=False) as client:
+                async with _httpx.AsyncClient(timeout=10.0) as client:  # L3: removed verify=False
                     resp = await client.post(url, headers=headers,
                                              json={"title": title, "message": message})
                     resp.raise_for_status()
@@ -702,18 +615,14 @@ class ProactiveService:
         temp  = attrs.get("temperature", "?")
         wind  = attrs.get("wind_speed", "")
         wind_str = f", wind {wind} kilometres per hour" if wind else ""
-        enforced = self._enforced_preferences_prompt()
 
         prompt = (
             f"The weather at home has just changed from '{old_condition}' to '{new_condition}'. "
             f"Current temperature: {temp} degrees Celsius{wind_str}. "
-            + (f"{enforced}\n\n" if enforced else "")
-            + f"{_SPOKEN_ANNOUNCEMENT_STYLE} "
-            + "Write a brief 1 to 2 sentence spoken announcement about this weather change. "
-            + "Include a practical tip if relevant (e.g. umbrella for rain, stay indoors for lightning). "
-            + "Be conversational and warm, not robotic. "
-            + "Good example: 'Rain has started outside, and it is fifteen degrees Celsius. Take an umbrella if you are heading out.' "
-            + "When speaking, always say units as words, not symbols."
+            "As Nova, write a brief (1-2 sentence) natural spoken announcement about this weather change. "
+            "Include a practical tip if relevant (e.g. umbrella for rain, stay indoors for lightning). "
+            "Be conversational and warm, not robotic. "
+            "When speaking, always say units as words, not symbols."
         )
 
         try:
@@ -724,7 +633,7 @@ class ProactiveService:
                 fallback_timeout_s=20.0,
                 purpose="weather_announce",
             )
-            message = _polish_spoken_announcement(message, max_sentences=2)
+            message = message.strip()
             if message:
                 self._last_weather_announce_time = time.monotonic()
                 self._last_weather_condition = new_condition
@@ -801,20 +710,16 @@ class ProactiveService:
 
         today_line = _fmt(forecasts[0]) if forecasts else "No data"
         week_lines = "\n".join(_fmt(f) for f in forecasts[1:6]) if len(forecasts) > 1 else ""
-        enforced = self._enforced_preferences_prompt()
 
         prompt = (
             f"Good morning. Here is today's weather and the week ahead:\n"
             f"Today: {today_line}\n"
             + (f"This week:\n{week_lines}\n" if week_lines else "")
-            + (f"{enforced}\n\n" if enforced else "")
-            + f"\n{_SPOKEN_ANNOUNCEMENT_STYLE} "
-            + "Write a friendly 2 to 4 sentence morning weather briefing. "
+            + "\nAs Nova, write a friendly 2-4 sentence morning weather briefing. "
             + "When speaking, always say units as words, not symbols. "
-            + "Highlight the most important weather for today, note anything noteworthy "
-            + "coming this week (rain, heat, cold), and give a practical tip. "
-            + "Be warm and natural, not a robotic read-out. "
-            + "Start with today's weather, then mention the most important change coming later in the week."
+            "Highlight the most important weather for today, note anything noteworthy "
+            "coming this week (rain, heat, cold), and give a practical tip. "
+            "Be warm and natural — not a robotic read-out."
         )
 
         try:
@@ -825,7 +730,7 @@ class ProactiveService:
                 fallback_timeout_s=25.0,
                 purpose="forecast_announce",
             )
-            message = _polish_spoken_announcement(message, max_sentences=4)
+            message = message.strip()
             if message:
                 await self._announce(message, "normal")
                 if self._decision_log:
@@ -899,35 +804,31 @@ class ProactiveService:
         _LOGGER.info("proactive.triaging", n_changes=len(changes), entities=entity_ids)
 
         prompt_ctx = self._system_prompt[:3000]
-        enforced = self._enforced_preferences_prompt()
 
         prompt = (
             "You are Nova's proactive home monitor. Review these Home Assistant state "
             "changes and decide if any warrant a spoken announcement.\n\n"
-            + f"Home context:\n{prompt_ctx}\n\n"
-            + (f"{enforced}\n\n" if enforced else "")
-            + f"State changes:\n{lines}\n\n"
-            + "STRICT RULES — the default answer is NO. Only announce if the event:\n"
-            + "  • Is a genuine safety or security concern (alarm triggered, unexpected "
-            + "door/lock change, smoke/CO detector, flood)\n"
-            + "  • Requires immediate human action (door left open, critical alert)\n"
-            + "  • Is a clear exception or anomaly that the household would want to know "
-            + "RIGHT NOW and could not figure out themselves\n\n"
-            + "DO NOT ANNOUNCE any of the following — return {\"announce\": false}:\n"
-            + "  • Motion sensors, presence sensors, occupancy sensors detecting movement\n"
-            + "  • Routine door open/close during normal waking hours\n"
-            + "  • Any light, switch, or media player change\n"
-            + "  • Person/device_tracker arriving or leaving home\n"
-            + "  • Climate mode or setpoint changes\n"
-            + "  • Any binary_sensor that is merely reporting a normal condition\n"
-            + "  • Anything already handled by a dedicated HA automation\n\n"
-            + f"{_SPOKEN_ANNOUNCEMENT_STYLE}\n"
-            + "If you announce, name the room or device in the first sentence. "
-            + "Keep it brief and concrete.\n\n"
-            + "Reply with JSON only (no markdown fences):\n"
-            + '{"announce": true, "message": "...", "priority": "normal"}\n'
-            + "or\n"
-            + '{"announce": false}'
+            f"Home context:\n{prompt_ctx}\n\n"
+            f"State changes:\n{lines}\n\n"
+            "STRICT RULES — the default answer is NO. Only announce if the event:\n"
+            "  • Is a genuine safety or security concern (alarm triggered, unexpected "
+            "door/lock change, smoke/CO detector, flood)\n"
+            "  • Requires immediate human action (door left open, critical alert)\n"
+            "  • Is a clear exception or anomaly that the household would want to know "
+            "RIGHT NOW and could not figure out themselves\n\n"
+            "DO NOT ANNOUNCE any of the following — return {\"announce\": false}:\n"
+            "  • Motion sensors, presence sensors, occupancy sensors detecting movement\n"
+            "  • Routine door open/close during normal waking hours\n"
+            "  • Any light, switch, or media player change\n"
+            "  • Person/device_tracker arriving or leaving home\n"
+            "  • Climate mode or setpoint changes\n"
+            "  • Any binary_sensor that is merely reporting a normal condition\n"
+            "  • Anything already handled by a dedicated HA automation\n\n"
+            "Speak as Nova, naturally in first person. Keep it brief.\n\n"
+            "Reply with JSON only (no markdown fences):\n"
+            '{"announce": true, "message": "...", "priority": "normal"}\n'
+            "or\n"
+            '{"announce": false}'
         )
 
         try:
@@ -979,7 +880,6 @@ class ProactiveService:
             return
 
         message = await self._augment_announcement_message(changes, message)
-        message = _polish_spoken_announcement(message, max_sentences=2)
 
         _LOGGER.info("proactive.announcing", chars=len(message), priority=priority)
         if self._decision_log:
@@ -1072,23 +972,13 @@ class ProactiveService:
 
         task_msg = (
             f"[Autonomous heating evaluation — {now_str}, {season}] "
-            "Use ONLY the exact entity IDs from your system prompt. "
-            "Room sensors: sensor.living_room_sensor_temperature, sensor.main_bedroom_temp_temperature, "
-            "sensor.bedroom_sensor_temperature, sensor.tchefor_temp_humidity_temperature. "
-            "Outdoor temperature: call get_entity_state('weather.met_office_ince_in_makerfield') — the 'temperature' attribute in the response is the outdoor temp. Do NOT append '.temperature' to the entity ID. "
-            "Boiler: climate.hive_receiver_climate. "
-            "For all reads, prefer get_entity_state over call_ha_service. "
-            "Do NOT call weather.get_state, sensor.tts.say, binary_sensor.turn_on, binary_sensor.turn_off, binary_sensor.toggle, or binary_sensor.update_entity. "
-            "If you must control something, use call_ha_service only on real controllable domains such as climate, light, switch, lock, fan, cover, media_player, button, or input_boolean. "
-            "Do NOT guess or invent entity IDs — use only those listed above and in your system prompt. "
-            "Read the temperatures, check presence, then apply your system prompt heating rules. "
-            "If something changed, respond in spoken-home-audio style only: "
-            "no markdown, no bullets, no headings, at most two short sentences "
-            "saying only what changed and what action was taken. Be silent otherwise."
+            "Read all room temperature sensors, the outdoor temperature, and current presence. "
+            "Then apply the heating decision rules from your system prompt and take action if needed. "
+            "Be concise — one sentence announcement only if something changed, silent otherwise."
         )
 
         messages = [
-            {"role": "system", "content": f"{self._enforced_preferences_prompt()}\n\n{self._system_prompt}".strip()},
+            {"role": "system", "content": self._system_prompt},
             {"role": "user",   "content": task_msg},
         ]
 
@@ -1106,40 +996,20 @@ class ProactiveService:
         all_tool_calls: list[str] = []
 
         for round_num in range(_MAX_ROUNDS):
-            if hasattr(self._llm, "chat_operational"):
-                text, tool_calls = await self._llm.chat_operational(
-                    messages,
-                    use_tools=True,
-                    purpose="heating_eval",
-                )
-            else:
-                text, tool_calls = await self._llm.chat(messages, use_tools=True)
+            text, tool_calls = await self._llm.chat(messages, use_tools=True)
 
             if not tool_calls:
                 # LLM gave a final text response
                 if text and text.strip() and "nothing changed" not in text.lower() and "no change" not in text.lower():
-                    spoken = _shape_heating_announcement(text)
-                    if not spoken:
-                        _LOGGER.info("heating.eval_silent")
-                        if self._decision_log:
-                            self._decision_log.record(
-                                "heating_eval_silent",
-                                reason="empty heating announcement after shaping",
-                                tool_calls=all_tool_calls,
-                                raw_message=text.strip()[:300],
-                                **self._active_llm_fields(),
-                            )
-                        break
-                    _LOGGER.info("heating.eval_announce", message=spoken[:120])
+                    _LOGGER.info("heating.eval_announce", message=text[:120])
                     if self._decision_log:
                         self._decision_log.record(
                             "heating_action",
-                            message=spoken[:300],
-                            raw_message=text.strip()[:300],
+                            message=text.strip()[:300],
                             tool_calls=all_tool_calls,
                             **self._active_llm_fields(),
                         )
-                    await self._announce(spoken, "normal")
+                    await self._announce(text.strip(), "normal")
                 else:
                     _LOGGER.info("heating.eval_silent")
                     if self._decision_log:
@@ -1196,7 +1066,7 @@ class ProactiveService:
 
     async def _run_heating_shadow(self, messages: list[dict], *, season: str, now_str: str) -> None:
         """Run a local-only heating evaluation pass without executing tools."""
-        if not hasattr(self._llm, "chat_local_fast_resilient") and not hasattr(self._llm, "chat_local"):
+        if not hasattr(self._llm, "chat_local"):
             return
 
         _LOGGER.info("heating.shadow_eval_start")
@@ -1205,18 +1075,11 @@ class ProactiveService:
                 "heating_shadow_eval_start",
                 season=season,
                 time=now_str,
-                **self._fast_local_llm_fields(),
+                **self._local_llm_fields(),
             )
 
         try:
-            if hasattr(self._llm, "chat_local_fast_resilient"):
-                text, tool_calls = await self._llm.chat_local_fast_resilient(
-                    list(messages),
-                    use_tools=True,
-                    purpose="heating_shadow",
-                )
-            else:
-                text, tool_calls = await self._llm.chat_local(list(messages), use_tools=True)
+            text, tool_calls = await self._llm.chat_local(list(messages), use_tools=True)
         except Exception as exc:
             formatted_exc = _format_exc(exc)
             _LOGGER.warning("heating.shadow_eval_failed", exc=formatted_exc[:200])
@@ -1224,7 +1087,7 @@ class ProactiveService:
                 self._decision_log.record(
                     "heating_shadow_eval_error",
                     reason=formatted_exc[:200],
-                    **self._fast_local_llm_fields(),
+                    **self._local_llm_fields(),
                 )
             return
 
@@ -1240,13 +1103,13 @@ class ProactiveService:
                         "heating_shadow_tool_call",
                         tool=tc.function_name,
                         args={k: str(v)[:80] for k, v in tc.arguments.items()},
-                        **self._fast_local_llm_fields(),
+                        **self._local_llm_fields(),
                     )
                 self._decision_log.record(
                     "heating_shadow_action",
                     message=(text or "").strip()[:300],
                     tool_calls=summaries,
-                    **self._fast_local_llm_fields(),
+                    **self._local_llm_fields(),
                 )
             return
 
@@ -1256,5 +1119,5 @@ class ProactiveService:
             self._decision_log.record(
                 "heating_shadow_eval_silent",
                 reason=reason,
-                **self._fast_local_llm_fields(),
+                **self._local_llm_fields(),
             )

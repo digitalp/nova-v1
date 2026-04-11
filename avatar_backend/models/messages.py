@@ -14,7 +14,7 @@ class ToolCall(BaseModel):
 
 class ChatRequest(BaseModel):
     session_id: str = Field(..., max_length=128)
-    text: str
+    text: str = Field(..., min_length=1, max_length=10000)  # L7: prevent oversized messages
     # Optional context injected by HA automations (time, room, active devices, etc.)
     context: dict[str, Any] | None = None
 

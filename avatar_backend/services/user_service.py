@@ -62,8 +62,14 @@ class UserService:
             logger.error("user_service.load_failed", exc=str(exc))
 
     def _save(self) -> None:
+        import os as _os
         self._file.parent.mkdir(parents=True, exist_ok=True)
         self._file.write_text(json.dumps({"users": self._users}, indent=2))
+        # L5 security fix: restrict file permissions to owner-only
+        try:
+            _os.chmod(self._file, 0o600)
+        except OSError:
+            pass  # best-effort on platforms that don't support chmod
 
     # ── User CRUD ──────────────────────────────────────────────────────────���──
 

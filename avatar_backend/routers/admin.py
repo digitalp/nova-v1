@@ -65,10 +65,6 @@ _CONFIG_FIELDS = {
     "ELEVENLABS_MODEL":     ("ElevenLabs Model",                             False),
     "AFROTTS_VOICE":        ("AfroTTS Voice",                                False),
     "AFROTTS_SPEED":        ("AfroTTS Speed (0.5-2.0)",                       False),
-    "INTRON_AFRO_TTS_URL":  ("Intron Afro TTS URL",                          False),
-    "INTRON_AFRO_TTS_TIMEOUT_S": ("Intron Afro TTS Timeout Seconds",         False),
-    "INTRON_AFRO_TTS_REFERENCE_WAV": ("Intron Afro TTS Reference WAV",       False),
-    "INTRON_AFRO_TTS_LANGUAGE": ("Intron Afro TTS Language",                 False),
     "PUBLIC_URL":           ("Server Public URL (for audio playback)",       False),
     "CORS_ORIGINS":         ("Allowed CORS Origins (comma-separated URLs)",  False),
     "SPEAKERS":             ("Speakers",                                     False),
@@ -103,12 +99,21 @@ def _require_session(request: Request, min_role: Literal["admin", "viewer"] = "v
     return sess
 
 
-def _set_session_cookie(response: JSONResponse | RedirectResponse, token: str) -> None:
+def _set_session_cookie(response: JSONResponse | RedirectResponse, token: str, request: Request | None = None) -> None:
+    # H4 security fix: set secure=True when served over HTTPS
+    is_https = (
+        request is not None
+        and (
+            request.url.scheme == "https"
+            or request.headers.get("x-forwarded-proto") == "https"
+        )
+    )
     response.set_cookie(
         key=_COOKIE_NAME,
         value=token,
         httponly=True,
         samesite="strict",
+        secure=is_https,
         max_age=86400,
         path="/admin",
     )
@@ -175,7 +180,7 @@ async def do_login(body: LoginBody, request: Request):
     token = users.create_session(user["username"], user["role"])
     _LOGGER.info("admin.login_ok", username=user["username"], role=user["role"])
     resp  = JSONResponse({"ok": True, "role": user["role"]})
-    _set_session_cookie(resp, token)
+    _set_session_cookie(resp, token, request=request)
     return resp
 
 
@@ -307,7 +312,14 @@ async def save_config(body: ConfigUpdate, request: Request):
             elif "=" in stripped:
                 k, _, v = stripped.partition("=")
                 existing[k.strip()] = v.strip()
-    existing.update({k: v for k, v in body.values.items() if v != "" and k in _CONFIG_FIELDS})
+    # H1 security fix: strip newlines/carriage-returns/NUL to prevent env injection
+    _UNSAFE_ENV_CHARS = str.maketrans("", "", "\n\r\x00")
+    sanitized = {
+        k: v.translate(_UNSAFE_ENV_CHARS)
+        for k, v in body.values.items()
+        if v != "" and k in _CONFIG_FIELDS
+    }
+    existing.update(sanitized)
     lines = header_lines + [f"{k}={v}" for k, v in existing.items()]
     _ENV_FILE.write_text("\n".join(lines) + "\n")
     _LOGGER.info("admin.config_saved")
@@ -320,8 +332,7 @@ async def save_config(body: ConfigUpdate, request: Request):
     request.app.state.tts_service = new_tts
     _LOGGER.info("admin.tts_reloaded", provider=new_settings.tts_provider)
 
-    provider = new_settings.tts_provider.lower()
-    if provider == "afrotts":
+    if new_settings.tts_provider.lower() == "afrotts":
         async def _warm():
             import asyncio as _asyncio
             loop = _asyncio.get_event_loop()
@@ -331,17 +342,6 @@ async def save_config(body: ConfigUpdate, request: Request):
             except Exception as exc:
                 _LOGGER.warning("admin.afrotts_warm_failed", exc=str(exc))
         asyncio.create_task(_warm())
-    elif provider == "intron_afro_tts":
-        async def _warm_intron():
-            try:
-                ready = await new_tts.is_ready_remote()
-                if ready:
-                    _LOGGER.info("admin.intron_afro_tts_ready")
-                else:
-                    _LOGGER.warning("admin.intron_afro_tts_not_ready")
-            except Exception as exc:
-                _LOGGER.warning("admin.intron_afro_tts_warm_failed", exc=str(exc))
-        asyncio.create_task(_warm_intron())
 
     return {"saved": True}
 
@@ -404,9 +404,7 @@ async def restart_server(request: Request):
 @router.get("/sessions")
 async def list_sessions(request: Request):
     _require_session(request)
-    manager = request.app.state.session_manager
-    sessions = manager.list_active()
-    return {"active_sessions": len(sessions), "sessions": sessions}
+    return {"active_sessions": request.app.state.session_manager.active_count()}
 
 
 @router.delete("/sessions/{session_id}")
@@ -442,22 +440,6 @@ async def create_memory(body: MemoryBody, request: Request):
         confidence=body.confidence,
         pinned=body.pinned,
     )
-    return {"memory": memory}
-
-
-@router.put("/memory/{memory_id}")
-async def update_memory(memory_id: int, body: MemoryBody, request: Request):
-    _require_session(request, min_role="admin")
-    svc = request.app.state.memory_service
-    memory = svc.update_memory(
-        memory_id,
-        summary=body.summary,
-        category=body.category,
-        confidence=body.confidence,
-        pinned=body.pinned,
-    )
-    if not memory:
-        raise HTTPException(status_code=404, detail="Memory not found")
     return {"memory": memory}
 
 
@@ -555,31 +537,26 @@ def _serialize_event_history_item(item: dict) -> dict:
     return payload
 
 
-def _motion_clip_is_playable(request: Request, clip: dict) -> bool:
+# L4 security fix: async subprocess to avoid blocking the event loop
+async def _motion_clip_is_playable(request: Request, clip: dict) -> bool:
     svc = request.app.state.motion_clip_service
     path = svc.clip_path_for(clip)
     if not path or not path.exists():
         return False
     try:
-        result = subprocess.run(
-            [
-                "/usr/bin/ffprobe",
-                "-v",
-                "error",
-                "-show_entries",
-                "format=duration",
-                "-of",
-                "default=noprint_wrappers=1:nokey=1",
-                str(path),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
+        proc = await asyncio.create_subprocess_exec(
+            "/usr/bin/ffprobe",
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        if result.returncode != 0:
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+        if proc.returncode != 0:
             return False
-        return float((result.stdout or "0").strip() or "0") > 0.5
+        return float((stdout or b"0").decode("utf-8", "ignore").strip() or "0") > 0.5
     except Exception:
         return False
 
@@ -604,7 +581,7 @@ async def list_motion_clips(
         camera_entity_id=camera_entity_id,
         canonical_event_type=canonical_event_type,
     )
-    clips = [clip for clip in clips if _motion_clip_is_playable(request, clip)]
+    clips = [clip for clip in clips if await _motion_clip_is_playable(request, clip)]
     return {"clips": [_serialize_motion_clip(clip) for clip in clips]}
 
 
@@ -620,7 +597,7 @@ async def search_motion_clips(body: MotionClipSearchBody, request: Request):
         camera_entity_id=body.camera_entity_id,
         canonical_event_type=body.canonical_event_type,
     )
-    clips = [clip for clip in result.get("clips", []) if _motion_clip_is_playable(request, clip)]
+    clips = [clip for clip in result.get("clips", []) if await _motion_clip_is_playable(request, clip)]
     return {
         "mode": result.get("mode", "recent"),
         "clips": [_serialize_motion_clip(clip) for clip in clips],
@@ -635,7 +612,7 @@ async def serve_motion_clip_video(clip_id: int, request: Request):
     clip = db.get_motion_clip(clip_id)
     if not clip:
         raise HTTPException(status_code=404, detail="Motion clip not found")
-    if not _motion_clip_is_playable(request, clip):
+    if not await _motion_clip_is_playable(request, clip):
         raise HTTPException(status_code=404, detail="Motion clip is not playable")
     path = svc.clip_path_for(clip)
     if not path or not path.exists():
@@ -719,7 +696,7 @@ async def get_event_history(
 
     if db is not None:
         motion_clips = db.recent_motion_clips(limit=max(1, min(limit * 3, 120)))
-        motion_clips = [clip for clip in motion_clips if _motion_clip_is_playable(request, clip)]
+        motion_clips = [clip for clip in motion_clips if await _motion_clip_is_playable(request, clip)]
         for clip in motion_clips:
             payload = _serialize_motion_clip(clip)
             rows.append(
@@ -872,7 +849,6 @@ async def get_event_history_workflow_status(request: Request):
 class AnnounceBody(BaseModel):
     message:  str
     priority: str = "normal"
-    target_area: str = ""
 
 
 class EventHistoryActionBody(BaseModel):
@@ -1022,11 +998,7 @@ async def test_announce(body: AnnounceBody, request: Request):
     _require_session(request, min_role="admin")
     from avatar_backend.routers.announce import AnnounceRequest, announce_handler
     return await announce_handler(
-        AnnounceRequest(
-            message=body.message,
-            priority=body.priority,
-            target_areas=[body.target_area.strip()] if body.target_area.strip() else [],
-        ),  # type: ignore[arg-type]
+        AnnounceRequest(message=body.message, priority=body.priority),  # type: ignore[arg-type]
         request,
     )
 
@@ -1082,15 +1054,15 @@ async def get_avatar_settings(request: Request):
     import json as _json
     if _AVATAR_SETTINGS_FILE.exists():
         return _json.loads(_AVATAR_SETTINGS_FILE.read_text())
-    return {"skin_tone": 0, "avatar_url": "", "bg_type": "color", "bg_color": "", "bg_image_url": ""}
+    return {"skin_tone": 0, "avatar_url": ""}
 
 
 class AvatarSettings(BaseModel):
     skin_tone: int = 0
     avatar_url: str = ""
-    bg_type: str = "color"  # "color" or "image"
-    bg_color: str = ""  # hex color e.g. "#080d16"
-    bg_image_url: str = ""  # URL to background image
+    bg_type: str = ""        # "color" | "image" | ""
+    bg_color: str = ""       # hex color e.g. "#1a1a2e"
+    bg_image_url: str = ""   # URL for background image
 
 
 @router.post("/avatar-settings")
@@ -1100,52 +1072,6 @@ async def save_avatar_settings(body: AvatarSettings, request: Request):
     _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     _AVATAR_SETTINGS_FILE.write_text(_json.dumps(body.model_dump()))
     _LOGGER.info("admin.avatar_settings_saved", skin_tone=body.skin_tone)
-    return {"saved": True}
-
-
-class SpeakerPreferenceEntry(BaseModel):
-    entity_id: str
-    enabled: bool = True
-
-
-class SpeakerSettingsBody(BaseModel):
-    speakers: list[SpeakerPreferenceEntry] = []
-
-
-@router.get("/speakers")
-async def get_speakers(request: Request):
-    _require_session(request, min_role="viewer")
-    speaker = getattr(request.app.state, "speaker_service", None)
-    if speaker is None:
-        return {"areas": [], "occupied_areas": []}
-    catalog = await speaker.get_speaker_catalog(force_refresh=True)
-    occupied = await speaker.get_occupied_areas(force_refresh=True)
-    grouped: dict[str, list[dict]] = {}
-    for item in catalog:
-        area_name = str(item.get("area_name") or "Unassigned")
-        grouped.setdefault(area_name, []).append(item)
-    areas = [
-        {
-            "area_name": area_name,
-            "speakers": sorted(items, key=lambda row: str(row.get("friendly_name") or "").lower()),
-        }
-        for area_name, items in sorted(grouped.items(), key=lambda pair: pair[0].lower())
-    ]
-    return {"areas": areas, "occupied_areas": occupied}
-
-
-@router.post("/speakers")
-async def save_speakers(body: SpeakerSettingsBody, request: Request):
-    _require_session(request, min_role="admin")
-    speaker = getattr(request.app.state, "speaker_service", None)
-    if speaker is None:
-        raise HTTPException(status_code=503, detail="Speaker service unavailable")
-    speaker.set_speaker_preferences([item.model_dump() for item in body.speakers])
-    _LOGGER.info(
-        "admin.speaker_settings_saved",
-        enabled=sum(1 for item in body.speakers if item.enabled),
-        total=len(body.speakers),
-    )
     return {"saved": True}
 
 
@@ -1262,6 +1188,11 @@ async def sync_prompt(request: Request):
     updated_prompt = "".join(c for c in updated_prompt if c >= " " or c in "\n\r\t")
 
     _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    # M7 security fix: backup previous prompt before overwriting
+    if _PROMPT_FILE.exists():
+        _backup = _CONFIG_DIR / "system_prompt.txt.bak"
+        _backup.write_text(_PROMPT_FILE.read_text())
+        _LOGGER.info("sync_prompt.backup_saved", path=str(_backup))
     _PROMPT_FILE.write_text(updated_prompt)
 
     from avatar_backend.services.session_manager import SessionManager
@@ -1469,27 +1400,6 @@ async def list_ollama_models(request: Request):
         _LOGGER.warning("ollama_models.fetch_failed", error=str(exc))
         models = []
     return {"models": models}
-
-
-@router.get("/intron-voices")
-async def list_intron_voices(request: Request):
-    """Return available Intron Afro TTS reference voices from the sidecar."""
-    _require_session(request, min_role="viewer")
-    import httpx as _httpx
-    from avatar_backend.config import get_settings as _gs
-    settings = _gs()
-    base_url = (settings.intron_afro_tts_url or "").rstrip("/")
-    if not base_url:
-        return {"voices": []}
-    try:
-        async with _httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{base_url}/v1/voices")
-            resp.raise_for_status()
-            data = resp.json()
-        return {"voices": data.get("voices", []), "default": data.get("default", "")}
-    except Exception as exc:
-        _LOGGER.warning("intron_voices.fetch_failed", error=str(exc))
-        return {"voices": []}
 
 
 # ── Cost history (persistent DB) ──────────────────────────────────────────────
