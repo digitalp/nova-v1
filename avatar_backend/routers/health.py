@@ -135,3 +135,110 @@ async def health_check(request: Request) -> dict:
 async def health_public() -> dict:
     """Unauthenticated liveness probe — used by load balancers / systemd watchdog."""
     return {"status": "ok", "version": _VERSION}
+
+
+# ── Ambient data (clock + weather for avatar page) ────────────────────────────
+
+import time as _time_mod
+from datetime import datetime as _dt
+
+_ambient_cache: dict = {"ts": 0.0, "data": {}}
+_AMBIENT_TTL = 120  # cache weather for 2 minutes
+
+
+@router.get("/ambient")
+async def ambient_data(request: Request) -> dict:
+    """Return current time + weather + hourly forecast for the avatar ambient display.
+    Lightweight, no auth — polled every 60s by the avatar page."""
+    now = _dt.now()
+    result = {
+        "time": now.strftime("%H:%M"),
+        "date": now.strftime("%A, %d %B"),
+        "date_short": now.strftime("%a %d %b"),
+        "year": now.strftime("%Y"),
+    }
+
+    # Return cached weather if fresh
+    mono = _time_mod.monotonic()
+    if mono - _ambient_cache["ts"] < _AMBIENT_TTL and _ambient_cache["data"]:
+        result.update(_ambient_cache["data"])
+        return result
+
+    # Fetch weather from HA
+    settings = get_settings()
+    ha = getattr(request.app.state, "ha_proxy", None)
+    if ha is None:
+        return result
+
+    weather_entity = "weather.met_office_ince_in_makerfield"
+    headers = {"Authorization": f"Bearer {settings.ha_token}", "Content-Type": "application/json"}
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            # Current state
+            resp = await client.get(
+                f"{settings.ha_url}/api/states/{weather_entity}",
+                headers=headers,
+            )
+            weather = {}
+            if resp.status_code == 200:
+                s = resp.json()
+                attrs = s.get("attributes", {})
+                weather = {
+                    "condition": s.get("state", ""),
+                    "temperature": attrs.get("temperature"),
+                    "humidity": attrs.get("humidity"),
+                    "wind_speed": attrs.get("wind_speed"),
+                    "wind_bearing": attrs.get("wind_bearing"),
+                }
+
+            # Hourly forecast
+            try:
+                fc_resp = await client.post(
+                    f"{settings.ha_url}/api/services/weather/get_forecasts?return_response",
+                    headers=headers,
+                    json={"entity_id": weather_entity, "type": "hourly"},
+                )
+                if fc_resp.status_code == 200:
+                    fc_data = fc_resp.json()
+                    hourly = fc_data.get("service_response", {}).get(weather_entity, {}).get("forecast", [])
+                    # Return next 4 hours
+                    weather["hourly"] = [
+                        {
+                            "time": h.get("datetime", ""),
+                            "temperature": h.get("temperature"),
+                            "condition": h.get("condition", ""),
+                        }
+                        for h in hourly[:4]
+                    ]
+            except Exception:
+                weather["hourly"] = []
+
+            # Tomorrow forecast
+            try:
+                daily_resp = await client.post(
+                    f"{settings.ha_url}/api/services/weather/get_forecasts?return_response",
+                    headers=headers,
+                    json={"entity_id": weather_entity, "type": "daily"},
+                )
+                if daily_resp.status_code == 200:
+                    daily_data = daily_resp.json()
+                    daily = daily_data.get("service_response", {}).get(weather_entity, {}).get("forecast", [])
+                    if len(daily) >= 2:
+                        tmrw = daily[1]
+                        weather["tomorrow"] = {
+                            "condition": tmrw.get("condition", ""),
+                            "temperature_high": tmrw.get("temperature"),
+                            "temperature_low": tmrw.get("templow"),
+                        }
+            except Exception:
+                pass
+
+            if weather:
+                _ambient_cache["ts"] = mono
+                _ambient_cache["data"] = weather
+                result.update(weather)
+    except Exception as exc:
+        logger.warning("ambient.weather_fetch_failed", exc=str(exc))
+
+    return result

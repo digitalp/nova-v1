@@ -90,6 +90,9 @@ class Settings(BaseSettings):
     motion_clip_search_results: int = 24
     shared_memory_db_path: str = ""
 
+    # Cooldowns for automated HA chat sessions
+    ha_power_alert_cooldown_s: int = 1800
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

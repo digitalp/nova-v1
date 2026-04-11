@@ -14,6 +14,7 @@ from typing import Any
 
 import structlog
 
+from avatar_backend.config import get_settings
 from avatar_backend.models.messages import ChatResponse, ToolCall
 from avatar_backend.models.tool_result import ToolResult
 from avatar_backend.services.decision_log import DecisionLog
@@ -49,6 +50,10 @@ _OPERATIONAL_SESSION_HINTS = {
         "If a refresh is truly needed, only homeassistant.update_entity is valid, but prefer reading current state first."
     ),
 }
+_AUTOMATED_SESSION_COOLDOWNS = {
+    "ha_power_alert": get_settings().ha_power_alert_cooldown_s,
+}
+_LAST_AUTOMATED_SESSION_RUN_AT: dict[str, float] = {}
 
 
 @dataclass
@@ -58,6 +63,19 @@ class ChatResult:
     processing_time_ms: int = 0
     model: str = ""
     session_id: str = ""
+
+
+def _is_automated_session_on_cooldown(session_id: str) -> bool:
+    session_key = (session_id or "").strip().lower()
+    cooldown_s = _AUTOMATED_SESSION_COOLDOWNS.get(session_key)
+    if not cooldown_s or cooldown_s <= 0:
+        return False
+    now = time.monotonic()
+    last = _LAST_AUTOMATED_SESSION_RUN_AT.get(session_key)
+    if last is not None and (now - last) < cooldown_s:
+        return True
+    _LAST_AUTOMATED_SESSION_RUN_AT[session_key] = now
+    return False
 
 
 async def run_chat(
@@ -82,6 +100,23 @@ async def run_chat(
     """
     t_start = time.monotonic()
     all_tool_calls: list[ToolCall] = []
+
+    if _is_automated_session_on_cooldown(session_id):
+        elapsed_ms = int((time.monotonic() - t_start) * 1000)
+        if decision_log:
+            decision_log.record(
+                "automated_session_cooldown",
+                session=session_id,
+                query=user_text[:100],
+                cooldown_s=_AUTOMATED_SESSION_COOLDOWNS.get((session_id or "").strip().lower(), 0),
+            )
+        return ChatResult(
+            text="",
+            tool_calls=[],
+            processing_time_ms=elapsed_ms,
+            model="cooldown_skip",
+            session_id=session_id,
+        )
 
     await sm.add_message(session_id, "user", user_text)
     messages = await sm.get_messages(session_id)

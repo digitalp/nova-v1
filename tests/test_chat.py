@@ -5,6 +5,8 @@ Ollama and ha_proxy are mocked so these run without real services.
 from datetime import datetime
 import pytest
 from unittest.mock import AsyncMock, patch
+
+from avatar_backend.services import chat_service as chat_service_module
 from fastapi.testclient import TestClient
 from avatar_backend.services.chat_service import _sanitize_history
 
@@ -247,6 +249,32 @@ def test_operational_session_uses_operational_llm_and_injects_power_hint(mock_ch
     system_text = first_messages[0]["content"]
     assert "automated Home Assistant power alert session" in system_text
     assert "Never invent services like sensor.tts.say" in system_text
+
+
+@patch("avatar_backend.services.llm_service.LLMService.is_ready", new_callable=AsyncMock, return_value=True)
+@patch("avatar_backend.services.llm_service.LLMService.chat_operational", new_callable=AsyncMock, return_value=("Power looks high.", []))
+def test_power_alert_session_cooldown_skips_repeat_calls(mock_chat_operational, mock_ready, client):
+    chat_service_module._LAST_AUTOMATED_SESSION_RUN_AT.clear()
+    try:
+        first = client.post(
+            "/chat",
+            json={"session_id": "ha_power_alert", "text": "Power alert at home."},
+            headers=HEADERS,
+        )
+        second = client.post(
+            "/chat",
+            json={"session_id": "ha_power_alert", "text": "Power alert at home."},
+            headers=HEADERS,
+        )
+    finally:
+        chat_service_module._LAST_AUTOMATED_SESSION_RUN_AT.clear()
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["text"] == "Power looks high."
+    assert second.json()["text"] == ""
+    assert second.json()["model"] == "cooldown_skip"
+    assert mock_chat_operational.await_count == 1
 
 
 @patch("avatar_backend.services.llm_service.LLMService.is_ready", new_callable=AsyncMock, return_value=True)
