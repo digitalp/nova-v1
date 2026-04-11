@@ -50,6 +50,7 @@ if $UPDATE_ONLY; then
   rsync -a --exclude='.env' --exclude='.venv' --exclude='__pycache__' \
     --exclude='*.pyc' --exclude='config/piper_voices' --exclude='piper' \
     "${SCRIPT_DIR}/avatar_backend" "${SCRIPT_DIR}/static" \
+    "${SCRIPT_DIR}/intron_afro_tts_sidecar" \
     "${SCRIPT_DIR}/requirements.txt" \
     "${INSTALL_DIR}/"
   info "Installing/updating Python dependencies…"
@@ -99,8 +100,8 @@ done
 [[ -z "$PYTHON" ]] && error "Python 3.10+ not found. Install with: apt install python3.12"
 success "Python: $($PYTHON --version)"
 
-# curl / wget / rsync
-for cmd in curl wget rsync; do
+# curl / wget / rsync / ffmpeg
+for cmd in curl wget rsync ffmpeg; do
   command -v "$cmd" &>/dev/null || { info "Installing ${cmd}…"; apt-get install -y "$cmd" -qq; }
 done
 
@@ -246,6 +247,7 @@ rsync -a --exclude='.env' --exclude='.venv' --exclude='__pycache__' \
   --exclude='*.pyc' \
   "${SCRIPT_DIR}/avatar_backend" \
   "${SCRIPT_DIR}/static" \
+  "${SCRIPT_DIR}/intron_afro_tts_sidecar" \
   "${SCRIPT_DIR}/requirements.txt" \
   "${SCRIPT_DIR}/docker-compose.yml" \
   "${SCRIPT_DIR}/scripts" \
@@ -470,6 +472,74 @@ if [[ "$INPUT_LLM_PROVIDER" == "ollama" ]]; then
     success "Ollama ready"
   else
     warn "Docker not available — skipping Ollama setup. Install Docker and run: docker compose up -d"
+  fi
+fi
+
+# ── Intron Afro TTS sidecar (optional) ────────────────────────────────────────
+if $DOCKER_OK && $GPU_FOUND; then
+  echo ""
+  ask "Install Intron Afro TTS sidecar? (accented voice cloning, requires GPU + Docker) [y/N]:"
+  read -r INSTALL_INTRON
+  if [[ "${INSTALL_INTRON,,}" == "y" ]]; then
+    header "Intron Afro TTS sidecar"
+
+    # Copy sidecar files
+    rsync -a "${SCRIPT_DIR}/intron_afro_tts_sidecar" "${INSTALL_DIR}/"
+    chown -R "${SERVICE_USER}:${SERVICE_USER}" "${INSTALL_DIR}/intron_afro_tts_sidecar"
+
+    DC="docker compose"
+    command -v docker-compose &>/dev/null && DC="docker-compose"
+
+    info "Building Intron Afro TTS container (first build downloads ~4 GB)…"
+    cd "${INSTALL_DIR}"
+
+    # Pass HF_TOKEN from .env if available
+    export HF_TOKEN="${HF_TOKEN:-}"
+    if grep -q "^HF_TOKEN=" "${INSTALL_DIR}/.env" 2>/dev/null; then
+      export HF_TOKEN="$(grep '^HF_TOKEN=' "${INSTALL_DIR}/.env" | cut -d= -f2-)"
+    fi
+    if [[ -z "$HF_TOKEN" ]]; then
+      ask "HuggingFace token (needed to download Intron model, get from hf.co/settings/tokens):"
+      read -r HF_TOKEN
+      if [[ -n "$HF_TOKEN" ]]; then
+        echo "HF_TOKEN=${HF_TOKEN}" >> "${INSTALL_DIR}/.env"
+      fi
+    fi
+
+    sudo -u "${SERVICE_USER}" $DC build intron_afro_tts 2>&1 | tail -5
+    info "Starting Intron Afro TTS sidecar…"
+    sudo -u "${SERVICE_USER}" $DC up -d intron_afro_tts
+
+    info "Waiting for sidecar to be ready (model download may take a few minutes)…"
+    for i in $(seq 1 60); do
+      if curl -sf http://127.0.0.1:8021/health &>/dev/null; then
+        success "Intron Afro TTS sidecar is running"
+        break
+      fi
+      sleep 5
+    done
+
+    if ! curl -sf http://127.0.0.1:8021/health &>/dev/null; then
+      warn "Sidecar may still be loading the model. Check: docker compose logs -f intron_afro_tts"
+    fi
+
+    # Update .env to include intron settings if not already present
+    if ! grep -q "^INTRON_AFRO_TTS_URL=" "${INSTALL_DIR}/.env" 2>/dev/null; then
+      cat >> "${INSTALL_DIR}/.env" << 'INTRON_EOF'
+
+# Intron Afro TTS sidecar
+INTRON_AFRO_TTS_URL=http://127.0.0.1:8021
+INTRON_AFRO_TTS_TIMEOUT_S=90
+INTRON_AFRO_TTS_REFERENCE_WAV=
+INTRON_AFRO_TTS_LANGUAGE=en
+INTRON_EOF
+    fi
+
+    echo ""
+    echo -e "  ${CYAN}To use Intron Afro TTS:${RESET}"
+    echo "    Set TTS_PROVIDER=intron_afro_tts in the admin panel or .env"
+    echo "    Select a reference voice in admin panel > Config"
+    echo ""
   fi
 fi
 
