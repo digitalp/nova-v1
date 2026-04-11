@@ -42,6 +42,15 @@ class CameraEventService:
             "suppressed": suppressed,
         }
 
+    # Appended to the vision prompt when Coral detects a plate-bearing vehicle.
+    _PLATE_HINT = (
+        "\nIf you can see a vehicle with a clearly readable number plate (registration), "
+        "append a new line with EXACTLY:\n"
+        "PLATE: <registration>\n"
+        "Use the exact characters you can read. Only include the PLATE line if you are "
+        "confident the registration is legible — do not guess."
+    )
+
     async def analyze_motion(
         self,
         *,
@@ -51,21 +60,26 @@ class CameraEventService:
         source: str,
         system_prompt: str | None = None,
         vision_prompt: str | None = None,
+        include_plate_ocr: bool = False,
     ) -> dict[str, Any]:
         camera_id = self.resolve_camera_entity(camera_entity_id)
         image_bytes = await self._ha.fetch_camera_image(camera_id)
 
         is_delivery = False
         delivery_company = ""
+        plate_number = ""
         raw_description = ""
         description = ""
         message = f"Motion detected {location}."
         suppressed = False
 
         if image_bytes:
+            prompt = vision_prompt or _MOTION_IMAGE_PROMPT
+            if include_plate_ocr:
+                prompt = prompt + self._PLATE_HINT
             raw_description = await self._llm.describe_image_with_gemini(
                 image_bytes,
-                prompt=vision_prompt or _MOTION_IMAGE_PROMPT,
+                prompt=prompt,
                 system_instruction=system_prompt or None,
             )
             if raw_description.strip().startswith("NO_MOTION"):
@@ -74,13 +88,19 @@ class CameraEventService:
             else:
                 scene_lines: list[str] = []
                 delivery_line = ""
+                plate_line = ""
                 for line in raw_description.splitlines():
-                    if line.strip().upper().startswith("DELIVERY:"):
-                        delivery_line = line.strip()
+                    stripped = line.strip()
+                    if stripped.upper().startswith("DELIVERY:"):
+                        delivery_line = stripped
+                    elif stripped.upper().startswith("PLATE:"):
+                        plate_line = stripped
                     else:
                         scene_lines.append(line)
                 scene = " ".join(scene_lines).strip()
                 description = scene or raw_description.strip()
+                if plate_line:
+                    plate_number = plate_line.split(":", 1)[1].strip().upper()
                 if delivery_line:
                     is_delivery = True
                     delivery_company = delivery_line.split(":", 1)[1].strip()
@@ -122,6 +142,7 @@ class CameraEventService:
             "suppressed": suppressed,
             "is_delivery": is_delivery,
             "delivery_company": delivery_company,
+            "plate_number": plate_number,
             "canonical_event": canonical_event,
         }
 

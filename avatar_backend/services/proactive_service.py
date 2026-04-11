@@ -593,6 +593,7 @@ class ProactiveService:
                 source="proactive_motion",
                 system_prompt=self._system_prompt or None,
                 vision_prompt=self._camera_vision_prompts.get(camera_id),
+                include_plate_ocr=_coral_has_plate,
             )
         except Exception as exc:
             _LOGGER.warning("proactive.motion_describe_failed", camera=camera_id, exc=str(exc))
@@ -603,12 +604,14 @@ class ProactiveService:
                 "suppressed": False,
                 "is_delivery": False,
                 "delivery_company": "",
+                "plate_number": "",
                 "raw_description": "",
                 "canonical_event": None,
             }
 
         is_delivery = bool(result["is_delivery"])
         delivery_company = str(result["delivery_company"] or "")
+        plate_number = str(result.get("plate_number") or "")
         message = str(result["message"] or f"Motion detected by {friendly}.")
         description = str(result["archive_description"] or result["description"] or message)
 
@@ -633,6 +636,8 @@ class ProactiveService:
         elif result["raw_description"]:
             _LOGGER.info("proactive.motion_described", camera=camera_id,
                          chars=len(result["raw_description"]), delivery=is_delivery)
+            if plate_number:
+                _LOGGER.info("proactive.plate_read", camera=camera_id, plate=plate_number)
             if is_delivery:
                 _LOGGER.info("proactive.delivery_detected", camera=camera_id,
                              company=delivery_company)
@@ -650,6 +655,7 @@ class ProactiveService:
             "delivery_company": delivery_company,
             "coral_detections": _coral_detections,
             "coral_has_plate": _coral_has_plate,
+            "plate_number": plate_number,
         }
         if result.get("canonical_event") is not None:
             extra["canonical_event"] = result["canonical_event"]

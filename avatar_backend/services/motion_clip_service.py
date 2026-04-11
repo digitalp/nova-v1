@@ -252,7 +252,7 @@ class MotionClipService:
         return fullpath
 
     async def _capture_clip(self, camera_entity_id: str, output_path: Path) -> bool:
-        target_fps = 5
+        target_fps = 15
         frame_interval_s = 1.0 / target_fps
         frame_dir = Path(tempfile.mkdtemp(prefix="motion_frames_", dir=str(self._clips_dir)))
         captured = 0
@@ -293,7 +293,7 @@ class MotionClipService:
             "-preset",
             "veryfast",
             "-r",
-            "25",          # output at 25 fps — duplicates frames from 5fps capture for smooth playback
+            "25",          # output at 25 fps — matches or smoothly interpolates 15fps capture
             "-pix_fmt",
             "yuv420p",
             "-movflags",
