@@ -28,6 +28,7 @@ import structlog
 import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
 from avatar_backend.services.home_runtime import load_home_runtime_config
+from avatar_backend.services.coral_detector import CoralMotionDetector
 
 _LOGGER = structlog.get_logger()
 
@@ -222,6 +223,7 @@ class ProactiveService:
         event_service=None,
         camera_event_service=None,
         issue_autofix_service=None,
+        coral_detector: CoralMotionDetector | None = None,
     ) -> None:
         self._ha_url = ha_url.rstrip("/")
         self._ha_token = ha_token
@@ -233,6 +235,11 @@ class ProactiveService:
         self._event_service = event_service
         self._camera_event_service = camera_event_service
         self._issue_autofix_service = issue_autofix_service
+        self._coral = coral_detector or CoralMotionDetector.build()
+        if self._coral.enabled:
+            _LOGGER.info("coral.enabled", detail="Edge TPU pre-filter active for camera motion events")
+        else:
+            _LOGGER.info("coral.disabled", detail="No Coral TPU — all motion events go straight to Ollama vision")
         runtime = load_home_runtime_config()
         self._motion_camera_map = dict(_LEGACY_MOTION_CAMERA_MAP)
         self._motion_camera_map.update(runtime.motion_camera_map)
@@ -534,6 +541,43 @@ class ProactiveService:
                 camera=camera_id,
                 **self._gemini_llm_fields(),
             )
+
+        # ── Coral Edge TPU pre-filter ─────────────────────────────────────────
+        # Fetch one frame and run fast on-device object detection.
+        # If nothing of interest is found, skip the expensive Ollama vision call
+        # and archive a clip with a "no detection" description.
+        if self._coral.enabled:
+            try:
+                frame = await self._ha.fetch_camera_image(camera_id)
+                if frame:
+                    coral_result = await self._coral.check(frame, camera_id=camera_id)
+                    if coral_result.skip:
+                        if self._decision_log:
+                            self._decision_log.record(
+                                "motion_coral_filtered",
+                                camera=camera_id,
+                                inference_ms=round(coral_result.inference_ms, 1),
+                                reason=coral_result.reason,
+                                **self._gemini_llm_fields(),
+                            )
+                        self._motion_clip_service.schedule_capture(
+                            camera_entity_id=camera_id,
+                            trigger_entity_id=entity_id,
+                            location=friendly,
+                            description="Motion detected — no person or vehicle found by Coral.",
+                            extra={"source": "coral_filtered"},
+                        )
+                        return
+                    _LOGGER.info(
+                        "coral.passed_to_vision",
+                        camera=camera_id,
+                        detections=coral_result.detections,
+                        inference_ms=round(coral_result.inference_ms, 1),
+                    )
+            except Exception as exc:
+                _LOGGER.warning("coral.check_failed", camera=camera_id, exc=str(exc),
+                                detail="falling through to Ollama vision")
+        # ─────────────────────────────────────────────────────────────────────
 
         try:
             result = await self._camera_event_service.analyze_motion(
