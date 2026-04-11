@@ -292,6 +292,8 @@ class MotionClipService:
             "libx264",
             "-preset",
             "veryfast",
+            "-r",
+            "25",          # output at 25 fps — duplicates frames from 5fps capture for smooth playback
             "-pix_fmt",
             "yuv420p",
             "-movflags",
