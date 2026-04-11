@@ -699,3 +699,78 @@ async def _wav_to_alexa_mp3(wav_bytes: bytes) -> bytes | None:
                     os.unlink(path)
                 except OSError:
                     pass
+
+
+# ── Media Fun Fact ────────────────────────────────────────────────────────────
+
+class MediaFunFactRequest(BaseModel):
+    media_title: str = Field(..., min_length=1, max_length=300)
+    app_name: str = Field(default="", max_length=100)
+    target_areas: list[str] = Field(default_factory=lambda: ["LIVING ROOM"])
+
+
+class MediaFunFactResponse(BaseModel):
+    status: str
+    fun_fact: str
+    wav_bytes: int = 0
+    elapsed_ms: int = 0
+
+
+@router.post(
+    "/announce/media_fun_fact",
+    response_model=MediaFunFactResponse,
+    dependencies=[Depends(verify_api_key)],
+    summary="Generate and announce a fun fact about currently playing media",
+)
+async def media_fun_fact_handler(body: MediaFunFactRequest, request: Request):
+    """
+    Called when Plex or Channels DVR starts playing on the living room TV.
+    Nova generates an interesting fun fact about the media using the cloud LLM
+    and announces it on living room speakers only.
+    """
+    t0 = time.monotonic()
+    llm = getattr(request.app.state, "llm_service", None)
+    if llm is None:
+        raise HTTPException(status_code=503, detail="LLM service unavailable")
+
+    title = body.media_title.strip()
+    app = body.app_name.strip() or "your media player"
+    target_areas = [str(a).strip() for a in body.target_areas if str(a).strip()] or ["LIVING ROOM"]
+
+    _LOGGER.info("media_fun_fact.requested", title=title, app=app)
+
+    prompt = (
+        f'Someone just started watching "{title}" on {app}.\n'
+        "Share one short, genuinely interesting fun fact about this movie or TV show. "
+        "Keep it to 2 sentences maximum. "
+        'Start with "Fun fact about" followed by the title, then the fact. '
+        "Be conversational and friendly, as if speaking to someone in the living room. "
+        "Do not give spoilers. Do not mention streaming platforms."
+    )
+
+    try:
+        fun_fact = (await llm.generate_text(prompt, timeout_s=30.0)).strip()
+    except Exception as exc:
+        _LOGGER.warning("media_fun_fact.llm_failed", title=title, exc=str(exc))
+        raise HTTPException(status_code=503, detail=f"LLM failed: {exc}")
+
+    if not fun_fact:
+        raise HTTPException(status_code=503, detail="LLM returned empty response")
+
+    _LOGGER.info("media_fun_fact.generated", title=title, chars=len(fun_fact))
+
+    announce_resp = await announce_handler(
+        AnnounceRequest(message=fun_fact, priority="normal", target_areas=target_areas),
+        request,
+    )
+
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    _LOGGER.info("media_fun_fact.done", title=title, elapsed_ms=elapsed_ms)
+
+    return MediaFunFactResponse(
+        status="ok",
+        fun_fact=fun_fact,
+        wav_bytes=announce_resp.wav_bytes,
+        elapsed_ms=elapsed_ms,
+    )
+    
