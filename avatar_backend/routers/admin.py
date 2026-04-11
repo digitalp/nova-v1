@@ -2208,7 +2208,7 @@ async def force_heating_shadow(request: Request, scenario: str = "winter"):
     Writes are intercepted — nothing is applied to HA.
     """
     _require_session(request, min_role="admin")
-    proactive = getattr(request.app.state, "proactive", None)
+    proactive = getattr(request.app.state, "proactive_service", None)
     if proactive is None:
         return {"ok": False, "message": "Proactive service not available"}
     if not hasattr(proactive, "run_heating_shadow_force"):
