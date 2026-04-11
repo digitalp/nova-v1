@@ -727,7 +727,7 @@ class _OllamaFallbackBackend:
             "model":    self._model,
             "messages": _to_ollama_messages(messages),
             "stream":   False,
-            "options":  {"temperature": 0.7, "num_ctx": 32768, "num_predict": 400},
+            "options":  {"temperature": 0.7, "num_ctx": 16384, "num_predict": 400},
         }
         if use_tools:
             payload["tools"] = HA_TOOLS
