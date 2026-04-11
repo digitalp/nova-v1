@@ -5382,12 +5382,15 @@ function _appendDecEntry(e) {
   if (_decEntries.length > 500) _decEntries.shift();
   const log = document.getElementById('dec-log');
   if (!log) return;
-  const entries = _decFilter === 'all' ? _decEntries : _decEntries.filter(row => row.kind === _decFilter);
-  if (entries.length === 0) {
-    log.innerHTML = '<div style="padding:12px 18px;color:var(--text3);">No entries for this filter.</div>';
-  } else {
-    log.innerHTML = entries.map((row, index) => _decEntryHTML(row, index, entries)).join('');
-  }
+  // Skip full re-render: just append the new row to the DOM
+  if (_decFilter !== 'all' && e.kind !== _decFilter) return;
+  const placeholder = log.querySelector('.dec-placeholder');
+  if (placeholder) placeholder.remove();
+  const idx = _decEntries.length - 1;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = _decEntryHTML(e, idx, _decEntries);
+  const node = tmp.firstElementChild;
+  if (node) log.appendChild(node);
   if (document.getElementById('dec-autoscroll')?.checked) log.scrollTop = log.scrollHeight;
 }
 
@@ -5422,8 +5425,16 @@ function startDecisionStream() {
   fetch('/admin/decisions', { credentials:'include' })
     .then(r => r.json())
     .then(data => {
-      if (decLog) decLog.innerHTML = '';
-      (data.decisions || []).forEach(_appendDecEntry);
+      _decEntries = (data.decisions || []).slice(-500);
+      const entries = _decFilter === 'all' ? _decEntries : _decEntries.filter(r => r.kind === _decFilter);
+      if (decLog) {
+        if (entries.length === 0) {
+          decLog.innerHTML = '<div class="dec-placeholder" style="padding:12px 18px;color:var(--text3);">No entries.</div>';
+        } else {
+          decLog.innerHTML = entries.map((row, i) => _decEntryHTML(row, i, entries)).join('');
+          if (document.getElementById('dec-autoscroll')?.checked) decLog.scrollTop = decLog.scrollHeight;
+        }
+      }
       if (status) status.textContent = `${_decEntries.length} loaded`;
     })
     .catch(() => {});
