@@ -1191,3 +1191,38 @@ class MetricsDB:
         entry = dict(row)
         entry["extra"] = _json.loads(entry.pop("extra_json", "{}") or "{}")
         return self._attach_motion_clip_event_fields(entry)
+
+    def delete_motion_clip(self, clip_id: int) -> str | None:
+        """Delete a single motion clip. Returns video_relpath so the caller can remove the file."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT video_relpath FROM motion_clips WHERE id = ?", (clip_id,)
+            ).fetchone()
+            if not row:
+                return None
+            conn.execute("DELETE FROM motion_clips WHERE id = ?", (clip_id,))
+        return row["video_relpath"] or None
+
+    def delete_motion_clips_bulk(self, clip_ids: list[int]) -> list[str]:
+        """Delete multiple clips by ID. Returns list of video_relpaths for file cleanup."""
+        if not clip_ids:
+            return []
+        placeholders = ",".join("?" * len(clip_ids))
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT id, video_relpath FROM motion_clips WHERE id IN ({placeholders})",
+                clip_ids,
+            ).fetchall()
+            conn.execute(
+                f"DELETE FROM motion_clips WHERE id IN ({placeholders})", clip_ids
+            )
+        return [row["video_relpath"] for row in rows if row["video_relpath"]]
+
+    def delete_all_motion_clips(self) -> list[str]:
+        """Delete every motion clip row. Returns all video_relpaths for file cleanup."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT video_relpath FROM motion_clips WHERE video_relpath != ''"
+            ).fetchall()
+            conn.execute("DELETE FROM motion_clips")
+        return [row["video_relpath"] for row in rows]

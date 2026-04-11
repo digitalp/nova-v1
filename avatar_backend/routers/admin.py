@@ -436,6 +436,91 @@ async def restart_server(request: Request):
     return {"restarting": True}
 
 
+# ── Cloudflare Tunnel ─────────────────────────────────────────────────────────
+
+@router.post("/tunnel/refresh")
+async def refresh_tunnel(request: Request):
+    """Restart the Cloudflare quick tunnel and update PUBLIC_URL with the new URL."""
+    _require_session(request, min_role="admin")
+    _LOGGER.info("admin.tunnel_refresh_requested")
+
+    # Restart the tunnel service
+    proc = await asyncio.create_subprocess_exec(
+        "/usr/bin/sudo", "/usr/bin/systemctl", "restart", "cloudflared-nova",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    await asyncio.wait_for(proc.communicate(), timeout=10)
+
+    # Wait for the tunnel to come up and get the new URL
+    await asyncio.sleep(6)
+    new_url = await _read_tunnel_url()
+
+    if not new_url:
+        return {"ok": False, "error": "Tunnel restarted but URL not yet available. Check logs."}
+
+    # Update .env
+    _update_env_value("PUBLIC_URL", new_url)
+
+    # Reload settings
+    from avatar_backend.config import get_settings
+    get_settings.cache_clear()
+
+    _LOGGER.info("admin.tunnel_refreshed", url=new_url)
+    return {"ok": True, "url": new_url}
+
+
+@router.get("/tunnel/status")
+async def tunnel_status(request: Request):
+    """Check the current Cloudflare tunnel URL."""
+    _require_session(request, min_role="viewer")
+    url = await _read_tunnel_url()
+    # Also check if the current PUBLIC_URL matches
+    current_public = ""
+    if _ENV_FILE.exists():
+        for line in _ENV_FILE.read_text().splitlines():
+            if line.strip().startswith("PUBLIC_URL="):
+                current_public = line.strip().split("=", 1)[1].strip()
+                break
+    return {
+        "tunnel_url": url or "",
+        "public_url": current_public,
+        "match": bool(url and current_public == url),
+        "tunnel_active": bool(url),
+    }
+
+
+async def _read_tunnel_url() -> str | None:
+    """Read the current tunnel URL from journalctl."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "/usr/bin/journalctl", "-u", "cloudflared-nova", "--no-pager", "-n", "30",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+        output = stdout.decode("utf-8", "ignore")
+        import re
+        matches = re.findall(r'https://[a-z0-9-]+\.trycloudflare\.com', output)
+        return matches[-1] if matches else None
+    except Exception:
+        return None
+
+
+def _update_env_value(key: str, value: str) -> None:
+    """Update a single key in the .env file."""
+    if not _ENV_FILE.exists():
+        return
+    lines = _ENV_FILE.read_text().splitlines()
+    found = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith(f"{key}="):
+            lines[i] = f"{key}={value}"
+            found = True
+            break
+    if not found:
+        lines.append(f"{key}={value}")
+    _ENV_FILE.write_text("\n".join(lines) + "\n")
+
+
 # ── Sessions ──────────────────────────────────────────────────────────────────
 
 @router.get("/sessions")
@@ -675,6 +760,58 @@ async def serve_motion_clip_video(clip_id: int, request: Request):
     if not path or not path.exists():
         raise HTTPException(status_code=404, detail="Motion clip file unavailable")
     return FileResponse(str(path), media_type="video/mp4", filename=path.name)
+
+
+@router.delete("/motion-clips/{clip_id}")
+async def delete_motion_clip(clip_id: int, request: Request):
+    """Delete a single motion clip (DB row + video file)."""
+    _require_session(request, min_role="admin")
+    db = request.app.state.metrics_db
+    svc = request.app.state.motion_clip_service
+    clip = db.get_motion_clip(clip_id)
+    if not clip:
+        raise HTTPException(status_code=404, detail="Motion clip not found")
+    relpath = db.delete_motion_clip(clip_id)
+    if relpath:
+        path = svc.clip_path_for({"video_relpath": relpath})
+        if path and path.exists():
+            try:
+                path.unlink()
+            except Exception:
+                pass
+    return {"deleted": clip_id}
+
+
+class BulkDeleteBody(BaseModel):
+    ids: list[int] | None = None
+    delete_all: bool = False
+
+
+@router.post("/motion-clips/delete")
+async def delete_motion_clips_bulk(body: BulkDeleteBody, request: Request):
+    """Delete multiple clips by ID, or all clips if delete_all=true."""
+    _require_session(request, min_role="admin")
+    db = request.app.state.metrics_db
+    svc = request.app.state.motion_clip_service
+
+    if body.delete_all:
+        relpaths = db.delete_all_motion_clips()
+    elif body.ids:
+        relpaths = db.delete_motion_clips_bulk(body.ids)
+    else:
+        return {"deleted": 0}
+
+    deleted_files = 0
+    for relpath in relpaths:
+        path = svc.clip_path_for({"video_relpath": relpath})
+        if path and path.exists():
+            try:
+                path.unlink()
+                deleted_files += 1
+            except Exception:
+                pass
+
+    return {"deleted": len(relpaths), "files_removed": deleted_files}
 
 
 @router.get("/event-history")

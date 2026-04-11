@@ -409,6 +409,10 @@ body {
 .btn-ghost:hover:not(:disabled) { color: var(--text); background: var(--surface2); }
 .btn-sm { padding: 5px 11px; font-size: 12px; }
 .btn-xs { padding: 3px 8px; font-size: 11px; border-radius: 6px; }
+.btn-danger { background: rgba(255,69,58,.15); color: rgba(255,69,58,.9); border: 1px solid rgba(255,69,58,.25); }
+.btn-danger:hover:not(:disabled) { background: rgba(255,69,58,.25); color: #ff453a; border-color: rgba(255,69,58,.5); }
+.motion-archive-toolbar { display: flex; gap: 8px; align-items: center; padding: 0 0 14px 0; flex-wrap: wrap; }
+.motion-card.selected { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ── Forms ───────────────────────────────────────────────────────────────────── */
 .field { margin-bottom: var(--sp-4); }
@@ -1712,6 +1716,8 @@ textarea:focus-visible {
 [data-theme="light"] .stat-icon.cyan   { background: var(--cyan-dim); color: var(--cyan); }
 
 /* Buttons */
+[data-theme="light"] .btn-danger { background: rgba(220,53,69,.08); color: #c9302c; border-color: rgba(220,53,69,.22); }
+[data-theme="light"] .btn-danger:hover:not(:disabled) { background: rgba(220,53,69,.15); color: #a02020; border-color: rgba(220,53,69,.4); }
 [data-theme="light"] .btn-outline {
   border-color: var(--border2);
   color: var(--text2);
@@ -2762,6 +2768,12 @@ textarea:focus-visible {
 
       <!-- Pane: Motion Archive -->
       <div id="fa-pane-clips">
+        <div class="motion-archive-toolbar">
+          <button id="mc-select-all-btn" class="btn btn-outline btn-sm" onclick="_motionSelectAll()">Select All</button>
+          <button id="mc-deselect-btn" class="btn btn-outline btn-sm" style="display:none" onclick="_motionDeselectAll()">Deselect All</button>
+          <button id="mc-delete-selected-btn" class="btn btn-danger btn-sm" style="display:none" onclick="_deleteSelectedMotionClips()">Delete Selected</button>
+          <button id="mc-delete-all-btn" class="btn btn-danger btn-sm" onclick="_deleteAllMotionClips()">Delete All Clips</button>
+        </div>
         <div id="motion-grid" class="motion-grid">
           <div class="motion-empty">Loading motion archive…</div>
         </div>
@@ -4238,13 +4250,16 @@ function renderMotionClips() {
         <div class="motion-card-desc">${_motionHighlight(clip.description || 'No AI description available.')}</div>
         ${note ? `<div class="motion-card-note">${_esc(note)}</div>` : ''}
         <div class="motion-card-actions">
-          <button class="btn btn-primary btn-sm">Review</button>
+          <button class="btn btn-primary btn-sm mc-review-btn">Review</button>
           ${hasVideo ? `<a class="btn btn-outline btn-sm" href="${clip.video_url}" target="_blank" rel="noopener">Open File</a>` : ''}
+          <button class="btn btn-danger btn-sm mc-delete-btn" title="Delete this clip">Delete</button>
         </div>
       </div>
     `;
-    const reviewBtn = card.querySelector('button');
+    const reviewBtn = card.querySelector('.mc-review-btn');
     if (reviewBtn) reviewBtn.onclick = () => openMotionModal(clip);
+    const deleteBtn = card.querySelector('.mc-delete-btn');
+    if (deleteBtn) deleteBtn.onclick = (e) => { e.stopPropagation(); _deleteMotionClip(clip.id, card); };
     const video = card.querySelector('video');
     if (video) {
       video.onclick = () => openMotionModal(clip);
@@ -4268,6 +4283,81 @@ function renderMotionClips() {
   });
   _observeVideos(grid);
 }
+
+// ── Motion clip deletion ──────────────────────────────────────────────────────
+
+let _motionSelectedIds = new Set();
+
+function _motionSelectAll() {
+  _motionSelectedIds = new Set(_motionClips.map(c => String(c.id)));
+  document.querySelectorAll('#motion-grid .motion-card').forEach(card => card.classList.add('selected'));
+  _updateMotionSelectionUI();
+}
+
+function _motionDeselectAll() {
+  _motionSelectedIds.clear();
+  document.querySelectorAll('#motion-grid .motion-card').forEach(card => card.classList.remove('selected'));
+  _updateMotionSelectionUI();
+}
+
+function _updateMotionSelectionUI() {
+  const count = _motionSelectedIds.size;
+  const deselectBtn = document.getElementById('mc-deselect-btn');
+  const deleteSelectedBtn = document.getElementById('mc-delete-selected-btn');
+  if (deselectBtn) deselectBtn.style.display = count > 0 ? '' : 'none';
+  if (deleteSelectedBtn) {
+    deleteSelectedBtn.style.display = count > 0 ? '' : 'none';
+    deleteSelectedBtn.textContent = `Delete Selected (${count})`;
+  }
+}
+
+async function _deleteMotionClip(clipId, cardEl) {
+  if (!confirm('Delete this clip?')) return;
+  try {
+    await api('DELETE', `/admin/motion-clips/${clipId}`);
+    _motionAllClips = _motionAllClips.filter(c => String(c.id) !== String(clipId));
+    _motionClips = _motionClips.filter(c => String(c.id) !== String(clipId));
+    _motionSelectedIds.delete(String(clipId));
+    cardEl?.remove();
+    _updateMotionSelectionUI();
+  } catch(e) {
+    alert('Delete failed: ' + (e.message || e));
+  }
+}
+
+async function _deleteSelectedMotionClips() {
+  const ids = Array.from(_motionSelectedIds).map(Number);
+  if (!ids.length) return;
+  if (!confirm(`Delete ${ids.length} selected clip${ids.length !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+  try {
+    const r = await api('POST', '/admin/motion-clips/delete', { ids });
+    _motionAllClips = _motionAllClips.filter(c => !ids.includes(Number(c.id)));
+    _motionClips = _motionClips.filter(c => !ids.includes(Number(c.id)));
+    _motionSelectedIds.clear();
+    renderMotionClips();
+    _updateMotionSelectionUI();
+    toast(`Deleted ${r.deleted} clip${r.deleted !== 1 ? 's' : ''}`);
+  } catch(e) {
+    alert('Delete failed: ' + (e.message || e));
+  }
+}
+
+async function _deleteAllMotionClips() {
+  if (!confirm('Delete ALL motion clips? This permanently removes every clip from the archive and cannot be undone.')) return;
+  try {
+    const r = await api('POST', '/admin/motion-clips/delete', { delete_all: true });
+    _motionAllClips = [];
+    _motionClips = [];
+    _motionSelectedIds.clear();
+    renderMotionClips();
+    _updateMotionSelectionUI();
+    toast(`Deleted ${r.deleted} clip${r.deleted !== 1 ? 's' : ''}`);
+  } catch(e) {
+    alert('Delete failed: ' + (e.message || e));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function openMotionModal(clip) {
   _motionModalIndex = _motionClips.findIndex(item => String(item.id) === String(clip.id));
