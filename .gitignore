@@ -18,3 +18,10 @@ config/users.json
 config/*.swp
 logs/
 static/admin.html.bak_*
+
+# Coral TPU models (large binaries — trained locally)
+models/coral/*.tflite
+models/coral/*.pkl
+models/coral/*.npz
+models/coral/*.zip
+models/coral/mobilenet_ssd/
