@@ -205,64 +205,23 @@ _HOUSE_ATTENTION_SUMMARY_ENTITY = "sensor.house_attention_summary"
 _HOUSE_ATTENTION_NORMAL_STATES = {"", "unknown", "unavailable", "home looks normal"}
 
 
-_HEATING_SHADOW_SYSTEM_PROMPT = """
-You are Nova, the heating controller for 19 Patterdale Place, Wigan, UK.
+def _load_heating_shadow_prompt() -> str:
+    """Load the heating shadow system prompt from config file, falling back to
+    a minimal default if the file doesn't exist."""
+    from avatar_backend.runtime_paths import config_dir
+    path = config_dir() / "heating_shadow_prompt.txt"
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        _LOGGER.warning("heating_shadow_prompt.not_found", path=str(path),
+                        detail="Create config/heating_shadow_prompt.txt with your heating entities")
+        return (
+            "You are a heating controller. Read entity states before acting. "
+            "If nothing changed, stay silent."
+        )
 
-TOOL RULES:
-- ALWAYS call get_entity_state with an exact entity_id before acting.
-- NEVER assume current values — always read them first.
-- Use call_ha_service to act on climate/input_boolean entities.
 
-ENTITIES — read these to make a decision:
-
-Outdoor temperature:
-  get_entity_state("weather.met_office_ince_in_makerfield")  → attribute: temperature
-
-Room temperature sensors:
-  get_entity_state("sensor.living_room_sensor_temperature")
-  get_entity_state("sensor.main_bedroom_temp_temperature")
-  get_entity_state("sensor.bedroom_sensor_temperature")
-  get_entity_state("sensor.tchefor_temp_humidity_temperature")
-
-Presence:
-  get_entity_state("person.penn")
-  get_entity_state("person.tangu_home")
-
-Heating state:
-  get_entity_state("input_boolean.winter_mode")
-  get_entity_state("climate.hive_receiver_climate")
-
-Comfort/eco targets:
-  get_entity_state("input_number.living_room_comfort")
-  get_entity_state("input_number.bed_room_1comfort_temperature")
-
-TRVs:
-  Living Room:  climate.living_room_thermostat, climate.living_room_1_thermostat, climate.living_room_2_better_thermostat
-  Main Bedroom: climate.main_room_thermo, climate.main_room_thermo_2
-  Bedroom 1:    climate.bedroom_1_thermostat, climate.bedroom_1_thermo
-  TSE Room:     climate.tse_s_bedroom_thermostat, climate.tse_room_thermostat
-  Hallway:      climate.hallway, climate.hallway_thermostat
-
-HEATING DECISION RULES (apply in order — first match wins):
-
-1. HEATING OFF — if outdoor temp ≥ 16°C OR all rooms ≥ 21°C:
-   → call_ha_service input_boolean turn_off input_boolean.winter_mode
-   → call_ha_service climate set_hvac_mode climate.hive_receiver_climate hvac_mode=off
-
-2. HEATING ON — if outdoor < 14°C AND any room < 18°C AND someone is home:
-   → call_ha_service input_boolean turn_on input_boolean.winter_mode
-   → call_ha_service climate set_hvac_mode climate.hive_receiver_climate hvac_mode=heat
-   → set all TRVs to comfort temperature (read from input_number targets above, or use 24°C)
-
-3. GREY ZONE (outdoor 14–16°C, rooms 18–21°C):
-   → April–September: default OFF
-   → October–March: ON if any room < 19°C
-   → Night (22:00–07:00): ON only if any room < 16°C
-
-4. NO ONE HOME: turn boiler off, set winter_mode OFF.
-
-If nothing changed, stay silent. One sentence announcement only if you act.
-""".strip()
+_HEATING_SHADOW_SYSTEM_PROMPT = _load_heating_shadow_prompt()
 
 
 class ProactiveService:
@@ -325,6 +284,32 @@ class ProactiveService:
 
     def set_decision_log(self, log) -> None:
         self._decision_log = log
+
+    def apply_discovery(self, discovery_result) -> None:
+        """Merge auto-discovered camera/motion mappings into the live maps.
+
+        Discovery results are layered on top of legacy + runtime config:
+          legacy → runtime config → auto-discovery
+        This means discovered mappings take lowest priority — explicit
+        config in home_runtime.json always wins.
+        """
+        if not getattr(discovery_result, "discovered", False):
+            return
+        # Only add discovered mappings for sensors NOT already mapped
+        for sensor, camera in discovery_result.motion_camera_map.items():
+            if sensor not in self._motion_camera_map:
+                self._motion_camera_map[sensor] = camera
+        for cam in discovery_result.bypass_global_motion_cameras:
+            self._bypass_global_motion_cameras.add(cam)
+        for cam, prompt in discovery_result.camera_vision_prompts.items():
+            if cam not in self._camera_vision_prompts:
+                self._camera_vision_prompts[cam] = prompt
+        _LOGGER.info(
+            "proactive.discovery_applied",
+            total_motion_mappings=len(self._motion_camera_map),
+            total_bypass_cameras=len(self._bypass_global_motion_cameras),
+            total_vision_prompts=len(self._camera_vision_prompts),
+        )
 
     def _active_llm_fields(self) -> dict[str, str]:
         provider = getattr(self._llm, "provider_name", "unknown")

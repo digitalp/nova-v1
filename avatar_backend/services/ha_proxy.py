@@ -99,6 +99,8 @@ class HAProxy:
         runtime = load_home_runtime_config()
         self._camera_aliases = dict(_LEGACY_CAMERA_ALIASES)
         self._camera_aliases.update(runtime.camera_aliases)
+        # Weather entity — configurable via home_runtime.json, falls back to legacy
+        self._weather_entity = runtime.weather_entity or "weather.met_office_ince_in_makerfield"
 
     # ── Public interface ──────────────────────────────────────────────────
 
@@ -128,7 +130,7 @@ class HAProxy:
                 return ToolResult(
                     success=True,
                     message=(
-                        "Use get_entity_state('weather.met_office_ince_in_makerfield') for all weather questions. "
+                        f"Use get_entity_state('{self._weather_entity}') for all weather questions. "
                         "It has current conditions, temperature, humidity, wind, and forecast data. "
                         "Do NOT list multiple weather sources — just call get_entity_state with this entity."
                     ),
@@ -139,7 +141,7 @@ class HAProxy:
                     success=True,
                     message=(
                         "Do NOT browse sensors. Use get_entity_state with the EXACT entity_id:\n"
-                        "  Outdoor temp: weather.met_office_ince_in_makerfield (attribute: temperature)\n"
+                        f"  Outdoor temp: {self._weather_entity} (attribute: temperature)\n"
                         "  Living room temp: sensor.living_room_sensor_temperature\n"
                         "  Main bedroom temp: sensor.main_bedroom_temp_temperature\n"
                         "  Kids bedroom temp: sensor.bedroom_sensor_temperature\n"
@@ -290,7 +292,7 @@ class HAProxy:
                 f" (showing {self._LARGE_DOMAIN_CAP} of {total} — "
                 f"DO NOT summarize this list. Use get_entity_state with the EXACT entity_id "
                 f"from the system prompt to answer the user's question. "
-                f"For weather/outdoor temperature use weather.met_office_ince_in_makerfield)"
+                f"For weather/outdoor temperature use {self._weather_entity})"
             )
         return ToolResult(
             success=True,

@@ -2372,3 +2372,45 @@ async def force_heating_shadow(request: Request, scenario: str = "winter"):
     except Exception as exc:
         return {"ok": False, "message": str(exc)}
 
+
+
+@router.get("/camera-discovery")
+async def get_camera_discovery(request: Request):
+    """Return the auto-discovered camera/motion sensor mappings from HA areas."""
+    _require_session(request, min_role="admin")
+    discovery = getattr(request.app.state, "camera_discovery", None)
+    if discovery is None:
+        return {"discovered": False, "message": "Camera discovery not available or not yet run"}
+    proactive = getattr(request.app.state, "proactive_service", None)
+    return {
+        "discovered": discovery.discovered,
+        "outdoor_cameras": discovery.outdoor_cameras,
+        "camera_areas": discovery.camera_areas,
+        "motion_camera_map_discovered": discovery.motion_camera_map,
+        "bypass_cameras_discovered": list(discovery.bypass_global_motion_cameras),
+        "vision_prompts_discovered": list(discovery.camera_vision_prompts.keys()),
+        "active_motion_camera_map": dict(getattr(proactive, "_motion_camera_map", {})) if proactive else {},
+        "active_bypass_cameras": list(getattr(proactive, "_bypass_global_motion_cameras", set())) if proactive else [],
+    }
+
+
+@router.post("/camera-discovery/refresh")
+async def refresh_camera_discovery(request: Request):
+    """Re-run camera discovery from HA area registry."""
+    _require_session(request, min_role="admin")
+    from avatar_backend.services.camera_discovery import CameraDiscoveryService
+    from avatar_backend.config import get_settings
+    settings = get_settings()
+    discovery = CameraDiscoveryService(settings.ha_url, settings.ha_token)
+    result = await discovery.discover(timeout_s=15.0)
+    if result.discovered:
+        request.app.state.camera_discovery = result
+        proactive = getattr(request.app.state, "proactive_service", None)
+        if proactive and hasattr(proactive, "apply_discovery"):
+            proactive.apply_discovery(result)
+    return {
+        "discovered": result.discovered,
+        "outdoor_cameras": result.outdoor_cameras,
+        "motion_camera_map": result.motion_camera_map,
+        "bypass_cameras": list(result.bypass_global_motion_cameras),
+    }

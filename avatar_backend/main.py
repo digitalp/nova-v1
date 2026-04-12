@@ -289,6 +289,25 @@ async def lifespan(app: FastAPI):
         issue_autofix_service=app.state.issue_autofix_service,
     )
     app.state.proactive_service = proactive
+
+    # Auto-discover cameras and motion sensors from HA area registry
+    from avatar_backend.services.camera_discovery import CameraDiscoveryService
+    try:
+        discovery = CameraDiscoveryService(settings.ha_url, settings.ha_token)
+        discovery_result = await discovery.discover(timeout_s=15.0)
+        if discovery_result.discovered:
+            proactive.apply_discovery(discovery_result)
+            app.state.camera_discovery = discovery_result
+            logger.info(
+                "camera_discovery.applied",
+                outdoor_cameras=len(discovery_result.outdoor_cameras),
+                motion_mappings=len(discovery_result.motion_camera_map),
+            )
+        else:
+            logger.info("camera_discovery.skipped", detail="Using legacy + runtime config only")
+    except Exception as exc:
+        logger.warning("camera_discovery.startup_failed", exc=str(exc))
+
     await proactive.start()
 
     sensor_watch = SensorWatchService(

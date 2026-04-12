@@ -252,54 +252,33 @@ class MotionClipService:
         return fullpath
 
     async def _capture_clip(self, camera_entity_id: str, output_path: Path) -> bool:
-        target_fps = 15
-        frame_interval_s = 1.0 / target_fps
-        frame_dir = Path(tempfile.mkdtemp(prefix="motion_frames_", dir=str(self._clips_dir)))
-        captured = 0
-        started = asyncio.get_running_loop().time()
-        try:
-            for frame_index in range(self._clip_duration_s * target_fps):
-                image_bytes = await self._ha.fetch_camera_image(camera_entity_id)
-                if image_bytes:
-                    (frame_dir / f"frame_{frame_index:04d}.jpg").write_bytes(image_bytes)
-                    captured += 1
-                next_tick = started + ((frame_index + 1) * frame_interval_s)
-                sleep_for = next_tick - asyncio.get_running_loop().time()
-                if sleep_for > 0:
-                    await asyncio.sleep(sleep_for)
-        except Exception as exc:
-            _LOGGER.warning("motion_clip.frame_sample_failed", camera=camera_entity_id, exc=_format_exc(exc))
-            shutil.rmtree(frame_dir, ignore_errors=True)
-            return False
-
-        if captured < max(3, target_fps):
-            shutil.rmtree(frame_dir, ignore_errors=True)
-            _LOGGER.warning("motion_clip.capture_insufficient_frames", camera=camera_entity_id, frames=captured)
-            return False
+        # Stream directly from HA's MJPEG proxy endpoint using a single persistent
+        # connection.  This delivers frames at the camera's native rate (~5–15 fps)
+        # versus the ~1 fps we get when polling /api/camera_proxy one request at a time.
+        token = self._ha.auth_headers.get("Authorization", "").removeprefix("Bearer ").strip()
+        stream_url = f"{self._ha.ha_url}/api/camera_proxy_stream/{camera_entity_id}"
 
         cmd = [
             "/usr/bin/ffmpeg",
             "-nostdin",
             "-y",
-            "-loglevel",
-            "error",
-            "-framerate",
-            str(target_fps),
-            "-i",
-            str(frame_dir / "frame_%04d.jpg"),
+            "-loglevel", "error",
+            # Pass the HA Bearer token as an HTTP header for the MJPEG input
+            "-headers", f"Authorization: Bearer {token}\r\n",
+            # Read from the live MJPEG stream
+            "-i", stream_url,
+            # Capture exactly clip_duration_s seconds of wall-clock time
+            "-t", str(self._clip_duration_s),
             "-an",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-r",
-            "25",          # output at 25 fps — matches or smoothly interpolates 15fps capture
-            "-pix_fmt",
-            "yuv420p",
-            "-movflags",
-            "+faststart",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            # Output at smooth 25 fps — ffmpeg duplicates/drops frames as needed
+            "-r", "25",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
             str(output_path),
         ]
+        _LOGGER.info("motion_clip.capture_start", camera=camera_entity_id, duration_s=self._clip_duration_s)
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -309,7 +288,7 @@ class MotionClipService:
             try:
                 _, stderr = await asyncio.wait_for(
                     proc.communicate(),
-                    timeout=self._clip_duration_s + 12,
+                    timeout=self._clip_duration_s + 20,
                 )
             except asyncio.TimeoutError:
                 proc.kill()
@@ -323,19 +302,101 @@ class MotionClipService:
         except Exception as exc:
             _LOGGER.warning("motion_clip.capture_spawn_failed", camera=camera_entity_id, exc=_format_exc(exc))
             return False
-        finally:
-            shutil.rmtree(frame_dir, ignore_errors=True)
+
         if proc.returncode != 0 or not await self._is_valid_clip(output_path):
+            stderr_text = (stderr or b"").decode("utf-8", "ignore")[:400]
             _LOGGER.warning(
                 "motion_clip.capture_failed",
                 camera=camera_entity_id,
                 returncode=proc.returncode,
-                stderr=(stderr or b"").decode("utf-8", "ignore")[:400],
+                stderr=stderr_text,
             )
+            # If MJPEG stream failed (camera offline / unsupported), fall back to
+            # the snapshot-polling method so we still get a clip.
             try:
                 output_path.unlink(missing_ok=True)
             except Exception:
                 pass
+            _LOGGER.info("motion_clip.capture_fallback_to_polling", camera=camera_entity_id)
+            return await self._capture_clip_polling(camera_entity_id, output_path)
+        return True
+
+    async def _capture_clip_polling(self, camera_entity_id: str, output_path: Path) -> bool:
+        """Fallback: poll /api/camera_proxy one frame at a time.  Used when the MJPEG
+        stream endpoint is unavailable.  Computes the actual capture fps from elapsed
+        wall-clock time so the video plays back at real-time speed."""
+        target_fps = 5
+        frame_interval_s = 1.0 / target_fps
+        frame_dir = Path(tempfile.mkdtemp(prefix="motion_frames_", dir=str(self._clips_dir)))
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        deadline = started + self._clip_duration_s
+        write_index = 0
+        fetch_index = 0
+        try:
+            while loop.time() < deadline:
+                image_bytes = await self._ha.fetch_camera_image(camera_entity_id)
+                if image_bytes:
+                    (frame_dir / f"frame_{write_index:04d}.jpg").write_bytes(image_bytes)
+                    write_index += 1
+                fetch_index += 1
+                next_tick = started + (fetch_index * frame_interval_s)
+                sleep_for = next_tick - loop.time()
+                if sleep_for > 0:
+                    await asyncio.sleep(sleep_for)
+        except Exception as exc:
+            _LOGGER.warning("motion_clip.poll_sample_failed", camera=camera_entity_id, exc=_format_exc(exc))
+            shutil.rmtree(frame_dir, ignore_errors=True)
+            return False
+
+        captured = write_index
+        elapsed = max(0.1, loop.time() - started)
+
+        if captured < 3:
+            shutil.rmtree(frame_dir, ignore_errors=True)
+            _LOGGER.warning("motion_clip.poll_insufficient_frames", camera=camera_entity_id, frames=captured)
+            return False
+
+        actual_fps = captured / elapsed
+        _LOGGER.info(
+            "motion_clip.poll_complete",
+            camera=camera_entity_id,
+            frames=captured,
+            elapsed_s=round(elapsed, 2),
+            actual_fps=round(actual_fps, 2),
+        )
+        cmd = [
+            "/usr/bin/ffmpeg",
+            "-nostdin", "-y", "-loglevel", "error",
+            "-framerate", f"{actual_fps:.4f}",
+            "-i", str(frame_dir / "frame_%04d.jpg"),
+            "-an",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-r", "25",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            str(output_path),
+        ]
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=self._clip_duration_s + 12)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.communicate()
+                output_path.unlink(missing_ok=True)
+                _LOGGER.warning("motion_clip.poll_encode_timeout", camera=camera_entity_id)
+                return False
+        except Exception as exc:
+            _LOGGER.warning("motion_clip.poll_encode_failed", camera=camera_entity_id, exc=_format_exc(exc))
+            return False
+        finally:
+            shutil.rmtree(frame_dir, ignore_errors=True)
+        if proc.returncode != 0 or not await self._is_valid_clip(output_path):
+            output_path.unlink(missing_ok=True)
             return False
         return True
 
