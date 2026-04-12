@@ -76,6 +76,17 @@ _CONFIG_FIELDS = {
     "LOG_LEVEL":            ("Log Level",                                    False),
     "HOST":                 ("Bind Host",                                    False),
     "PORT":                 ("Bind Port",                                    False),
+    # ── Proactive cooldowns & timing ──
+    "PROACTIVE_ENTITY_COOLDOWN_S":        ("Per-entity announce cooldown (seconds)",          False),
+    "PROACTIVE_CAMERA_COOLDOWN_S":        ("Per-camera announce cooldown (seconds)",          False),
+    "PROACTIVE_GLOBAL_MOTION_COOLDOWN_S": ("Global motion announce cooldown (seconds)",       False),
+    "PROACTIVE_GLOBAL_ANNOUNCE_COOLDOWN_S": ("Global batch announce cooldown (seconds)",      False),
+    "PROACTIVE_QUEUE_DEDUP_COOLDOWN_S":   ("Queue dedup cooldown (seconds)",                  False),
+    "PROACTIVE_BATCH_WINDOW_S":           ("Batch triage window (seconds)",                   False),
+    "PROACTIVE_MAX_BATCH_CHANGES":        ("Max changes per batch",                           False),
+    "PROACTIVE_WEATHER_COOLDOWN_S":       ("Weather announce cooldown (seconds)",             False),
+    "PROACTIVE_FORECAST_HOUR":            ("Daily forecast hour (0-23)",                      False),
+    "HA_POWER_ALERT_COOLDOWN_S":          ("Power alert cooldown (seconds)",                  False),
 }
 
 
@@ -344,6 +355,78 @@ async def save_config(body: ConfigUpdate, request: Request):
         asyncio.create_task(_warm())
 
     return {"saved": True}
+
+
+# ── Prompt management ──────────────────────────────────────────────────────────
+
+_PROMPTS_DIR = _CONFIG_DIR / "prompts"
+
+_PROMPT_REGISTRY: dict[str, tuple[str, str, str]] = {
+    "system":          ("System Prompt",           "Main personality and behaviour instructions for Nova",  "system_prompt.txt"),
+    "heating_shadow":  ("Heating Controller",      "Prompt for the autonomous heating shadow controller",   "heating_shadow_prompt.txt"),
+    "triage":          ("Batch Triage",            "Template for deciding if state changes warrant an announcement (use {home_context} and {changes} placeholders)", "prompts/triage.txt"),
+    "vision_default":  ("Vision — Default",        "Default prompt for describing camera snapshots",        "prompts/vision_default.txt"),
+    "vision_doorbell": ("Vision — Doorbell",       "Prompt when the doorbell is pressed",                   "prompts/vision_doorbell.txt"),
+    "vision_motion":   ("Vision — Motion",         "Prompt for motion-triggered camera snapshots",          "prompts/vision_motion.txt"),
+    "vision_driveway": ("Vision — Driveway",       "Prompt for driveway camera events",                    "prompts/vision_driveway.txt"),
+    "vision_outdoor":  ("Vision — Outdoor",        "Prompt for rear/side outdoor camera events",            "prompts/vision_outdoor.txt"),
+    "vision_entrance": ("Vision — Entrance",       "Prompt for front door / entrance camera events",        "prompts/vision_entrance.txt"),
+}
+
+
+@router.get("/prompts")
+async def list_prompts(request: Request):
+    _require_session(request, min_role="viewer")
+    result = []
+    for slug, (label, description, filename) in _PROMPT_REGISTRY.items():
+        path = _CONFIG_DIR / filename
+        text = ""
+        exists = path.exists()
+        if exists:
+            try:
+                text = path.read_text(encoding="utf-8")
+            except Exception:
+                pass
+        result.append({
+            "slug": slug, "label": label, "description": description,
+            "filename": filename, "text": text, "exists": exists, "chars": len(text),
+        })
+    return {"prompts": result}
+
+
+class PromptUpdateBody(BaseModel):
+    text: str
+
+
+@router.get("/prompts/{slug}")
+async def get_prompt(slug: str, request: Request):
+    _require_session(request, min_role="viewer")
+    entry = _PROMPT_REGISTRY.get(slug)
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"Unknown prompt: {slug}")
+    label, description, filename = entry
+    path = _CONFIG_DIR / filename
+    text = ""
+    if path.exists():
+        try:
+            text = path.read_text(encoding="utf-8")
+        except Exception:
+            pass
+    return {"slug": slug, "label": label, "description": description, "text": text}
+
+
+@router.post("/prompts/{slug}")
+async def save_prompt(slug: str, body: PromptUpdateBody, request: Request):
+    _require_session(request, min_role="admin")
+    entry = _PROMPT_REGISTRY.get(slug)
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"Unknown prompt: {slug}")
+    label, description, filename = entry
+    path = _CONFIG_DIR / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body.text, encoding="utf-8")
+    _LOGGER.info("admin.prompt_saved", slug=slug, chars=len(body.text))
+    return {"saved": True, "slug": slug, "chars": len(body.text)}
 
 
 # ── Speaker routing ────────────────────────────────────────────────────────────

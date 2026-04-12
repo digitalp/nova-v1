@@ -363,9 +363,9 @@ class MetricsDB:
     def insert_decision(self, entry: dict) -> None:
         import json as _json
         data = dict(entry)
-        ts   = data.pop("ts", datetime.now(timezone.utc).strftime("%H:%M:%S"))
+        ts   = data.pop("ts", datetime.now().strftime("%H:%M:%S"))
         kind = data.pop("kind", "unknown")
-        full_ts = datetime.now(timezone.utc).isoformat()
+        full_ts = datetime.now().isoformat()
         with self._lock, self._conn() as conn:
             conn.execute(
                 "INSERT INTO decision_events (ts, kind, data) VALUES (?, ?, ?)",

@@ -330,7 +330,7 @@ body {
   color: var(--text3);
   margin-top: 2px;
 }
-.card-flush { padding: 0; }
+.card-flush { padding: 0; overflow-x: auto; }
 
 /* ── Stat cards ──────────────────────────────────────────────────────────────── */
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--sp-4); margin-bottom: var(--sp-6); }
@@ -2240,6 +2240,10 @@ textarea:focus-visible {
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       System Prompt
     </button>
+    <button class="nav-item" data-section="prompts-tuning" onclick="navigate(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+      Prompts &amp; Tuning
+    </button>
     <button class="nav-item" data-section="acl" onclick="navigate(this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
       ACL Rules
@@ -2423,6 +2427,62 @@ textarea:focus-visible {
         <div class="flex-row gap-2">
           <button class="btn btn-primary" onclick="saveConfig()">Save Changes</button>
           <button class="btn btn-outline" onclick="loadConfig()">Discard</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Prompts & Tuning ──────────────────────────────────────── -->
+    <div id="section-prompts-tuning" class="section">
+      <div class="page-header">
+        <div class="page-title">Prompts &amp; Tuning</div>
+        <div class="page-sub">Edit vision prompts, triage rules, heating controller, and cooldown timers — all live-editable without code changes</div>
+      </div>
+      <div class="card" style="margin-bottom:1.2rem;">
+        <div onclick="toggleTuningCard(this)" style="display:flex;align-items:center;gap:.6rem;cursor:pointer;user-select:none;">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span style="font-size:1.05rem;font-weight:600;color:var(--text);flex:1;">Cooldown Timers</span>
+          <svg class="chev" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" style="transition:transform .2s;transform:rotate(-90deg);"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+        <div class="collapse-body" style="display:none;">
+          <div style="font-size:.82rem;color:var(--text2);margin:.8rem 0;">
+            These control how often Nova announces events. Values are in seconds. Changes take effect after restart.
+          </div>
+          <div id="cooldown-fields" class="config-grid"></div>
+          <div style="margin-top:.6rem;font-size:.75rem;color:var(--text3);">
+            Tip: Set entity cooldown to 7200 for 2-hour per-entity cooldown. Set global motion to 900 for 15-minute global cooldown.
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div onclick="toggleTuningCard(this)" style="display:flex;align-items:center;gap:.6rem;cursor:pointer;user-select:none;">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span style="font-size:1.05rem;font-weight:600;color:var(--text);flex:1;">Editable Prompts</span>
+          <svg class="chev" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" style="transition:transform .2s;transform:rotate(-90deg);"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+        <div class="collapse-body" style="display:none;">
+          <div style="font-size:.82rem;color:var(--text2);margin:.8rem 0 1rem;">
+            These prompts control how Nova describes camera images, triages events, and manages heating. Click any prompt to edit it.
+          </div>
+          <div id="prompt-list"></div>
+        </div>
+      </div>
+      <div id="prompt-editor-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--surface);border-radius:16px;width:min(90vw,720px);max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 48px rgba(0,0,0,.5);">
+          <div style="padding:1.2rem 1.4rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+            <div>
+              <div id="prompt-editor-title" style="font-size:1.1rem;font-weight:600;color:var(--text);"></div>
+              <div id="prompt-editor-desc" style="font-size:.8rem;color:var(--text2);margin-top:.2rem;"></div>
+            </div>
+            <button onclick="closePromptEditor()" style="background:none;border:none;color:var(--text2);font-size:1.4rem;cursor:pointer;padding:.2rem .5rem;">&times;</button>
+          </div>
+          <div style="padding:1rem 1.4rem;flex:1;overflow:auto;">
+            <textarea id="prompt-editor-text" style="width:100%;min-height:300px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-family:'SF Mono',Monaco,monospace;font-size:.82rem;line-height:1.5;padding:.8rem;resize:vertical;" spellcheck="false"></textarea>
+            <div id="prompt-editor-chars" style="font-size:.72rem;color:var(--text3);margin-top:.3rem;text-align:right;"></div>
+          </div>
+          <div style="padding:.8rem 1.4rem;border-top:1px solid var(--border);display:flex;gap:.6rem;justify-content:flex-end;">
+            <button class="btn btn-outline" onclick="closePromptEditor()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveCurrentPrompt()">Save Prompt</button>
+          </div>
         </div>
       </div>
     </div>
@@ -2683,16 +2743,16 @@ textarea:focus-visible {
         </div>
       </div>
       <div class="card card-flush">
-        <table>
+        <table style="min-width:800px;">
           <thead>
             <tr>
-              <th>Summary</th>
-              <th style="width:120px;">Category</th>
-              <th style="width:110px;">Confidence</th>
-              <th style="width:100px;">Pinned</th>
-              <th style="width:90px;">Seen</th>
-              <th style="width:170px;">Updated</th>
-              <th style="width:160px;">Action</th>
+              <th style="min-width:200px;">Summary</th>
+              <th style="width:90px;">Category</th>
+              <th style="width:80px;">Confidence</th>
+              <th style="width:70px;">Pinned</th>
+              <th style="width:60px;">Seen</th>
+              <th style="width:130px;">Updated</th>
+              <th style="width:130px;">Action</th>
             </tr>
           </thead>
           <tbody id="memory-tbody"><tr><td colspan="7" class="text-muted">Loading…</td></tr></tbody>
@@ -3302,6 +3362,7 @@ init();
 
 const TITLES = {
   dashboard:'Dashboard', config:'Configuration', speakers:'Speakers', prompt:'System Prompt',
+  'prompts-tuning':'Prompts & Tuning',
   acl:'ACL Rules', sessions:'Sessions', memory:'Memory',
   avatar:'Avatar', tools:'Tools', users:'Users',
   decisions:'AI Decisions', motion:'Find Anything',
@@ -3487,6 +3548,7 @@ function navigate(el) {
   document.getElementById('section-title').textContent = TITLES[sec] || sec;
   if (sec === 'config')    loadConfig();
   if (sec === 'prompt')    loadPrompt();
+  if (sec === 'prompts-tuning') loadPromptsTuning();
   if (sec === 'acl')       loadAcl();
   if (sec === 'avatar')    loadAvatarSettings();
   if (sec === 'sessions')  loadSessions();
@@ -5015,9 +5077,9 @@ async function loadConfig() {
       if (!fields.length) continue;
       const group = document.createElement('div');
       group.className = 'collapsible-group';
-      group.dataset.expanded = 'true';
+      group.dataset.expanded = 'false';
       group.innerHTML = `
-        <button class="collapsible-header" onclick="toggleCollapsible(this)" aria-expanded="true">
+        <button class="collapsible-header" onclick="toggleCollapsible(this)" aria-expanded="false">
           <span>${cat}</span>
           <span class="badge badge-muted">${fields.length}</span>
           <svg class="collapsible-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
@@ -5033,9 +5095,9 @@ async function loadConfig() {
     if (uncategorized.length) {
       const group = document.createElement('div');
       group.className = 'collapsible-group';
-      group.dataset.expanded = 'true';
+      group.dataset.expanded = 'false';
       group.innerHTML = `
-        <button class="collapsible-header" onclick="toggleCollapsible(this)" aria-expanded="true">
+        <button class="collapsible-header" onclick="toggleCollapsible(this)" aria-expanded="false">
           <span>Other</span>
           <span class="badge badge-muted">${uncategorized.length}</span>
           <svg class="collapsible-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
@@ -5388,10 +5450,10 @@ async function loadMemory() {
         <td>${m.pinned ? '<span class="badge" style="background:rgba(34,197,94,.16);color:#86efac;">Pinned</span>' : '<span class="text-muted">No</span>'}</td>
         <td>${m.times_seen ?? 0}</td>
         <td style="color:var(--text2);font-size:12px;">${_fmtMemoryTs(m.updated_ts || m.created_ts)}</td>
-        <td class="flex-row flex-wrap gap-2">
+        <td><div style="display:flex;gap:6px;white-space:nowrap;">
           <button class="btn btn-outline" onclick="editMemory(${m.id})">Edit</button>
           <button class="btn btn-outline" onclick="deleteMemory(${m.id})">Delete</button>
-        </td>
+        </div></td>
       </tr>
     `).join('');
   } catch(e) {
@@ -6815,6 +6877,188 @@ setTimeout(() => {
     observer.observe(toolsSection, { attributes: true, attributeFilter: ['class'] });
   }
 }, 500);
+
+// ── Prompts & Tuning ──────────────────────────────────────────────────────────
+
+function toggleTuningCard(headerEl) {
+  const card = headerEl.parentElement;
+  const body = card.querySelector('.collapse-body');
+  const chev = headerEl.querySelector('.chev');
+  if (!body) return;
+  const isHidden = body.style.display === 'none';
+  body.style.display = isHidden ? '' : 'none';
+  if (chev) chev.style.transform = isHidden ? '' : 'rotate(-90deg)';
+}
+
+const _COOLDOWN_KEYS = [
+  'PROACTIVE_ENTITY_COOLDOWN_S',
+  'PROACTIVE_CAMERA_COOLDOWN_S',
+  'PROACTIVE_GLOBAL_MOTION_COOLDOWN_S',
+  'PROACTIVE_GLOBAL_ANNOUNCE_COOLDOWN_S',
+  'PROACTIVE_QUEUE_DEDUP_COOLDOWN_S',
+  'PROACTIVE_BATCH_WINDOW_S',
+  'PROACTIVE_MAX_BATCH_CHANGES',
+  'PROACTIVE_WEATHER_COOLDOWN_S',
+  'PROACTIVE_FORECAST_HOUR',
+  'HA_POWER_ALERT_COOLDOWN_S',
+];
+
+const _COOLDOWN_DEFAULTS = {
+  'PROACTIVE_ENTITY_COOLDOWN_S': 600,
+  'PROACTIVE_CAMERA_COOLDOWN_S': 600,
+  'PROACTIVE_GLOBAL_MOTION_COOLDOWN_S': 600,
+  'PROACTIVE_GLOBAL_ANNOUNCE_COOLDOWN_S': 300,
+  'PROACTIVE_QUEUE_DEDUP_COOLDOWN_S': 120,
+  'PROACTIVE_BATCH_WINDOW_S': 60,
+  'PROACTIVE_MAX_BATCH_CHANGES': 20,
+  'PROACTIVE_WEATHER_COOLDOWN_S': 3600,
+  'PROACTIVE_FORECAST_HOUR': 7,
+  'HA_POWER_ALERT_COOLDOWN_S': 1800,
+};
+
+let _promptsData = [];
+let _currentPromptSlug = null;
+
+function _humanTime(seconds) {
+  const s = Number(seconds);
+  if (isNaN(s)) return seconds;
+  if (s >= 3600) return (s / 3600).toFixed(1).replace(/\.0$/, '') + 'h';
+  if (s >= 60) return (s / 60).toFixed(0) + 'm';
+  return s + 's';
+}
+
+async function loadPromptsTuning() {
+  try {
+    const cfg = await api('GET', '/admin/config');
+    const container = document.getElementById('cooldown-fields');
+    container.innerHTML = '';
+    const fields = cfg.fields || {};
+    const values = cfg.values || {};
+    for (const key of _COOLDOWN_KEYS) {
+      const meta = fields[key];
+      if (!meta) continue;
+      const [label] = meta;
+      const val = values[key] || '';
+      const row = document.createElement('div');
+      row.className = 'config-row';
+      row.innerHTML = `
+        <label class="config-label">
+          <span>${label}</span>
+          ${val ? `<span style="font-size:.7rem;color:var(--text3);margin-left:.4rem;">(current: ${_humanTime(val)})</span>` : ''}
+        </label>
+        <input class="config-input" data-key="${key}" value="${val}" placeholder="${_COOLDOWN_DEFAULTS[key] ?? ''} (${_humanTime(_COOLDOWN_DEFAULTS[key] ?? '')})"
+               style="max-width:140px;" type="number" min="0">
+      `;
+      container.appendChild(row);
+    }
+    const saveRow = document.createElement('div');
+    saveRow.style.cssText = 'margin-top:.8rem;display:flex;gap:.6rem;';
+    saveRow.innerHTML = `
+      <button class="btn btn-primary" onclick="saveCooldowns()">Save Cooldowns</button>
+      <span id="cooldown-save-status" style="font-size:.8rem;color:rgba(48,209,88,.8);align-self:center;"></span>
+    `;
+    container.appendChild(saveRow);
+  } catch (e) { console.warn('Failed to load cooldowns', e); }
+  try {
+    const data = await api('GET', '/admin/prompts');
+    _promptsData = data.prompts || [];
+    renderPromptList();
+  } catch (e) { console.warn('Failed to load prompts', e); }
+}
+
+function renderPromptList() {
+  const container = document.getElementById('prompt-list');
+  container.innerHTML = '';
+  const categories = {
+    'Vision Prompts': _promptsData.filter(p => p.slug.startsWith('vision_')),
+    'Behaviour Prompts': _promptsData.filter(p => !p.slug.startsWith('vision_')),
+  };
+  for (const [catName, prompts] of Object.entries(categories)) {
+    if (!prompts.length) continue;
+    const catLabel = document.createElement('div');
+    catLabel.style.cssText = 'font-size:.82rem;font-weight:600;color:var(--text2);margin:1rem 0 .5rem;text-transform:uppercase;letter-spacing:.04em;';
+    catLabel.textContent = catName;
+    container.appendChild(catLabel);
+    for (const p of prompts) {
+      const card = document.createElement('div');
+      card.style.cssText = 'background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:.7rem 1rem;margin-bottom:.5rem;cursor:pointer;transition:all .15s;';
+      card.onmouseenter = () => card.style.borderColor = 'rgba(10,132,255,.4)';
+      card.onmouseleave = () => card.style.borderColor = 'var(--border)';
+      card.onclick = () => openPromptEditor(p.slug);
+      const preview = (p.text || '').trim().substring(0, 120).replace(/\n/g, ' ');
+      card.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div>
+            <div style="font-size:.9rem;font-weight:500;color:var(--text);">${p.label}</div>
+            <div style="font-size:.75rem;color:var(--text3);margin-top:.15rem;">${p.description}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:.5rem;">
+            <span style="font-size:.7rem;color:var(--text3);">${p.chars} chars</span>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+          </div>
+        </div>
+        ${preview ? `<div style="font-size:.75rem;color:var(--text3);margin-top:.4rem;font-family:'SF Mono',Monaco,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${preview}…</div>` : ''}
+      `;
+      container.appendChild(card);
+    }
+  }
+}
+
+function openPromptEditor(slug) {
+  const p = _promptsData.find(x => x.slug === slug);
+  if (!p) return;
+  _currentPromptSlug = slug;
+  document.getElementById('prompt-editor-title').textContent = p.label;
+  document.getElementById('prompt-editor-desc').textContent = p.description;
+  const textarea = document.getElementById('prompt-editor-text');
+  textarea.value = p.text || '';
+  _updatePromptCharCount();
+  textarea.oninput = _updatePromptCharCount;
+  document.getElementById('prompt-editor-overlay').style.display = 'flex';
+}
+
+function closePromptEditor() {
+  document.getElementById('prompt-editor-overlay').style.display = 'none';
+  _currentPromptSlug = null;
+}
+
+function _updatePromptCharCount() {
+  const text = document.getElementById('prompt-editor-text').value;
+  document.getElementById('prompt-editor-chars').textContent = text.length + ' characters';
+}
+
+async function saveCurrentPrompt() {
+  if (!_currentPromptSlug) return;
+  const text = document.getElementById('prompt-editor-text').value;
+  try {
+    await api('POST', `/admin/prompts/${_currentPromptSlug}`, { text });
+    toast('Prompt saved');
+    const p = _promptsData.find(x => x.slug === _currentPromptSlug);
+    if (p) { p.text = text; p.chars = text.length; }
+    renderPromptList();
+    closePromptEditor();
+  } catch (e) { toast('Save failed: ' + e.message); }
+}
+
+async function saveCooldowns() {
+  const inputs = document.querySelectorAll('#cooldown-fields .config-input');
+  const values = {};
+  try {
+    const cfg = await api('GET', '/admin/config');
+    Object.assign(values, cfg.values || {});
+  } catch (e) {}
+  for (const input of inputs) {
+    const key = input.dataset.key;
+    const val = input.value.trim();
+    if (val) values[key] = val;
+  }
+  try {
+    await api('POST', '/admin/config', { values });
+    document.getElementById('cooldown-save-status').textContent = 'Saved — restart to apply';
+    setTimeout(() => { const el = document.getElementById('cooldown-save-status'); if (el) el.textContent = ''; }, 4000);
+    toast('Cooldowns saved — restart server to apply');
+  } catch (e) { toast('Save failed: ' + e.message); }
+}
 
 </script>
 </body>

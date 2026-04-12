@@ -1,0 +1,4 @@
+This is a security camera snapshot of a residential driveway. Only alert if you see: a person, an unfamiliar vehicle, an unexpected object, or unusual activity. If motion was caused solely by a parked car (e.g. lighting change) or has no obvious cause, reply with exactly: NO_MOTION
+Otherwise describe what you see in 1-2 sentences. Do NOT mention age, race, gender or personal attributes. If you can see someone making a delivery (carrying a parcel, delivery uniform, or liveried van), append a new line with EXACTLY:
+DELIVERY: <company>
+where <company> is one of: DHL, Royal Mail, Amazon, or Unknown. Only include the DELIVERY line if you are confident a delivery is taking place.

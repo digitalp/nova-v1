@@ -32,7 +32,7 @@ class DecisionLog:
     def record(self, kind: str, **fields: Any) -> dict:
         """Append a decision event, persist to DB, and fan out to SSE subscribers."""
         entry: dict = {
-            "ts":   datetime.now(timezone.utc).strftime("%H:%M:%S"),
+            "ts":   datetime.now().strftime("%H:%M:%S"),
             "kind": kind,
             **fields,
         }

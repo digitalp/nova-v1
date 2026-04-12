@@ -1,0 +1,2 @@
+This is a security camera snapshot of an outdoor area. Only alert if you see a person, an unfamiliar vehicle, an animal, or unusual activity. If motion was caused solely by plants moving in the wind, lighting changes, or has no obvious cause, reply with exactly: NO_MOTION
+Otherwise describe what you see in 1-2 sentences. Do NOT mention age, race, gender or personal attributes.

@@ -211,7 +211,7 @@ class CameraDiscoveryService:
             entity_area_map[eid] = ent_area
             domain = eid.split(".")[0] if "." in eid else ""
 
-            # Cameras — prefer fluent streams for vision snapshots
+            # Cameras — prefer mainstream streams for 25fps clip capture
             if domain == "camera":
                 cameras_by_area.setdefault(ent_area, []).append(eid)
                 if ent_area in outdoor_area_ids:
@@ -231,33 +231,53 @@ class CameraDiscoveryService:
                 if is_motion and ent_area in outdoor_area_ids:
                     motion_sensors_by_area.setdefault(ent_area, []).append(eid)
 
-        # Build motion_camera_map: motion_sensor → best camera in same area
+        # Build device-to-cameras lookup (outdoor devices only)
+        device_cameras: dict[str, list[str]] = {}
+        for ent in entities:
+            eid = ent.get("entity_id", "")
+            if eid.split(".")[0] != "camera":
+                continue
+            ent_area = ent.get("area_id", "") or device_area.get(ent.get("device_id", ""), "")
+            if ent_area not in outdoor_area_ids:
+                continue
+            did = ent.get("device_id", "")
+            if did:
+                device_cameras.setdefault(did, []).append(eid)
+
+        entity_device: dict[str, str] = {
+            ent.get("entity_id", ""): ent.get("device_id", "")
+            for ent in entities
+            if ent.get("entity_id") and ent.get("device_id")
+        }
+
+        # Build motion_camera_map: match each sensor to its own device camera first,
+        # fall back to area-level best camera when no same-device camera exists.
         for area_id in outdoor_area_ids:
             cameras = cameras_by_area.get(area_id, [])
             sensors = motion_sensors_by_area.get(area_id, [])
             if not cameras or not sensors:
                 continue
 
-            # Prefer fluent stream cameras for vision (MJPEG compatible)
-            best_camera = self._pick_best_camera(cameras)
-            if not best_camera:
-                continue
+            area_fallback = self._pick_best_camera(cameras)
 
             for sensor in sensors:
-                result.motion_camera_map[sensor] = best_camera
+                sensor_device = entity_device.get(sensor, "")
+                device_cams = device_cameras.get(sensor_device, [])
+                best = self._pick_best_camera(device_cams) if device_cams else area_fallback
+                if best:
+                    result.motion_camera_map[sensor] = best
 
-            # Driveway cameras bypass global cooldown (high priority)
-            if area_id in driveway_area_ids:
-                result.bypass_global_motion_cameras.add(best_camera)
-
-            # Assign vision prompts based on area type
-            area_name = area_map.get(area_id, "")
-            if area_id in driveway_area_ids:
-                result.camera_vision_prompts[best_camera] = _VISION_PROMPT_DRIVEWAY
-            elif area_id in entrance_area_ids:
-                result.camera_vision_prompts[best_camera] = _VISION_PROMPT_ENTRANCE
-            else:
-                result.camera_vision_prompts[best_camera] = _VISION_PROMPT_OUTDOOR
+            # Assign vision prompts and bypass flags for each distinct assigned camera
+            assigned = set(result.motion_camera_map[s] for s in sensors if s in result.motion_camera_map)
+            for cam in assigned:
+                if area_id in driveway_area_ids:
+                    result.bypass_global_motion_cameras.add(cam)
+                if area_id in driveway_area_ids:
+                    result.camera_vision_prompts.setdefault(cam, _VISION_PROMPT_DRIVEWAY)
+                elif area_id in entrance_area_ids:
+                    result.camera_vision_prompts.setdefault(cam, _VISION_PROMPT_ENTRANCE)
+                else:
+                    result.camera_vision_prompts.setdefault(cam, _VISION_PROMPT_OUTDOOR)
 
         _LOGGER.info(
             "camera_discovery.complete",
@@ -270,17 +290,21 @@ class CameraDiscoveryService:
 
     @staticmethod
     def _pick_best_camera(cameras: list[str]) -> str | None:
-        """Pick the best camera entity for vision snapshots.
+        """Pick the best camera entity for clip capture and vision snapshots.
 
         Preference order:
-        1. Fluent stream (MJPEG compatible, good for snapshots)
-        2. Any non-mainstream camera
-        3. Mainstream as last resort
+        1. Mainstream stream — 25 fps MJPEG, best clip quality
+        2. Any other non-fluent camera
+        3. Fluent as last resort (2 fps — poor for motion clips)
+
+        Single-frame snapshots (Coral / Gemini) use /api/camera_proxy/ which
+        normalises any camera entity to a JPEG regardless of stream type, so
+        mainstream entities work fine there too.
         """
-        fluent = [c for c in cameras if "fluent" in c]
-        if fluent:
-            return fluent[0]
-        non_mainstream = [c for c in cameras if "mainstream" not in c and "profile000" not in c]
-        if non_mainstream:
-            return non_mainstream[0]
+        mainstream = [c for c in cameras if "mainstream" in c or "profile000" in c]
+        if mainstream:
+            return mainstream[0]
+        non_fluent = [c for c in cameras if "fluent" not in c]
+        if non_fluent:
+            return non_fluent[0]
         return cameras[0] if cameras else None

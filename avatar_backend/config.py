@@ -93,6 +93,17 @@ class Settings(BaseSettings):
     # Cooldowns for automated HA chat sessions
     ha_power_alert_cooldown_s: int = 1800
 
+    # ── Proactive service cooldowns and timing ─────────────────────────
+    proactive_entity_cooldown_s: int = 600
+    proactive_camera_cooldown_s: int = 600
+    proactive_global_motion_cooldown_s: int = 600
+    proactive_global_announce_cooldown_s: int = 300
+    proactive_queue_dedup_cooldown_s: int = 120
+    proactive_batch_window_s: int = 60
+    proactive_max_batch_changes: int = 20
+    proactive_weather_cooldown_s: int = 3600
+    proactive_forecast_hour: int = 7
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

@@ -53,14 +53,14 @@ def _is_heating_action_tool(function_name: str, arguments: dict | None) -> bool:
 # When a motion sensor fires, Nova fetches the associated camera and describes what it sees.
 # Duplicate sensors for the same camera share the same camera cooldown.
 _LEGACY_MOTION_CAMERA_MAP: dict[str, str] = {
-    # Driveway camera (Outdoor 2) — both general motion and AI-person triggers
-    "binary_sensor.rlc_1224a_motion": "camera.rlc_1224a_fluent",
-    "binary_sensor.rlc_1224a_person": "camera.rlc_1224a_fluent",
-    # Outdoor 1 camera
-    "binary_sensor.rlc_410w_motion": "camera.rlc_410w_fluent",
-    # Doorbell — person and visitor detections archive clips to Find Anything
-    "binary_sensor.reolink_video_doorbell_poe_person": "camera.reolink_video_doorbell_poe_fluent",
-    "binary_sensor.reolink_video_doorbell_poe_visitor": "camera.reolink_video_doorbell_poe_fluent",
+    # Driveway camera (Outdoor 2) — mainstream stream for 25fps clips
+    "binary_sensor.rlc_1224a_motion": "camera.outdoor2_profile000_mainstream",
+    "binary_sensor.rlc_1224a_person": "camera.outdoor2_profile000_mainstream",
+    # Outdoor 1 camera — mainstream stream for 25fps clips
+    "binary_sensor.rlc_410w_motion": "camera.reolink_profile000_mainstream",
+    # Doorbell — Tangu/Frigate stream for clips; person and visitor trigger Find Anything
+    "binary_sensor.reolink_video_doorbell_poe_person": "camera.tangu_home_door_bell",
+    "binary_sensor.reolink_video_doorbell_poe_visitor": "camera.tangu_home_door_bell",
 }
 
 # binary_sensor device_classes that represent motion/presence.
@@ -73,7 +73,7 @@ _MOTION_DEVICE_CLASSES = {"motion", "occupancy", "presence", "moving"}
 # Cameras that bypass the global motion-announce cooldown.
 # Used for high-priority cameras (e.g. driveway delivery detection) that should
 # always announce regardless of how recently another motion event fired.
-_LEGACY_BYPASS_GLOBAL_MOTION_CAMERAS: set[str] = {"camera.rlc_1224a_fluent"}
+_LEGACY_BYPASS_GLOBAL_MOTION_CAMERAS: set[str] = {"camera.outdoor2_profile000_mainstream"}
 
 # Per-camera vision prompts — override _DEFAULT_IMAGE_PROMPT for specific cameras.
 _DRIVEWAY_IMAGE_PROMPT = (
@@ -116,8 +116,10 @@ _DOORBELL_IMAGE_PROMPT = (
 )
 
 _LEGACY_CAMERA_VISION_PROMPTS: dict[str, str] = {
-    "camera.rlc_1224a_fluent": _DRIVEWAY_IMAGE_PROMPT,
-    "camera.rlc_410w_fluent": _OUTDOOR1_IMAGE_PROMPT,
+    "camera.outdoor2_profile000_mainstream": _DRIVEWAY_IMAGE_PROMPT,
+    "camera.reolink_profile000_mainstream": _OUTDOOR1_IMAGE_PROMPT,
+    "camera.tangu_home_door_bell": _DOORBELL_IMAGE_PROMPT,
+    # Keep legacy fluent entries as fallback in case discovery overrides
     "camera.reolink_video_doorbell_poe_fluent": _DOORBELL_IMAGE_PROMPT,
 }
 
@@ -485,10 +487,14 @@ class ProactiveService:
 
         # Motion/occupancy/presence binary_sensors — handle via camera vision path
         # or drop entirely.  Never let them reach the batch LLM triage.
+        # Also catches camera AI sensors (e.g. Reolink person detectors) that have
+        # no standard device_class but are explicitly mapped to a camera.
         if domain == "binary_sensor":
             device_class = new_state.get("attributes", {}).get("device_class", "")
-            if device_class in _MOTION_DEVICE_CLASSES:
-                if entity_id in self._motion_camera_map and new_val == "on":
+            is_motion_sensor = device_class in _MOTION_DEVICE_CLASSES
+            is_camera_mapped = entity_id in self._motion_camera_map
+            if is_motion_sensor or is_camera_mapped:
+                if is_camera_mapped and new_val == "on":
                     camera_id = self._motion_camera_map[entity_id]
                     if time.monotonic() - self._camera_cooldowns.get(camera_id, 0) >= _CAMERA_COOLDOWN_S:
                         self._camera_cooldowns[camera_id] = time.monotonic()
@@ -504,7 +510,7 @@ class ProactiveService:
                 else:
                     _LOGGER.debug("proactive.motion_no_camera", entity_id=entity_id,
                                   hint="add to motion_camera_map in config/home_runtime.json to enable vision description")
-                return  # always return — never queue motion sensors for batch triage
+                return  # always return — never queue motion/camera-mapped sensors for batch triage
 
         # Weather entity — handled by dedicated weather monitor, not batch triage
         if entity_id == self._weather_entity:

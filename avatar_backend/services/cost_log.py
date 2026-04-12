@@ -76,7 +76,7 @@ class CostLog:
         cost = _calc_cost(model, input_tokens, output_tokens)
         price_in, price_out = _get_price(model)
         entry: dict[str, Any] = {
-            "ts":           datetime.now(timezone.utc).strftime("%H:%M:%S"),
+            "ts":           datetime.now().strftime("%H:%M:%S"),
             "provider":     provider,
             "model":        model,
             "purpose":      purpose,

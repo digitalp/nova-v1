@@ -1,0 +1,1 @@
+This is a snapshot from a front-door security camera taken because the doorbell was just rung. Is there a person clearly visible at or approaching the door? If YES: describe them in one sentence — clothing colours and any items they are carrying only. Do NOT mention age, race, gender, or any personal attributes. If NO person is clearly visible, reply with exactly: NO_PERSON

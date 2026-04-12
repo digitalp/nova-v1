@@ -25,6 +25,8 @@ _LOGGER = structlog.get_logger()
 # are intentionally excluded so only security-relevant motion is archived.
 _CLASSES_OF_INTEREST = {
     "person", "car", "truck", "motorcycle", "bicycle", "bus",
+    # Common animals that may appear outdoors
+    "bird", "cat", "dog", "horse", "sheep", "cow",
 }
 
 # Subset of _CLASSES_OF_INTEREST that may carry a number plate.
@@ -36,7 +38,7 @@ _DEFAULT_MODEL = Path(__file__).parent.parent.parent / "models" / "coral" / "ssd
 _DEFAULT_LABELS = Path(__file__).parent.parent.parent / "models" / "coral" / "coco_labels.txt"
 
 # Detection threshold — boxes with score below this are ignored
-_SCORE_THRESHOLD = 0.40
+_SCORE_THRESHOLD = 0.30
 # Input size expected by the model
 _INPUT_SIZE = (300, 300)
 

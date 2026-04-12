@@ -71,7 +71,9 @@ class STTService:
         _LOGGER.info("stt.wake_model_ready", device=device)
 
     async def transcribe(self, audio_bytes: bytes, sample_rate: int = 16000) -> str:
-        self._load_model()
+        if self._model is None:
+            import asyncio
+            await asyncio.get_running_loop().run_in_executor(None, self._load_model)
 
         audio_f32, src_rate = _decode_audio(audio_bytes, sample_rate)
         if audio_f32 is None or len(audio_f32) == 0:
@@ -87,10 +89,19 @@ class STTService:
                      rms=round(rms, 5),
                      max_amp=round(max_amp, 5))
 
-        segments, info = self._model.transcribe(
-            audio_f32, language="en", beam_size=5, vad_filter=False,
-        )
-        transcript = " ".join(seg.text.strip() for seg in segments).strip()
+        # Run Whisper in a thread pool to avoid blocking the asyncio event loop.
+        import asyncio
+        loop = asyncio.get_running_loop()
+        model = self._model
+
+        def _do_transcribe():
+            segs, info = model.transcribe(
+                audio_f32, language="en", beam_size=5, vad_filter=False,
+            )
+            text = " ".join(s.text.strip() for s in segs).strip()
+            return text, info
+
+        transcript, info = await loop.run_in_executor(None, _do_transcribe)
         _LOGGER.info("stt.transcribed",
                      chars=len(transcript), duration_s=round(info.duration, 1),
                      text=transcript[:80])
@@ -101,7 +112,9 @@ class STTService:
         Fast wake-word transcription using the base model (beam_size=1).
         'base' is used over 'tiny' for better single-word accuracy on GPU.
         """
-        self._load_wake_model()
+        if self._wake_model is None:
+            import asyncio
+            await asyncio.get_running_loop().run_in_executor(None, self._load_wake_model)
 
         audio_f32, src_rate = _decode_audio(audio_bytes, sample_rate)
         if audio_f32 is None or len(audio_f32) == 0:
@@ -114,10 +127,21 @@ class STTService:
             _LOGGER.debug("stt.wake_skipped_quiet", rms=round(rms, 5))
             return ""
 
-        segments, info = self._wake_model.transcribe(
-            audio_f32, language="en", beam_size=1, vad_filter=False,
-        )
-        transcript = " ".join(seg.text.strip() for seg in segments).strip()
+        # Run Whisper in a thread pool to avoid blocking the asyncio event loop.
+        # transcribe() is CPU/GPU-bound (300ms–8s) and would starve uvicorn if
+        # run on the main thread.
+        import asyncio
+        loop = asyncio.get_running_loop()
+        model = self._wake_model
+
+        def _do_transcribe():
+            segs, info = model.transcribe(
+                audio_f32, language="en", beam_size=1, vad_filter=False,
+            )
+            text = " ".join(s.text.strip() for s in segs).strip()
+            return text, info
+
+        transcript, info = await loop.run_in_executor(None, _do_transcribe)
         _LOGGER.info("stt.wake_transcribed",
                      chars=len(transcript), duration_s=round(info.duration, 1),
                      text=transcript[:60])
