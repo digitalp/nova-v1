@@ -369,7 +369,7 @@ class MotionClipService:
             try:
                 _, stderr = await asyncio.wait_for(
                     proc.communicate(),
-                    timeout=self._clip_duration_s + 15,
+                    timeout=self._clip_duration_s + 30,
                 )
             except asyncio.TimeoutError:
                 proc.kill()
@@ -458,11 +458,10 @@ class MotionClipService:
             elapsed_s=round(elapsed, 2),
             actual_fps=round(actual_fps, 2),
         )
-        # Choose encode filter based on actual capture fps:
-        # - ≥5 fps: use minterpolate (MCI+OBMC) for smooth synthetic frames
-        # - <5 fps: simple frame duplication (fps=25) — holding real frames is
-        #   less distracting than minterpolate morphing at 30× interpolation ratio
-        if actual_fps >= 5.0:
+        # Use minterpolate for any capture rate ≥1.5 fps — produces smooth 25fps
+        # output by synthesizing intermediate frames via motion compensation.
+        # Below 1.5 fps the gaps are too large for useful interpolation.
+        if actual_fps >= 1.5:
             vf_filters = "minterpolate=fps=25:mi_mode=mci:mc_mode=obmc"
         else:
             vf_filters = "fps=fps=25"
