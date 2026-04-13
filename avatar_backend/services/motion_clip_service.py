@@ -329,10 +329,15 @@ class MotionClipService:
         return fullpath
 
     async def _capture_clip(self, camera_entity_id: str, output_path: Path) -> bool:
-        # Stream directly from HA's MJPEG proxy endpoint using a single persistent
-        # connection.  For cameras with STREAM support (supported_features=2) HA
-        # re-encodes the RTSP feed as MJPEG, delivering 10–15 fps.  Cameras that
-        # only expose snapshots fall back to concurrent polling automatically.
+        # Mainstream/profile000 cameras don't support MJPEG streaming via HA proxy.
+        # Go straight to polling to avoid a 40-second timeout waiting for a stream
+        # that will never arrive.
+        if "mainstream" in camera_entity_id or "profile000" in camera_entity_id:
+            _LOGGER.info("motion_clip.mainstream_polling", camera=camera_entity_id,
+                         detail="Mainstream camera — using polling for clip capture")
+            return await self._capture_clip_polling(camera_entity_id, output_path)
+
+        # Stream directly from HA's MJPEG proxy endpoint.
         token = self._ha.auth_headers.get("Authorization", "").removeprefix("Bearer ").strip()
         stream_url = f"{self._ha.ha_url}/api/camera_proxy_stream/{camera_entity_id}"
 
@@ -341,16 +346,14 @@ class MotionClipService:
             "-nostdin",
             "-y",
             "-loglevel", "error",
-            # Pass the HA Bearer token as an HTTP header for the MJPEG input
+            # Short connection timeout — fail fast if stream doesn't start
+            "-timeout", "5000000",  # 5 seconds in microseconds
             "-headers", f"Authorization: Bearer {token}\r\n",
-            # Read from the live MJPEG stream
             "-i", stream_url,
-            # Capture exactly clip_duration_s seconds of wall-clock time
             "-t", str(self._clip_duration_s),
             "-an",
             "-c:v", "libx264",
             "-preset", "veryfast",
-            # Output at smooth 25 fps — ffmpeg duplicates/drops frames as needed
             "-r", "25",
             "-pix_fmt", "yuv420p",
             "-movflags", "+faststart",
@@ -366,7 +369,7 @@ class MotionClipService:
             try:
                 _, stderr = await asyncio.wait_for(
                     proc.communicate(),
-                    timeout=self._clip_duration_s + 20,
+                    timeout=self._clip_duration_s + 15,
                 )
             except asyncio.TimeoutError:
                 proc.kill()
@@ -375,8 +378,9 @@ class MotionClipService:
                     output_path.unlink(missing_ok=True)
                 except Exception:
                     pass
-                _LOGGER.warning("motion_clip.capture_timeout", camera=camera_entity_id)
-                return False
+                _LOGGER.warning("motion_clip.capture_timeout", camera=camera_entity_id,
+                                detail="MJPEG stream timed out — falling back to polling")
+                return await self._capture_clip_polling(camera_entity_id, output_path)
         except Exception as exc:
             _LOGGER.warning("motion_clip.capture_spawn_failed", camera=camera_entity_id, exc=_format_exc(exc))
             return await self._capture_clip_polling(camera_entity_id, output_path)
@@ -443,7 +447,7 @@ class MotionClipService:
         if captured < 3:
             shutil.rmtree(frame_dir, ignore_errors=True)
             _LOGGER.warning("motion_clip.poll_insufficient_frames", camera=camera_entity_id, frames=captured)
-            _LOGGER.debug("motion_clip.poll_debug_info", camera=camera_entity_id, elapsed=elapsed, attempted_frames=len(_frames))
+            _LOGGER.debug("motion_clip.poll_debug_info", camera=camera_entity_id, elapsed=elapsed)
             return False
 
         actual_fps = captured / elapsed
