@@ -61,9 +61,10 @@ class CameraEventService:
         system_prompt: str | None = None,
         vision_prompt: str | None = None,
         include_plate_ocr: bool = False,
+        prefetched_frame: bytes | None = None,
     ) -> dict[str, Any]:
         camera_id = self.resolve_camera_entity(camera_entity_id)
-        image_bytes = await self._ha.fetch_camera_image(camera_id)
+        image_bytes = prefetched_frame or await self._ha.fetch_camera_image(camera_id)
 
         is_delivery = False
         delivery_company = ""
@@ -77,11 +78,23 @@ class CameraEventService:
             prompt = vision_prompt or _MOTION_IMAGE_PROMPT
             if include_plate_ocr:
                 prompt = prompt + self._PLATE_HINT
-            raw_description = await self._llm.describe_image_with_gemini(
-                image_bytes,
-                prompt=prompt,
-                system_instruction=system_prompt or None,
-            )
+
+            # Use configured vision provider — "ollama" for free local inference,
+            # "gemini" (default) for cloud vision.
+            from avatar_backend.config import get_settings
+            _vision_provider = (get_settings().motion_vision_provider or "gemini").strip().lower()
+            if _vision_provider == "ollama":
+                raw_description = await self._llm.describe_image(
+                    image_bytes,
+                    prompt=prompt,
+                    system_instruction=system_prompt or None,
+                )
+            else:
+                raw_description = await self._llm.describe_image_with_gemini(
+                    image_bytes,
+                    prompt=prompt,
+                    system_instruction=system_prompt or None,
+                )
             if raw_description.strip().startswith("NO_MOTION"):
                 suppressed = True
                 description = "No meaningful motion visible."

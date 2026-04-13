@@ -87,6 +87,9 @@ _CONFIG_FIELDS = {
     "PROACTIVE_WEATHER_COOLDOWN_S":       ("Weather announce cooldown (seconds)",             False),
     "PROACTIVE_FORECAST_HOUR":            ("Daily forecast hour (0-23)",                      False),
     "HA_POWER_ALERT_COOLDOWN_S":          ("Power alert cooldown (seconds)",                  False),
+    # ── Motion vision ──
+    "MOTION_VISION_PROVIDER":             ("Motion Vision Provider (gemini/ollama)",           False),
+    "OLLAMA_VISION_MODEL":                ("Ollama Vision Model",                              False),
 }
 
 
@@ -682,6 +685,8 @@ class MotionClipSearchBody(BaseModel):
 def _serialize_motion_clip(clip: dict) -> dict:
     data = dict(clip)
     data["video_url"] = f"/admin/motion-clips/{clip['id']}/video" if clip.get("video_relpath") else ""
+    data["thumb_url"] = f"/admin/motion-clips/{clip['id']}/thumb" if clip.get("thumb_relpath") else ""
+    data["flagged"] = bool(clip.get("flagged"))
     extra = data.get("extra") or {}
     canonical_event = data.get("canonical_event") or extra.get("canonical_event") or {}
     data["canonical_event"] = canonical_event
@@ -871,7 +876,7 @@ async def search_motion_clips(body: MotionClipSearchBody, request: Request):
 
 
 @router.get("/motion-clips/{clip_id}/video", include_in_schema=False)
-async def serve_motion_clip_video(clip_id: int, request: Request):
+async def serve_motion_clip_video(clip_id: int, request: Request, download: int = 0):
     _require_session(request, min_role="viewer")
     db = request.app.state.metrics_db
     svc = request.app.state.motion_clip_service
@@ -883,7 +888,10 @@ async def serve_motion_clip_video(clip_id: int, request: Request):
     path = svc.clip_path_for(clip)
     if not path or not path.exists():
         raise HTTPException(status_code=404, detail="Motion clip file unavailable")
-    return FileResponse(str(path), media_type="video/mp4", filename=path.name)
+    headers = {}
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{path.name}"'
+    return FileResponse(str(path), media_type="video/mp4", filename=path.name, headers=headers)
 
 
 @router.delete("/motion-clips/{clip_id}")
@@ -936,6 +944,59 @@ async def delete_motion_clips_bulk(body: BulkDeleteBody, request: Request):
                 pass
 
     return {"deleted": len(relpaths), "files_removed": deleted_files}
+
+
+@router.get("/motion-clips/{clip_id}/thumb", include_in_schema=False)
+async def serve_motion_clip_thumb(clip_id: int, request: Request):
+    """Serve the thumbnail JPEG for a clip."""
+    _require_session(request, min_role="viewer")
+    db = request.app.state.metrics_db
+    clip = db.get_motion_clip(clip_id)
+    if not clip or not clip.get("thumb_relpath"):
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    svc = request.app.state.motion_clip_service
+    path = svc.clip_path_for({"video_relpath": clip["thumb_relpath"]})
+    if not path or not path.exists():
+        raise HTTPException(status_code=404, detail="Thumbnail file missing")
+    return FileResponse(str(path), media_type="image/jpeg")
+
+
+@router.post("/motion-clips/{clip_id}/flag")
+async def toggle_motion_clip_flag(clip_id: int, request: Request):
+    """Toggle the flagged/starred state of a clip."""
+    _require_session(request, min_role="admin")
+    db = request.app.state.metrics_db
+    new_state = db.toggle_motion_clip_flag(clip_id)
+    return {"clip_id": clip_id, "flagged": new_state}
+
+
+@router.get("/motion-clips/stats")
+async def get_motion_clip_stats(request: Request):
+    """Return aggregate stats for the motion clip archive."""
+    _require_session(request, min_role="viewer")
+    db = request.app.state.metrics_db
+    stats = db.motion_clip_stats()
+    # Calculate disk usage
+    svc = request.app.state.motion_clip_service
+    clips_dir = svc._clips_dir
+    total_bytes = 0
+    try:
+        for f in clips_dir.rglob("*"):
+            if f.is_file():
+                total_bytes += f.stat().st_size
+    except Exception:
+        pass
+    stats["disk_usage_mb"] = round(total_bytes / (1024 * 1024), 1)
+    return stats
+
+
+@router.post("/motion-clips/backfill-thumbnails")
+async def backfill_thumbnails(request: Request):
+    """Generate thumbnails for all existing clips that don't have one."""
+    _require_session(request, min_role="admin")
+    svc = request.app.state.motion_clip_service
+    result = await svc.backfill_thumbnails()
+    return result
 
 
 @router.get("/event-history")
@@ -2497,3 +2558,61 @@ async def refresh_camera_discovery(request: Request):
         "motion_camera_map": result.motion_camera_map,
         "bypass_cameras": list(result.bypass_global_motion_cameras),
     }
+
+
+# ── nova-selfheal proxy ────────────────────────────────────────────────────────
+# Forwards /admin/selfheal/{path} → http://localhost:7779/{path}
+# Allows the browser to reach the selfheal API over the same HTTPS connection.
+
+_SELFHEAL_BASE = "http://localhost:7779"
+
+@router.api_route("/selfheal/{path:path}", methods=["GET", "POST", "OPTIONS"])
+async def selfheal_proxy(path: str, request: Request):
+    _require_session(request, min_role="viewer")
+    url = f"{_SELFHEAL_BASE}/{path}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.request(
+                method=request.method,
+                url=url,
+                content=await request.body(),
+                headers={"Content-Type": request.headers.get("Content-Type", "application/json")},
+            )
+        try:
+            content = resp.json()
+        except Exception:
+            content = {"error": resp.text[:300]}
+        return JSONResponse(content=content, status_code=resp.status_code)
+    except httpx.ConnectError:
+        return JSONResponse({"error": "nova-selfheal is not running"}, status_code=503)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+
+
+@router.post("/selfheal-restart")
+async def selfheal_restart(request: Request):
+    _require_session(request, min_role="admin")
+    import subprocess
+    result = subprocess.run(
+        ["sudo", "systemctl", "restart", "nova-selfheal"],
+        capture_output=True, text=True, timeout=15,
+    )
+    if result.returncode == 0:
+        return {"ok": True}
+    return JSONResponse({"error": result.stderr[:200]}, status_code=500)
+
+
+@router.post("/selfheal-test")
+async def selfheal_test(request: Request):
+    """Inject a fake ERROR log entry to test nova-selfheal pipeline."""
+    _require_session(request, min_role="admin")
+    import structlog as _sl
+    _log = _sl.get_logger("avatar_backend.services.ha_proxy")
+    _log.error(
+        "test.error",
+        exc_type="TestError",
+        exc="selfheal test injection",
+        logger="avatar_backend.services.ha_proxy",
+    )
+    return {"ok": True, "message": "Test error logged — check Telegram and Self-Heal tab."}

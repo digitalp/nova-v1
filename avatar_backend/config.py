@@ -90,8 +90,14 @@ class Settings(BaseSettings):
     motion_clip_search_results: int = 24
     shared_memory_db_path: str = ""
 
+    # Motion vision provider: "gemini" (cloud, costs money) or "ollama" (local, free)
+    motion_vision_provider: str = "gemini"
+
     # Cooldowns for automated HA chat sessions
     ha_power_alert_cooldown_s: int = 1800
+
+    # Motion clip retention — auto-delete clips older than this many days (0 = keep forever)
+    motion_clip_retention_days: int = 30
 
     # ── Proactive service cooldowns and timing ─────────────────────────
     proactive_entity_cooldown_s: int = 600
