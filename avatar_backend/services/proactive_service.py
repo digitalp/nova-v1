@@ -350,6 +350,17 @@ class ProactiveService:
             "llm_tag": f"{provider}:{model}",
         }
 
+    def _motion_vision_llm_fields(self) -> dict[str, str]:
+        """Return LLM fields reflecting the actual configured motion vision provider."""
+        from avatar_backend.config import get_settings
+        mvp = (get_settings().motion_vision_provider or "gemini").strip().lower()
+        if mvp == "ollama":
+            provider = "ollama"
+            model = getattr(self._llm, "_backend", None)
+            model = getattr(model, "_vision_model", "llama3.2-vision") if model else "llama3.2-vision"
+            return {"llm_provider": provider, "llm_model": model, "llm_tag": f"{provider}:{model}"}
+        return self._gemini_llm_fields()
+
     def update_system_prompt(self, prompt: str) -> None:
         """Called by sync-prompt to keep the proactive context current."""
         self._system_prompt = prompt
@@ -600,7 +611,7 @@ class ProactiveService:
                 "motion_triggered",
                 entity=entity_id,
                 camera=camera_id,
-                **self._gemini_llm_fields(),
+                **self._motion_vision_llm_fields(),
             )
 
         # ── Coral Edge TPU pre-filter ─────────────────────────────────────────
@@ -623,7 +634,7 @@ class ProactiveService:
                                 camera=camera_id,
                                 inference_ms=round(coral_result.inference_ms, 1),
                                 reason=coral_result.reason,
-                                **self._gemini_llm_fields(),
+                                **self._motion_vision_llm_fields(),
                             )
                         _LOGGER.info(
                             "coral.filtered_no_archive",
@@ -707,7 +718,7 @@ class ProactiveService:
                     camera=camera_id,
                     reason="NO_MOTION",
                     coral_detections=_coral_detections,
-                    **self._gemini_llm_fields(),
+                    **self._motion_vision_llm_fields(),
                 )
             return
         elif result["raw_description"]:
@@ -724,7 +735,7 @@ class ProactiveService:
                         camera=camera_id,
                         company=delivery_company,
                         scene=description[:200],
-                        **self._gemini_llm_fields(),
+                        **self._motion_vision_llm_fields(),
                     )
 
         extra = {
@@ -759,7 +770,7 @@ class ProactiveService:
                 message=description[:300],
                 delivery=is_delivery,
                 announced=_should_announce,
-                **self._gemini_llm_fields(),
+                **self._motion_vision_llm_fields(),
             )
 
         # Only update the announce timestamp and notify if not cooldown-suppressed
