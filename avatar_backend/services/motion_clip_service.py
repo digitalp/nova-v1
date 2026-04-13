@@ -180,7 +180,7 @@ class MotionClipService:
 
         # Initialise semaphore lazily (must be created inside a running event loop)
         if self._capture_semaphore is None:
-            self._capture_semaphore = asyncio.Semaphore(4)
+            self._capture_semaphore = asyncio.Semaphore(2)
 
         status = "ready"
         async with self._capture_semaphore:
@@ -379,7 +379,7 @@ class MotionClipService:
                 return False
         except Exception as exc:
             _LOGGER.warning("motion_clip.capture_spawn_failed", camera=camera_entity_id, exc=_format_exc(exc))
-            return False
+            return await self._capture_clip_polling(camera_entity_id, output_path)
 
         if proc.returncode != 0 or not await self._is_valid_clip(output_path):
             stderr_text = (stderr or b"").decode("utf-8", "ignore")[:400]
@@ -413,48 +413,37 @@ class MotionClipService:
         url = f"{self._ha.ha_url}/api/camera_proxy/{camera_entity_id}"
         headers = self._ha.auth_headers
 
-        # Collect frames with timestamps so we can sort them chronologically
-        # after concurrent fetching. Without sorting, minterpolate produces
-        # artifacts because it tries to motion-compensate between temporally
-        # scrambled frames.
-        _frames: list[tuple[float, bytes]] = []
-        _frames_lock = asyncio.Lock()
-
-        async def _fetch_one(client: _httpx.AsyncClient) -> None:
-            while loop.time() < deadline:
-                try:
-                    t = loop.time() - started
-                    resp = await client.get(url, headers=headers)
-                    if resp.status_code == 200 and resp.content:
-                        async with _frames_lock:
-                            _frames.append((t, resp.content))
-                except Exception:
-                    await asyncio.sleep(0.2)
-
-        concurrency = 4
+        # Sequential polling with keep-alive — one request at a time to avoid
+        # corrupted frames from overloading the HA camera proxy. Keep-alive
+        # reuses the TCP connection so each request is faster than cold starts.
+        write_index = 0
         try:
             async with _httpx.AsyncClient(
-                timeout=_httpx.Timeout(connect=3.0, read=8.0, write=3.0, pool=5.0),
-                limits=_httpx.Limits(max_keepalive_connections=concurrency, max_connections=concurrency),
+                timeout=_httpx.Timeout(connect=3.0, read=5.0, write=3.0, pool=5.0),
+                limits=_httpx.Limits(max_keepalive_connections=1, max_connections=1),
             ) as client:
-                workers = [asyncio.create_task(_fetch_one(client)) for _ in range(concurrency)]
-                await asyncio.gather(*workers, return_exceptions=True)
+                while loop.time() < deadline:
+                    try:
+                        resp = await client.get(url, headers=headers)
+                        if resp.status_code == 200 and resp.content and len(resp.content) > 1000:
+                            # Validate JPEG: must start with FFD8 and end with FFD9
+                            if resp.content[:2] == b'\xff\xd8' and resp.content[-2:] == b'\xff\xd9':
+                                (frame_dir / f"frame_{write_index:04d}.jpg").write_bytes(resp.content)
+                                write_index += 1
+                    except Exception:
+                        await asyncio.sleep(0.1)
         except Exception as exc:
             _LOGGER.warning("motion_clip.poll_sample_failed", camera=camera_entity_id, exc=_format_exc(exc))
             shutil.rmtree(frame_dir, ignore_errors=True)
             return False
 
-        # Sort by capture timestamp and write sequentially
-        _frames.sort(key=lambda x: x[0])
-        for idx, (_, data) in enumerate(_frames):
-            (frame_dir / f"frame_{idx:04d}.jpg").write_bytes(data)
-
-        captured = len(_frames)
+        captured = write_index
         elapsed = max(0.1, loop.time() - started)
 
         if captured < 3:
             shutil.rmtree(frame_dir, ignore_errors=True)
             _LOGGER.warning("motion_clip.poll_insufficient_frames", camera=camera_entity_id, frames=captured)
+            _LOGGER.debug("motion_clip.poll_debug_info", camera=camera_entity_id, elapsed=elapsed, attempted_frames=len(_frames))
             return False
 
         actual_fps = captured / elapsed
