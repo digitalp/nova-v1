@@ -82,6 +82,18 @@ async def update_task(task_id: str, request: Request, container: AppContainer = 
     return {"ok": True}
 
 
+@router.post("/scoreboard/widget-visibility")
+async def set_widget_visibility(request: Request, container: AppContainer = Depends(get_container)):
+    """Toggle the scoreboard widget on the avatar page."""
+    _require_session(request, min_role="admin")
+    body = await request.json()
+    svc = _svc(container)
+    cfg = svc.get_config()
+    cfg["show_widget"] = bool(body.get("show_widget", True))
+    svc.save_config(cfg)
+    return {"ok": True, "show_widget": cfg["show_widget"]}
+
+
 @router.post("/scoreboard/tasks")
 async def add_task(request: Request, container: AppContainer = Depends(get_container)):
     """Add a new task to the scoreboard config."""

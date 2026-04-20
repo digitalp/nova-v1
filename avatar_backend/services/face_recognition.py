@@ -128,6 +128,22 @@ class FaceRecognitionService:
         except Exception as exc:
             _LOGGER.debug("face.full_frame_queue_failed", exc=str(exc)[:80])
 
+    def _face_photo_path(self, name: str) -> "Path":
+        from avatar_backend.runtime_paths import data_dir
+        d = data_dir() / "face_photos"
+        d.mkdir(parents=True, exist_ok=True)
+        return d / f"{name.strip().lower()}.jpg"
+
+    def save_face_photo(self, name: str, image_bytes: bytes) -> None:
+        try:
+            self._face_photo_path(name).write_bytes(image_bytes)
+        except Exception as exc:
+            _LOGGER.debug("face.photo_save_failed", name=name, exc=str(exc)[:80])
+
+    def get_face_photo(self, name: str) -> bytes | None:
+        p = self._face_photo_path(name)
+        return p.read_bytes() if p.exists() else None
+
     async def register_face(self, name: str, image_bytes: bytes) -> bool:
         if not self._url or not image_bytes or not name:
             return False
@@ -140,6 +156,8 @@ class FaceRecognitionService:
                 )
                 ok = resp.json().get("success", False)
                 _LOGGER.info("face.registered", name=name, success=ok)
+                if ok:
+                    self.save_face_photo(name, image_bytes)
                 return ok
         except Exception as exc:
             _LOGGER.warning("face.register_error", name=name, exc=str(exc)[:100])

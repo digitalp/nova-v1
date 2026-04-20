@@ -7,7 +7,7 @@ import re as _re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from avatar_backend.bootstrap.container import AppContainer, get_container
 
@@ -497,6 +497,19 @@ async def register_face(request: Request, container: AppContainer = Depends(get_
     if ok:
         svc.remove_unknown(face_id)
     return {"ok": ok, "name": name}
+
+
+
+@router.get("/faces/photo/{name}")
+async def get_face_photo(name: str, request: Request, container: AppContainer = Depends(get_container)):
+    """Serve a cached face thumbnail for the scoreboard widget."""
+    svc = getattr(container, "face_service", None)
+    if not svc:
+        return Response(status_code=404)
+    photo = svc.get_face_photo(name)
+    if not photo:
+        return Response(status_code=404)
+    return Response(content=photo, media_type="image/jpeg")
 
 
 @router.delete("/faces/unknown/{face_id}")

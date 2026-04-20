@@ -14,6 +14,7 @@ _LOGGER = structlog.get_logger()
 
 _DEFAULT_CONFIG: dict[str, Any] = {
     "members": ["penn", "tangu"],
+    "show_widget": True,
     "week_start": "monday",
     "tasks": [
         {

@@ -5934,7 +5934,26 @@ async function loadScoreboard() {
     _renderSbRecent(d.recent || []);
     _populateSbSelects(_sbConfig);
     _renderSbTasks(_sbConfig);
+    _setSbToggleState(_sbConfig.show_widget !== false);
   } catch (e) { console.error('loadScoreboard', e); }
+}
+
+function _setSbToggleState(on) {
+  const track = document.getElementById('sb-widget-toggle');
+  const knob = document.getElementById('sb-widget-knob');
+  if (!track || !knob) return;
+  track.style.background = on ? 'var(--accent)' : 'var(--border)';
+  knob.style.transform = on ? 'translateX(16px)' : 'translateX(0)';
+}
+
+async function sbToggleWidget() {
+  const on = _sbConfig.show_widget !== false;
+  const next = !on;
+  try {
+    await api('POST', '/admin/scoreboard/widget-visibility', { show_widget: next });
+    _sbConfig.show_widget = next;
+    _setSbToggleState(next);
+  } catch(e) { toast('Failed to update', 'err'); }
 }
 
 function _renderSbLeaderboard(weekly) {
@@ -5942,13 +5961,21 @@ function _renderSbLeaderboard(weekly) {
   if (!el) return;
   if (!weekly.length) { el.innerHTML = '<span style="color:var(--muted)">No scores yet this week.</span>'; return; }
   const medals = ['🥇','🥈','🥉'];
-  el.innerHTML = weekly.map((s, i) => `
-    <div style="background:var(--bg3);border-radius:10px;padding:16px 24px;min-width:120px;text-align:center;">
-      <div style="font-size:28px;">${medals[i] || '🏅'}</div>
-      <div style="font-weight:700;font-size:16px;margin:4px 0;">${s.person.charAt(0).toUpperCase()+s.person.slice(1)}</div>
-      <div style="font-size:22px;font-weight:700;color:var(--accent);">${s.points} pts</div>
+  el.innerHTML = weekly.map((s, i) => {
+    const photoUrl = `/admin/faces/photo/${encodeURIComponent(s.person)}`;
+    const initials = s.person.charAt(0).toUpperCase();
+    return `<div style="background:var(--bg3);border-radius:10px;padding:16px 20px;min-width:120px;text-align:center;">
+      <div style="position:relative;width:56px;height:56px;margin:0 auto 8px;">
+        <img src="${photoUrl}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);"
+          onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div style="display:none;width:56px;height:56px;border-radius:50%;background:var(--surface2);align-items:center;justify-content:center;font-size:22px;font-weight:700;color:var(--accent);border:2px solid var(--accent);">${initials}</div>
+        <div style="position:absolute;bottom:-4px;right:-4px;font-size:18px;">${medals[i] || '🏅'}</div>
+      </div>
+      <div style="font-weight:700;font-size:15px;margin:4px 0;">${s.person.charAt(0).toUpperCase()+s.person.slice(1)}</div>
+      <div style="font-size:20px;font-weight:700;color:var(--accent);">${s.points} pts</div>
       <div style="font-size:11px;color:var(--muted);">${s.tasks} tasks</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function _renderSbRecent(recent) {

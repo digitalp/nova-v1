@@ -1379,7 +1379,15 @@
 
     <div id="section-scoreboard" class="section">
       <div class="card">
-        <div class="card-title">Weekly Leaderboard</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <div class="card-title" style="margin:0;">Weekly Leaderboard</div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;">
+            <span style="color:var(--muted);">Show on avatar page</span>
+            <span id="sb-widget-toggle" style="display:inline-block;width:36px;height:20px;border-radius:10px;background:var(--border);position:relative;cursor:pointer;transition:background 0.2s;" onclick="sbToggleWidget()">
+              <span id="sb-widget-knob" style="position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform 0.2s;"></span>
+            </span>
+          </label>
+        </div>
         <div id="sb-leaderboard" style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;"></div>
         <div class="card-title" style="margin-top:8px;">Recent Activity</div>
         <div id="sb-recent" style="font-size:13px;"></div>

@@ -26,7 +26,11 @@
         "said our prayer",
         "morning prayers"
       ],
-      "assigned_to": []
+      "assigned_to": [
+        "jason",
+        "joel",
+        "miya"
+      ]
     },
     {
       "id": "make_bed",
@@ -48,7 +52,11 @@
         "tidied my bed",
         "made up bed"
       ],
-      "assigned_to": []
+      "assigned_to": [
+        "jason",
+        "joel",
+        "miya"
+      ]
     },
     {
       "id": "meal_prayer",
@@ -71,7 +79,11 @@
         "blessed the food",
         "prayed before eating"
       ],
-      "assigned_to": []
+      "assigned_to": [
+        "jason",
+        "joel",
+        "miya"
+      ]
     },
     {
       "id": "empty_toilet_bin",
@@ -93,7 +105,9 @@
         "bathroom bin",
         "empty toilet bin"
       ],
-      "assigned_to": []
+      "assigned_to": [
+        "joel"
+      ]
     },
     {
       "id": "tidy_bedroom",
@@ -117,7 +131,11 @@
         "tidy bedroom",
         "tidy room"
       ],
-      "assigned_to": []
+      "assigned_to": [
+        "jason",
+        "joel",
+        "miya"
+      ]
     },
     {
       "id": "empty_kitchen_bin",
@@ -140,7 +158,9 @@
         "emptied the bin",
         "empty kitchen bin"
       ],
-      "assigned_to": []
+      "assigned_to": [
+        "jason"
+      ]
     },
     {
       "id": "tidy_living_room",
@@ -164,7 +184,11 @@
         "tidy living room",
         "tidied sitting room"
       ],
-      "assigned_to": []
+      "assigned_to": [
+        "jason",
+        "joel",
+        "miya"
+      ]
     },
     {
       "id": "load_dishwasher",
@@ -212,7 +236,9 @@
         "cleaned surfaces",
         "wiped the kitchen"
       ],
-      "assigned_to": []
+      "assigned_to": [
+        "jason"
+      ]
     },
     {
       "id": "clear_table",
@@ -231,7 +257,11 @@
         "cleared up after dinner",
         "cleared up after eating"
       ],
-      "assigned_to": []
+      "assigned_to": [
+        "jason",
+        "joel",
+        "miya"
+      ]
     },
     {
       "id": "hoover_living_room",
@@ -273,7 +303,10 @@
         "put out recycling",
         "taken recycling out"
       ],
-      "assigned_to": []
+      "assigned_to": [
+        "jason"
+      ]
     }
-  ]
+  ],
+  "show_widget": true
 }

@@ -657,7 +657,7 @@
     /* ── Scoreboard widget ─────────────────────────────────────── */
     #scoreboard-widget {
       position: fixed;
-      bottom: 80px;
+      top: 20px;
       left: 16px;
       background: rgba(10,14,26,0.82);
       backdrop-filter: blur(12px);
@@ -665,8 +665,8 @@
       border: 1px solid rgba(255,255,255,0.08);
       border-radius: 14px;
       padding: 12px 16px;
-      min-width: 160px;
-      max-width: 220px;
+      min-width: 180px;
+      max-width: 240px;
       opacity: 0;
       transition: opacity 0.4s ease;
       pointer-events: none;
@@ -674,28 +674,13 @@
     }
     #scoreboard-widget.on { opacity: 1; }
     #scoreboard-widget.hidden-by-event { opacity: 0 !important; }
-    .sb-title { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; color: rgba(255,255,255,0.45); text-transform: uppercase; margin-bottom: 8px; }
-    .sb-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
-    .sb-medal { font-size: 16px; width: 20px; text-align: center; }
-    .sb-name { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.9); flex: 1; }
-    .sb-pts { font-size: 13px; font-weight: 700; color: #7dd3fc; }
-    #sb-toggle-btn {
-      position: fixed;
-      bottom: 16px;
-      left: 16px;
-      background: rgba(10,14,26,0.7);
-      border: 1px solid rgba(255,255,255,0.12);
-      border-radius: 8px;
-      color: rgba(255,255,255,0.55);
-      font-size: 11px;
-      padding: 5px 10px;
-      cursor: pointer;
-      z-index: 91;
-      transition: color 0.2s, border-color 0.2s;
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-    }
-    #sb-toggle-btn:hover { color: rgba(255,255,255,0.9); border-color: rgba(255,255,255,0.3); }
+    .sb-title { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; color: rgba(255,255,255,0.45); text-transform: uppercase; margin-bottom: 10px; }
+    .sb-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .sb-avatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 1.5px solid rgba(125,211,252,0.5); flex-shrink: 0; }
+    .sb-avatar-fallback { width: 32px; height: 32px; border-radius: 50%; background: rgba(125,211,252,0.15); border: 1.5px solid rgba(125,211,252,0.4); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: #7dd3fc; flex-shrink: 0; }
+    .sb-medal { font-size: 14px; width: 18px; text-align: center; flex-shrink: 0; }
+    .sb-name { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.9); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sb-pts { font-size: 13px; font-weight: 700; color: #7dd3fc; flex-shrink: 0; }
   </style>
 </head>
 <body>
@@ -723,12 +708,11 @@
   <div id="subtitle"></div>
 
 
-  <!-- Scoreboard leaderboard widget (bottom-left) -->
+  <!-- Scoreboard leaderboard widget (top-left) -->
   <div id="scoreboard-widget">
     <div class="sb-title">This Week</div>
     <div id="sb-widget-rows"></div>
   </div>
-  <button id="sb-toggle-btn" title="Toggle scoreboard">🏆</button>
 
     <!-- Weather Card (Dribbble-inspired, right side of avatar) -->
   <div id="weather-card">
@@ -2958,31 +2942,11 @@ setTimeout(_initWeatherCard, 200);
 // ── Scoreboard widget ─────────────────────────────────────────────
 const _medals = ['🥇','🥈','🥉'];
 
-let _sbWidgetVisible = localStorage.getItem('nova_sb_visible') !== 'false';
-
 function _initScoreboardWidget() {
   const el = document.getElementById('scoreboard-widget');
-  const btn = document.getElementById('sb-toggle-btn');
   if (!el) return;
   _fetchScoreboardWidget();
   setInterval(_fetchScoreboardWidget, 120000);
-  setTimeout(() => {
-    if (_sbWidgetVisible) el.classList.add('on');
-    _sbUpdateToggleBtn();
-  }, 2000);
-  if (btn) btn.addEventListener('click', () => {
-    _sbWidgetVisible = !_sbWidgetVisible;
-    localStorage.setItem('nova_sb_visible', _sbWidgetVisible);
-    el.classList.toggle('on', _sbWidgetVisible);
-    _sbUpdateToggleBtn();
-  });
-}
-
-function _sbUpdateToggleBtn() {
-  const btn = document.getElementById('sb-toggle-btn');
-  if (!btn) return;
-  btn.style.color = _sbWidgetVisible ? 'rgba(125,211,252,0.9)' : 'rgba(255,255,255,0.35)';
-  btn.title = _sbWidgetVisible ? 'Hide scoreboard' : 'Show scoreboard';
 }
 
 async function _fetchScoreboardWidget() {
@@ -2990,16 +2954,29 @@ async function _fetchScoreboardWidget() {
     const resp = await fetch(SERVER + '/admin/scoreboard', { credentials: 'include' });
     if (!resp.ok) return;
     const d = await resp.json();
+    const el = document.getElementById('scoreboard-widget');
     const rows = document.getElementById('sb-widget-rows');
-    if (!rows) return;
+    if (!rows || !el) return;
+
+    // Show/hide based on admin toggle
+    const show = d.config && d.config.show_widget !== false;
+    el.classList.toggle('on', show);
+
     const weekly = d.weekly || [];
     if (!weekly.length) { rows.innerHTML = '<div style="font-size:12px;color:rgba(255,255,255,0.4);">No scores yet</div>'; return; }
-    rows.innerHTML = weekly.slice(0, 3).map((s, i) => `
-      <div class="sb-row">
+
+    rows.innerHTML = weekly.slice(0, 3).map((s, i) => {
+      const photoUrl = SERVER + '/admin/faces/photo/' + encodeURIComponent(s.person);
+      const initials = s.person.charAt(0).toUpperCase();
+      return `<div class="sb-row">
+        <img class="sb-avatar" src="${photoUrl}" alt="${initials}"
+          onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="sb-avatar-fallback" style="display:none;">${initials}</div>
         <span class="sb-medal">${_medals[i] || '🏅'}</span>
         <span class="sb-name">${s.person.charAt(0).toUpperCase()+s.person.slice(1)}</span>
         <span class="sb-pts">${s.points}</span>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   } catch(e) {}
 }
 
