@@ -104,6 +104,90 @@ async def _chore_reminder_loop(announce_fn, scoreboard_service) -> None:
             structlog.get_logger().warning("chore_reminder.error", exc=str(exc)[:120])
         await asyncio.sleep(60)
 
+
+async def _kitchen_watch_loop(announce_fn, scoreboard_service, ha_proxy, llm_service,
+                               interval_m: int = 20) -> None:
+    """Between 15:30-19:30 check the kitchen camera for overflowing bin / sink full of dishes."""
+    from datetime import datetime as _dt
+    await asyncio.sleep(120)  # let services settle
+    logger = structlog.get_logger()
+    WINDOW_START = (15, 30)
+    WINDOW_END   = (19, 30)
+    KITCHEN_CAM  = "camera.tangu_home_kitchen"
+    # task_id -> min cooldown between announcements (seconds)
+    WATCH_TASKS  = {
+        "empty_kitchen_bin": 7200,   # 2h between reminders
+        "load_dishwasher":   7200,
+    }
+    last_announced: dict[str, float] = {}
+
+    while True:
+        try:
+            now = _dt.now()
+            h, m = now.hour, now.minute
+            in_window = (h, m) >= WINDOW_START and (h, m) < WINDOW_END
+            if in_window:
+                # Fetch camera image once
+                image_bytes = None
+                try:
+                    image_bytes = await ha_proxy.fetch_camera_image(KITCHEN_CAM)
+                except Exception as exc:
+                    logger.debug("kitchen_watch.camera_failed", exc=str(exc)[:80])
+
+                if image_bytes:
+                    prompt = (
+                        "Look carefully at this kitchen image and answer TWO questions: " "1. BIN: Is the kitchen bin overflowing or visibly full? Answer YES or NO. " "2. SINK: Is the sink noticeably full of dishes or cluttered? Answer YES or NO. " "Reply in exactly this format - BIN: YES/NO SINK: YES/NO"
+                    )
+                    try:
+                        description = await llm_service.describe_image(image_bytes, prompt=prompt)
+                        desc_upper = description.upper()
+                        bin_full  = "BIN: YES"  in desc_upper
+                        sink_full = "SINK: YES" in desc_upper
+                        logger.debug("kitchen_watch.result", bin_full=bin_full, sink_full=sink_full, desc=description[:120])
+                    except Exception as exc:
+                        logger.debug("kitchen_watch.llm_failed", exc=str(exc)[:80])
+                        bin_full = sink_full = False
+
+                    cfg = scoreboard_service.get_config()
+                    members = await scoreboard_service.get_members()
+                    date_str = now.strftime("%Y-%m-%d")
+                    import time as _time
+
+                    issues = []
+                    if bin_full:
+                        issues.append(("empty_kitchen_bin", "the kitchen bin is overflowing"))
+                    if sink_full:
+                        issues.append(("load_dishwasher", "the sink is full of dishes"))
+
+                    for task_id, description_text in issues:
+                        # Skip if cooldown active
+                        cooldown = WATCH_TASKS.get(task_id, 7200)
+                        last = last_announced.get(task_id, 0)
+                        if _time.time() - last < cooldown:
+                            continue
+                        # Skip if already logged today by any assigned member
+                        task = scoreboard_service.get_task(task_id)
+                        assigned = (task or {}).get("assigned_to") or []
+                        check_members = assigned if assigned else members
+                        already_done = any(
+                            scoreboard_service.already_logged_today(task_id, m)
+                            for m in check_members
+                        )
+                        if already_done:
+                            continue
+                        # Build announcement
+                        if assigned:
+                            names = " and ".join(m.title() for m in assigned)
+                            msg = f"Hey {names}, {description_text} — please sort it out soon!"
+                        else:
+                            msg = f"Heads up everyone, {description_text} — can someone take care of it?"
+                        last_announced[task_id] = _time.time()
+                        await announce_fn(msg, "normal")
+                        logger.info("kitchen_watch.announced", task=task_id, bin_full=bin_full, sink_full=sink_full)
+        except Exception as exc:
+            structlog.get_logger().warning("kitchen_watch.error", exc=str(exc)[:120])
+        await asyncio.sleep(interval_m * 60)
+
 def schedule_background_tasks(app: FastAPI, container) -> None:
     """Schedule all background asyncio tasks. Called after service creation."""
     container._background_tasks.append(asyncio.create_task(_restart_fully_kiosk_after_startup(app), name="kiosk_restart"))
@@ -115,4 +199,16 @@ def schedule_background_tasks(app: FastAPI, container) -> None:
         container._background_tasks.append(asyncio.create_task(
             _chore_reminder_loop(container._proactive_announce, container.scoreboard_service),
             name="chore_reminders",
+        ))
+    if (getattr(container, 'scoreboard_service', None) is not None
+            and getattr(container, 'ha_proxy', None) is not None
+            and getattr(container, 'llm_service', None) is not None):
+        container._background_tasks.append(asyncio.create_task(
+            _kitchen_watch_loop(
+                container._proactive_announce,
+                container.scoreboard_service,
+                container.ha_proxy,
+                container.llm_service,
+            ),
+            name="kitchen_watch",
         ))
