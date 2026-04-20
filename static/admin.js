@@ -5927,6 +5927,7 @@ document.getElementById('btn-sh-save-config')?.addEventListener('click', () => s
 let _sbConfig = {};
 
 async function loadScoreboard() {
+  loadSbNotifications();
   try {
     const d = await api('GET', '/admin/scoreboard');
     _sbConfig = d.config || {};
@@ -6140,3 +6141,23 @@ document.getElementById('btn-sb-add-task')?.addEventListener('click', () => sbAd
 document.getElementById('btn-create-user')?.addEventListener('click', () => createUser());
 document.getElementById('btn-submit-pw-change')?.addEventListener('click', () => submitPasswordChange());
 document.getElementById('btn-cancel-pw-change')?.addEventListener('click', () => cancelPasswordChange());
+async function loadSbNotifications() {
+  try {
+    const d = await apiFetch('/admin/scoreboard/notifications');
+    const el = document.getElementById('sb-blind-names');
+    if (el) el.value = d.blind_reminder_names || '';
+  } catch(e) { console.warn('loadSbNotifications', e); }
+}
+
+async function sbSaveNotifications() {
+  const names = (document.getElementById('sb-blind-names')?.value || '').trim();
+  if (!names) return;
+  try {
+    await apiFetch('/admin/scoreboard/notifications', {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({blind_reminder_names: names}),
+    });
+    showToast('Blind reminder names saved.');
+  } catch(e) { showToast('Save failed: ' + e.message, true); }
+}

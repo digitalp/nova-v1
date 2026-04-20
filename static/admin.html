@@ -1465,7 +1465,25 @@
         </div>
         <div id="sb-logs-table" style="font-size:12px;overflow-x:auto;"></div>
       </div>
-    </div>
+    
+        <!-- Notifications card -->
+        <div class="card" id="sb-notif-card">
+          <div class="card-header"><h3 class="card-title">Notifications</h3></div>
+          <div class="card-body">
+            <div class="form-group">
+              <label class="form-label">Blind reminder &mdash; who to address</label>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <input type="text" id="sb-blind-names" class="form-input" style="flex:1;"
+                  placeholder="e.g. Jason, Miya, Joel or Tse">
+                <button class="btn btn-primary" onclick="sbSaveNotifications()">Save</button>
+              </div>
+              <div style="color:#6b7b95;font-size:0.78rem;margin-top:4px;">
+                Read aloud in the nightly blind-close reminder at 20:00.
+              </div>
+            </div>
+          </div>
+        </div>
+</div>
 
         <div id="section-users" class="section">
       <div class="page-header">

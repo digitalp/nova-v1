@@ -150,3 +150,30 @@ async def manual_log(request: Request, container: AppContainer = Depends(get_con
         return JSONResponse({"ok": False, "error": "task_id and person required"}, status_code=400)
     log_id = svc.record_chore(person, task_id, task["label"], task["points"], verified=True)
     return {"ok": True, "log_id": log_id}
+
+
+@router.get("/scoreboard/notifications")
+async def get_notifications(request: Request, container: AppContainer = Depends(get_container)):
+    _require_session(request, min_role="viewer")
+    from avatar_backend.services.home_runtime import load_home_runtime_config
+    rt = load_home_runtime_config()
+    return {
+        "blind_reminder_names": rt.blind_reminder_names,
+        "blind_check_camera": rt.blind_check_camera,
+    }
+
+
+@router.patch("/scoreboard/notifications")
+async def update_notifications(request: Request, container: AppContainer = Depends(get_container)):
+    _require_session(request, min_role="admin")
+    import json as _json
+    from avatar_backend.services.home_runtime import _RUNTIME_FILE
+    body = await request.json()
+    raw = _json.loads(_RUNTIME_FILE.read_text()) if _RUNTIME_FILE.exists() else {}
+    if "blind_reminder_names" in body:
+        raw["blind_reminder_names"] = str(body["blind_reminder_names"]).strip()
+    if "blind_check_camera" in body:
+        raw["blind_check_camera"] = str(body["blind_check_camera"]).strip()
+    out = _json.dumps(raw, indent=2, sort_keys=True) + chr(10)
+    _RUNTIME_FILE.write_text(out)
+    return {"ok": True}
