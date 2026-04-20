@@ -25,7 +25,8 @@
         "prayed",
         "said our prayer",
         "morning prayers"
-      ]
+      ],
+      "assigned_to": []
     },
     {
       "id": "make_bed",
@@ -46,7 +47,8 @@
         "made bed",
         "tidied my bed",
         "made up bed"
-      ]
+      ],
+      "assigned_to": []
     },
     {
       "id": "meal_prayer",
@@ -68,7 +70,8 @@
         "prayer before meal",
         "blessed the food",
         "prayed before eating"
-      ]
+      ],
+      "assigned_to": []
     },
     {
       "id": "empty_toilet_bin",
@@ -89,7 +92,8 @@
         "toilet bin",
         "bathroom bin",
         "empty toilet bin"
-      ]
+      ],
+      "assigned_to": []
     },
     {
       "id": "tidy_bedroom",
@@ -112,7 +116,8 @@
         "cleaned my room",
         "tidy bedroom",
         "tidy room"
-      ]
+      ],
+      "assigned_to": []
     },
     {
       "id": "empty_kitchen_bin",
@@ -134,7 +139,8 @@
         "kitchen bin",
         "emptied the bin",
         "empty kitchen bin"
-      ]
+      ],
+      "assigned_to": []
     },
     {
       "id": "tidy_living_room",
@@ -157,7 +163,8 @@
         "cleaned living room",
         "tidy living room",
         "tidied sitting room"
-      ]
+      ],
+      "assigned_to": []
     },
     {
       "id": "load_dishwasher",
@@ -180,7 +187,8 @@
         "unloaded dishwasher",
         "emptied dishwasher",
         "put away dishes"
-      ]
+      ],
+      "assigned_to": []
     },
     {
       "id": "wipe_kitchen",
@@ -203,7 +211,8 @@
         "wiped surfaces",
         "cleaned surfaces",
         "wiped the kitchen"
-      ]
+      ],
+      "assigned_to": []
     },
     {
       "id": "clear_table",
@@ -221,7 +230,8 @@
         "tidied table",
         "cleared up after dinner",
         "cleared up after eating"
-      ]
+      ],
+      "assigned_to": []
     },
     {
       "id": "hoover_living_room",
@@ -245,7 +255,8 @@
         "hoovered living room",
         "vacuumed living room",
         "done the hoovering"
-      ]
+      ],
+      "assigned_to": []
     },
     {
       "id": "take_recycling",
@@ -261,7 +272,8 @@
         "took out recycling",
         "put out recycling",
         "taken recycling out"
-      ]
+      ],
+      "assigned_to": []
     }
   ]
 }

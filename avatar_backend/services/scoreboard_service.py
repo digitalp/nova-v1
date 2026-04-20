@@ -276,6 +276,12 @@ class ScoreboardService:
             if task is None:
                 return f"I don't recognise '{task_id}' as a tracked chore. Known tasks: {', '.join(t['id'] for t in cfg.get('tasks', []))}."
 
+        # Check assignment — if task is assigned to specific members, only they can log it
+        assigned_to = task.get("assigned_to", [])
+        if assigned_to and person not in [m.lower() for m in assigned_to]:
+            assigned_names = ", ".join(m.title() for m in assigned_to)
+            return f"This task is assigned to {assigned_names}, not {person.title()}."
+
         label = task["label"]
         points = task["points"]
         cooldown_h = task.get("cooldown_hours", 16)

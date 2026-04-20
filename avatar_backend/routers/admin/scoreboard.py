@@ -67,12 +67,55 @@ async def update_task(task_id: str, request: Request, container: AppContainer = 
     updated = False
     for t in cfg.get("tasks", []):
         if t["id"] == task_id:
-            for key in ("label", "points", "cooldown_hours", "verification", "camera_entity_id", "requires_approval"):
+            for key in ("label", "points", "cooldown_hours", "verification", "camera_entity_id", "requires_approval", "assigned_to", "reminders", "keywords"):
                 if key in body:
                     t[key] = body[key]
             updated = True
             break
     if not updated:
+        return JSONResponse({"ok": False, "error": "Task not found"}, status_code=404)
+    svc.save_config(cfg)
+    return {"ok": True}
+
+
+@router.post("/scoreboard/tasks")
+async def add_task(request: Request, container: AppContainer = Depends(get_container)):
+    """Add a new task to the scoreboard config."""
+    _require_session(request, min_role="admin")
+    body = await request.json()
+    svc = _svc(container)
+    cfg = svc.get_config()
+    task_id = str(body.get("id") or "").strip().lower().replace(" ", "_")
+    if not task_id or not body.get("label"):
+        return JSONResponse({"ok": False, "error": "id and label required"}, status_code=400)
+    if any(t["id"] == task_id for t in cfg.get("tasks", [])):
+        return JSONResponse({"ok": False, "error": "Task id already exists"}, status_code=409)
+    new_task = {
+        "id": task_id,
+        "label": str(body.get("label", "")).strip(),
+        "points": int(body.get("points", 5)),
+        "cooldown_hours": int(body.get("cooldown_hours", 16)),
+        "verification": str(body.get("verification", "honour")),
+        "camera_entity_id": body.get("camera_entity_id") or None,
+        "requires_approval": bool(body.get("requires_approval", False)),
+        "assigned_to": body.get("assigned_to") or [],
+        "reminders": body.get("reminders") or [],
+        "keywords": body.get("keywords") or [],
+    }
+    cfg.setdefault("tasks", []).append(new_task)
+    svc.save_config(cfg)
+    return {"ok": True, "task": new_task}
+
+
+@router.delete("/scoreboard/tasks/{task_id}")
+async def delete_task(task_id: str, request: Request, container: AppContainer = Depends(get_container)):
+    """Remove a task from the scoreboard config."""
+    _require_session(request, min_role="admin")
+    svc = _svc(container)
+    cfg = svc.get_config()
+    before = len(cfg.get("tasks", []))
+    cfg["tasks"] = [t for t in cfg.get("tasks", []) if t["id"] != task_id]
+    if len(cfg["tasks"]) == before:
         return JSONResponse({"ok": False, "error": "Task not found"}, status_code=404)
     svc.save_config(cfg)
     return {"ok": True}

@@ -5924,12 +5924,16 @@ document.getElementById('btn-sh-save-config')?.addEventListener('click', () => s
 // ══════════════════════════════════════════════════════════════════
 // Scoreboard
 // ══════════════════════════════════════════════════════════════════
+let _sbConfig = {};
+
 async function loadScoreboard() {
   try {
     const d = await api('GET', '/admin/scoreboard');
+    _sbConfig = d.config || {};
     _renderSbLeaderboard(d.weekly || []);
     _renderSbRecent(d.recent || []);
-    _populateSbTaskSelect(d.config || {});
+    _populateSbSelects(_sbConfig);
+    _renderSbTasks(_sbConfig);
   } catch (e) { console.error('loadScoreboard', e); }
 }
 
@@ -5965,10 +5969,92 @@ function _renderSbRecent(recent) {
     }).join('') + '</tbody></table>';
 }
 
-function _populateSbTaskSelect(cfg) {
-  const sel = document.getElementById('sb-award-task');
-  if (!sel) return;
-  sel.innerHTML = (cfg.tasks || []).map(t => `<option value="${t.id}">${t.label} (${t.points}pts)</option>`).join('');
+function _populateSbSelects(cfg) {
+  const taskSel = document.getElementById('sb-award-task');
+  if (taskSel) taskSel.innerHTML = (cfg.tasks || []).map(t => `<option value="${t.id}">${t.label} (${t.points}pts)</option>`).join('');
+
+  const members = cfg.members || [];
+  const personSel = document.getElementById('sb-award-person');
+  if (personSel) personSel.innerHTML = members.map(m => `<option value="${m}">${m.charAt(0).toUpperCase()+m.slice(1)}</option>`).join('');
+
+  // Checkboxes for assign-to in add-task form
+  const assignDiv = document.getElementById('sb-new-assigned');
+  if (assignDiv) {
+    assignDiv.innerHTML = members.map(m => `
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;">
+        <input type="checkbox" name="sb-assign" value="${m}"> ${m.charAt(0).toUpperCase()+m.slice(1)}
+      </label>`).join('');
+  }
+}
+
+function _renderSbTasks(cfg) {
+  const el = document.getElementById('sb-tasks-list');
+  if (!el) return;
+  const members = cfg.members || [];
+  const tasks = cfg.tasks || [];
+  if (!tasks.length) { el.innerHTML = '<span style="color:var(--muted)">No tasks configured.</span>'; return; }
+  el.innerHTML = '<table style="width:100%;border-collapse:collapse;">' +
+    '<thead><tr style="color:var(--muted);font-size:12px;text-align:left;">' +
+    '<th style="padding:4px 8px;">Task</th><th style="padding:4px 8px;">Pts</th>' +
+    '<th style="padding:4px 8px;">Verify</th><th style="padding:4px 8px;">Assigned To</th><th style="padding:4px 8px;"></th>' +
+    '</tr></thead><tbody>' +
+    tasks.map(t => {
+      const assigned = (t.assigned_to && t.assigned_to.length) ? t.assigned_to.join(', ') : 'Everyone';
+      const assignCheckboxes = members.map(m => `
+        <label style="display:flex;align-items:center;gap:3px;font-size:11px;white-space:nowrap;">
+          <input type="checkbox" onchange="sbToggleAssign('${t.id}','${m}',this.checked)" ${(t.assigned_to||[]).includes(m)?'checked':''}>
+          ${m.charAt(0).toUpperCase()+m.slice(1)}
+        </label>`).join('');
+      return `<tr style="border-top:1px solid var(--border);">
+        <td style="padding:6px 8px;font-weight:600;">${t.label}<div style="font-size:10px;color:var(--muted);">${t.id}</div></td>
+        <td style="padding:6px 8px;color:var(--accent);">${t.points}</td>
+        <td style="padding:6px 8px;">${t.verification}</td>
+        <td style="padding:6px 8px;"><div style="display:flex;gap:8px;flex-wrap:wrap;">${assignCheckboxes}</div></td>
+        <td style="padding:6px 8px;"><button class="btn btn-outline" style="font-size:11px;padding:2px 8px;color:#f87171;" onclick="sbDeleteTask('${t.id}')">Delete</button></td>
+      </tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+async function sbToggleAssign(taskId, member, checked) {
+  const cfg = _sbConfig;
+  const task = (cfg.tasks||[]).find(t => t.id === taskId);
+  if (!task) return;
+  const assigned = task.assigned_to || [];
+  if (checked && !assigned.includes(member)) assigned.push(member);
+  if (!checked) task.assigned_to = assigned.filter(m => m !== member);
+  else task.assigned_to = assigned;
+  try {
+    await api('PATCH', '/admin/scoreboard/tasks/' + taskId, { assigned_to: task.assigned_to });
+  } catch(e) { toast('Failed to update assignment', 'err'); }
+}
+
+async function sbDeleteTask(taskId) {
+  if (!confirm(`Delete task "${taskId}"? This cannot be undone.`)) return;
+  try {
+    const r = await api('DELETE', '/admin/scoreboard/tasks/' + taskId);
+    if (r.ok) { toast('Task deleted', 'ok'); loadScoreboard(); }
+    else toast(r.error || 'Error', 'err');
+  } catch(e) { toast('Error', 'err'); }
+}
+
+async function sbAddTask() {
+  const id = document.getElementById('sb-new-id')?.value.trim();
+  const label = document.getElementById('sb-new-label')?.value.trim();
+  const points = parseInt(document.getElementById('sb-new-points')?.value || '5');
+  const cooldown = parseInt(document.getElementById('sb-new-cooldown')?.value || '16');
+  const verification = document.getElementById('sb-new-verification')?.value || 'honour';
+  const keywords = (document.getElementById('sb-new-keywords')?.value || '').split(',').map(s=>s.trim()).filter(Boolean);
+  const assigned_to = [...document.querySelectorAll('input[name="sb-assign"]:checked')].map(cb => cb.value);
+  const msg = document.getElementById('sb-add-task-msg');
+  if (!id || !label) { if (msg) msg.textContent = 'ID and Label are required.'; return; }
+  try {
+    const r = await api('POST', '/admin/scoreboard/tasks', { id, label, points, cooldown_hours: cooldown, verification, keywords, assigned_to });
+    if (r.ok) {
+      if (msg) msg.textContent = 'Task added!';
+      loadScoreboard();
+      ['sb-new-id','sb-new-label','sb-new-keywords'].forEach(id => { const el = document.getElementById(id); if(el) el.value=''; });
+    } else { if (msg) msg.textContent = r.error || 'Error'; }
+  } catch(e) { if (msg) msg.textContent = 'Error: ' + e.message; }
 }
 
 async function sbDeleteLog(id) {
@@ -5980,10 +6066,10 @@ async function sbDeleteLog(id) {
 }
 
 async function sbAward() {
-  const person = document.getElementById('sb-award-person').value.trim();
-  const taskId = document.getElementById('sb-award-task').value;
+  const person = document.getElementById('sb-award-person')?.value || '';
+  const taskId = document.getElementById('sb-award-task')?.value || '';
   const msg = document.getElementById('sb-award-msg');
-  if (!person || !taskId) { if (msg) msg.textContent = 'Fill in person and task.'; return; }
+  if (!person || !taskId) { if (msg) msg.textContent = 'Select person and task.'; return; }
   try {
     const r = await api('POST', '/admin/scoreboard/log', { person, task_id: taskId });
     if (msg) msg.textContent = r.ok ? 'Points awarded!' : (r.error || 'Error');
@@ -6021,6 +6107,7 @@ document.getElementById('btn-refresh-faces')?.addEventListener('click', () => lo
 document.getElementById('btn-sb-refresh')?.addEventListener('click', () => loadScoreboard());
 document.getElementById('btn-sb-award')?.addEventListener('click', () => sbAward());
 document.getElementById('btn-sb-logs')?.addEventListener('click', () => sbLoadLogs());
+document.getElementById('btn-sb-add-task')?.addEventListener('click', () => sbAddTask());
 
 // -- Users --
 document.getElementById('btn-create-user')?.addEventListener('click', () => createUser());

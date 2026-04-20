@@ -679,6 +679,23 @@
     .sb-medal { font-size: 16px; width: 20px; text-align: center; }
     .sb-name { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.9); flex: 1; }
     .sb-pts { font-size: 13px; font-weight: 700; color: #7dd3fc; }
+    #sb-toggle-btn {
+      position: fixed;
+      bottom: 16px;
+      left: 16px;
+      background: rgba(10,14,26,0.7);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      color: rgba(255,255,255,0.55);
+      font-size: 11px;
+      padding: 5px 10px;
+      cursor: pointer;
+      z-index: 91;
+      transition: color 0.2s, border-color 0.2s;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    #sb-toggle-btn:hover { color: rgba(255,255,255,0.9); border-color: rgba(255,255,255,0.3); }
   </style>
 </head>
 <body>
@@ -711,6 +728,7 @@
     <div class="sb-title">This Week</div>
     <div id="sb-widget-rows"></div>
   </div>
+  <button id="sb-toggle-btn" title="Toggle scoreboard">🏆</button>
 
     <!-- Weather Card (Dribbble-inspired, right side of avatar) -->
   <div id="weather-card">
@@ -2940,12 +2958,31 @@ setTimeout(_initWeatherCard, 200);
 // ── Scoreboard widget ─────────────────────────────────────────────
 const _medals = ['🥇','🥈','🥉'];
 
+let _sbWidgetVisible = localStorage.getItem('nova_sb_visible') !== 'false';
+
 function _initScoreboardWidget() {
   const el = document.getElementById('scoreboard-widget');
+  const btn = document.getElementById('sb-toggle-btn');
   if (!el) return;
   _fetchScoreboardWidget();
-  setInterval(_fetchScoreboardWidget, 120000); // refresh every 2 min
-  setTimeout(() => el.classList.add('on'), 2000);
+  setInterval(_fetchScoreboardWidget, 120000);
+  setTimeout(() => {
+    if (_sbWidgetVisible) el.classList.add('on');
+    _sbUpdateToggleBtn();
+  }, 2000);
+  if (btn) btn.addEventListener('click', () => {
+    _sbWidgetVisible = !_sbWidgetVisible;
+    localStorage.setItem('nova_sb_visible', _sbWidgetVisible);
+    el.classList.toggle('on', _sbWidgetVisible);
+    _sbUpdateToggleBtn();
+  });
+}
+
+function _sbUpdateToggleBtn() {
+  const btn = document.getElementById('sb-toggle-btn');
+  if (!btn) return;
+  btn.style.color = _sbWidgetVisible ? 'rgba(125,211,252,0.9)' : 'rgba(255,255,255,0.35)';
+  btn.title = _sbWidgetVisible ? 'Hide scoreboard' : 'Show scoreboard';
 }
 
 async function _fetchScoreboardWidget() {

@@ -1385,21 +1385,66 @@
         <div id="sb-recent" style="font-size:13px;"></div>
         <button class="btn btn-outline mt-3" id="btn-sb-refresh" style="font-size:12px;">Refresh</button>
       </div>
+
       <div class="card">
         <div class="card-title">Award Points (Manual)</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
           <div>
             <label style="font-size:12px;display:block;margin-bottom:4px;">Person</label>
-            <input id="sb-award-person" class="input-field" style="width:120px;" placeholder="penn">
+            <select id="sb-award-person" class="input-field" style="width:130px;"></select>
           </div>
           <div>
             <label style="font-size:12px;display:block;margin-bottom:4px;">Task</label>
-            <select id="sb-award-task" class="input-field" style="width:200px;"></select>
+            <select id="sb-award-task" class="input-field" style="width:220px;"></select>
           </div>
           <button class="btn btn-primary" id="btn-sb-award">Award Points</button>
         </div>
         <div id="sb-award-msg" style="margin-top:8px;font-size:13px;color:var(--accent);"></div>
       </div>
+
+      <div class="card">
+        <div class="card-title">Tasks</div>
+        <div id="sb-tasks-list" style="font-size:13px;margin-bottom:16px;"></div>
+        <details style="margin-top:8px;">
+          <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--accent);user-select:none;">+ Add New Task</summary>
+          <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div>
+              <label style="font-size:12px;display:block;margin-bottom:4px;">Task ID (slug)</label>
+              <input id="sb-new-id" class="input-field" placeholder="e.g. clean_shoes">
+            </div>
+            <div>
+              <label style="font-size:12px;display:block;margin-bottom:4px;">Label</label>
+              <input id="sb-new-label" class="input-field" placeholder="Clean Shoes">
+            </div>
+            <div>
+              <label style="font-size:12px;display:block;margin-bottom:4px;">Points</label>
+              <input id="sb-new-points" class="input-field" type="number" value="5" style="width:80px;">
+            </div>
+            <div>
+              <label style="font-size:12px;display:block;margin-bottom:4px;">Cooldown (hours)</label>
+              <input id="sb-new-cooldown" class="input-field" type="number" value="16" style="width:80px;">
+            </div>
+            <div>
+              <label style="font-size:12px;display:block;margin-bottom:4px;">Verification</label>
+              <select id="sb-new-verification" class="input-field">
+                <option value="honour">Honour</option>
+                <option value="camera">Camera</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;display:block;margin-bottom:4px;">Assigned To (leave blank = everyone)</label>
+              <div id="sb-new-assigned" style="display:flex;gap:6px;flex-wrap:wrap;padding-top:4px;"></div>
+            </div>
+            <div style="grid-column:1/-1;">
+              <label style="font-size:12px;display:block;margin-bottom:4px;">Keywords (comma-separated)</label>
+              <input id="sb-new-keywords" class="input-field" placeholder="cleaned shoes, wiped shoes">
+            </div>
+          </div>
+          <button class="btn btn-primary mt-3" id="btn-sb-add-task">Add Task</button>
+          <div id="sb-add-task-msg" style="margin-top:6px;font-size:12px;color:var(--accent);"></div>
+        </details>
+      </div>
+
       <div class="card">
         <div class="card-title">Log History</div>
         <div style="display:flex;gap:8px;margin-bottom:8px;">
