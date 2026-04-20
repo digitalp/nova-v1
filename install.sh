@@ -483,6 +483,14 @@ SPEAKERS=${INPUT_SPEAKERS:-}
 
 # Public URL used to serve synthesised audio to speakers (must be reachable from HA)
 PUBLIC_URL=http://$(hostname -I | awk '{print \$1}'):${INPUT_PORT}
+
+# Blue Iris NVR (optional — enables BI snapshot fallback, living-room sweep, blind-check loop)
+BLUEIRIS_URL=
+BLUEIRIS_USER=
+BLUEIRIS_PASSWORD=
+
+# CodeProject.AI (optional — enables face recognition, webcam greeting, object/plate detection)
+CODEPROJECT_AI_URL=
 ENV_EOF
 
 chown "${SERVICE_USER}:${SERVICE_USER}" "${INSTALL_DIR}/.env"
