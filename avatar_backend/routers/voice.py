@@ -214,8 +214,13 @@ async def greet_face(request: Request, container: AppContainer = Depends(get_con
     tts = getattr(container, "tts_service", None)
     if tts is None:
         return JSONResponse({"error": "TTS not available"}, status_code=503)
-    wav_bytes, _ = await tts.synthesise_with_timing(msg)
-    return _Resp(content=wav_bytes, media_type="audio/wav")
+    import base64 as _b64
+    wav_bytes, word_timings = await tts.synthesise_with_timing(msg)
+    return JSONResponse({
+        "wav_b64": _b64.b64encode(wav_bytes).decode(),
+        "word_timings": word_timings,
+        "message": msg,
+    })
 
 @router.post("/face/recognize", dependencies=[Depends(verify_api_key)])
 async def recognize_face(request: Request, container: AppContainer = Depends(get_container)):

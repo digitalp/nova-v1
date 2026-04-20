@@ -1078,10 +1078,15 @@ async function _faceGreetTick() {
       body: JSON.stringify({ name }),
     });
     if (!resp.ok) return;
-    const wavBuffer = await resp.arrayBuffer();
-    if (!wavBuffer || wavBuffer.byteLength < 100) return;
-    // Estimate playback duration from WAV size (22050Hz mono 16-bit)
-    const durationMs = Math.max(3000, ((wavBuffer.byteLength - 44) / 22050 / 2 * 1000) + 800);
+    const data = await resp.json();
+    if (!data.wav_b64) return;
+    // Decode base64 WAV
+    const wavBuffer = Uint8Array.from(atob(data.wav_b64), c => c.charCodeAt(0)).buffer;
+    // Set word timings so playWav drives lip sync
+    pendingWordTimings = data.word_timings || null;
+    pendingWordTimingsTurnId = null;
+    // Estimate duration for idle timeout
+    const durationMs = Math.max(3000, ((wavBuffer.byteLength - 44) / 24000 / 2 * 1000) + 800);
     handleState('speaking');
     lastResponseWasQuestion = true; // auto-arm mic after greeting
     await playWav(wavBuffer);
