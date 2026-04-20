@@ -5581,14 +5581,19 @@ document.getElementById('train-face-file')?.addEventListener('change', function(
 });
 
 document.getElementById('btn-train-face-webcam')?.addEventListener('click', async () => {
+  const statusEl = document.getElementById('train-face-status');
+  const btn = document.getElementById('btn-train-face-webcam');
+
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-    toast('Camera requires HTTPS — use the file picker instead', 'err');
+    const msg = 'Camera requires HTTPS. Open the admin via <b>https://</b> instead of http://';
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">${msg}</span>`;
     return;
   }
-  const btn = document.getElementById('btn-train-face-webcam');
+
   if (btn) btn.textContent = 'Starting…';
+  if (statusEl) statusEl.textContent = '';
   try {
-    _trainFaceStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } });
+    _trainFaceStream = await navigator.mediaDevices.getUserMedia({ video: true });
     const vid = document.getElementById('train-face-video');
     const btns = document.getElementById('train-face-webcam-btns');
     if (vid) { vid.srcObject = _trainFaceStream; vid.style.display = 'block'; }
@@ -5596,10 +5601,11 @@ document.getElementById('btn-train-face-webcam')?.addEventListener('click', asyn
     if (btn) btn.textContent = 'Use Webcam';
   } catch (e) {
     if (btn) btn.textContent = 'Use Webcam';
-    const msg = e.name === 'NotAllowedError' ? 'Camera permission denied — check browser settings'
-              : e.name === 'NotFoundError'    ? 'No camera found on this device'
-              : 'Camera error: ' + e.message;
-    toast(msg, 'err');
+    const msg = e.name === 'NotAllowedError'        ? 'Camera permission denied — check browser settings'
+              : e.name === 'NotFoundError'           ? 'No camera found on this device'
+              : e.name === 'OverconstrainedError'    ? 'Camera constraint error: ' + e.message
+              : 'Camera error: ' + e.name + ' — ' + e.message;
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">${msg}</span>`;
   }
 });
 
