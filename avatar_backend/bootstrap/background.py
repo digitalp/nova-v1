@@ -435,6 +435,8 @@ async def _blind_check_loop(announce_fn, blueiris_service, llm_service, ha_proxy
             structlog.get_logger().warning("blind_check.error", exc=str(exc)[:120])
         await asyncio.sleep(30)
 
+
+
 def schedule_background_tasks(app: FastAPI, container) -> None:
     """Schedule all background asyncio tasks. Called after service creation."""
     container._background_tasks.append(asyncio.create_task(_restart_fully_kiosk_after_startup(app), name="kiosk_restart"))

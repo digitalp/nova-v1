@@ -1058,6 +1058,37 @@ let _micSrcNode    = null;
 let wakeVadFallbackTimer = null;  // detects SR black-hole (starts but never fires events)
 let wakeVadHealthTimer = null;    // periodically refreshes the wake listener if it goes stale
 
+
+// ── Face greeting state ──────────────────────────────────────────────────────
+const _faceGreetLastSeen = {};        // name -> timestamp last greeted
+const _FACE_GREET_COOLDOWN_MS = 30 * 60 * 1000; // 30 min between greetings per person
+
+async function _faceGreetTick() {
+  // Only greet when idle and connected — never interrupt a conversation
+  if (isBusy || recording || !wsReady || !webcamStream) return;
+  const name = await captureAndRecognizeFace();
+  if (!name || name.toLowerCase() === 'unknown') return;
+  const now = Date.now();
+  if (_faceGreetLastSeen[name] && now - _faceGreetLastSeen[name] < _FACE_GREET_COOLDOWN_MS) return;
+  _faceGreetLastSeen[name] = now;
+  try {
+    const resp = await fetch(SERVER + '/face/greet', {
+      method: 'POST',
+      headers: { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!resp.ok) return;
+    const wavBuffer = await resp.arrayBuffer();
+    if (!wavBuffer || wavBuffer.byteLength < 100) return;
+    // Estimate playback duration from WAV size (22050Hz mono 16-bit)
+    const durationMs = Math.max(3000, ((wavBuffer.byteLength - 44) / 22050 / 2 * 1000) + 800);
+    handleState('speaking');
+    lastResponseWasQuestion = true; // auto-arm mic after greeting
+    await playWav(wavBuffer);
+    setTimeout(() => { if (isBusy) handleState('idle'); }, durationMs);
+  } catch (_) {}
+}
+setInterval(_faceGreetTick, 12000); // check for faces every 12 seconds
 // ── Webcam face recognition state ────────────────────────────────────────────
 let webcamStream = null;
 let webcamVideo  = null;

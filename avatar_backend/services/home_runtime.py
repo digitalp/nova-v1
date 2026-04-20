@@ -38,6 +38,10 @@ class HomeRuntimeConfig:
     living_room_camera: str = "camera.reolink_living_room_profile000_mainstream"
     blind_check_camera: str = "camera.reolink_living_room_profile000_mainstream"
     blind_reminder_names: str = "Jason, Miya, Joel or Tse"
+    greeting_camera: str = "camera.tangu_home_hallway"
+    greeting_cooldown_minutes: int = 30
+    greeting_active_start: int = 6   # hour — don't greet before this
+    greeting_active_end: int = 23    # hour — don't greet after this
 
 
 def load_home_runtime_config() -> HomeRuntimeConfig:
@@ -77,6 +81,10 @@ def load_home_runtime_config() -> HomeRuntimeConfig:
         living_room_camera=str(raw.get("living_room_camera") or "camera.reolink_living_room_profile000_mainstream"),
         blind_check_camera=str(raw.get("blind_check_camera") or "camera.reolink_living_room_profile000_mainstream"),
         blind_reminder_names=str(raw.get("blind_reminder_names") or "Jason, Miya, Joel or Tse"),
+        greeting_camera=str(raw.get("greeting_camera") or "camera.tangu_home_hallway"),
+        greeting_cooldown_minutes=int(raw.get("greeting_cooldown_minutes") or 30),
+        greeting_active_start=int(raw.get("greeting_active_start") or 6),
+        greeting_active_end=int(raw.get("greeting_active_end") or 23),
     )
 
 

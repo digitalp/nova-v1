@@ -193,6 +193,30 @@ async def check_wake_word(request: Request, container: AppContainer = Depends(ge
 
 # ── Face recognition from browser webcam ──────────────────────────────────────
 
+
+@router.post("/face/greet", dependencies=[Depends(verify_api_key)])
+async def greet_face(request: Request, container: AppContainer = Depends(get_container)):
+    """Browser sends recognized name; returns a WAV greeting to play on that device only."""
+    from datetime import datetime as _dt
+    from fastapi.responses import Response as _Resp
+    body = await request.json()
+    name = str(body.get("name") or "").strip().title()
+    if not name:
+        return JSONResponse({"error": "name required"}, status_code=400)
+    hour = _dt.now().hour
+    if hour < 12:
+        time_phrase = "Good morning"
+    elif hour < 18:
+        time_phrase = "Good afternoon"
+    else:
+        time_phrase = "Good evening"
+    msg = time_phrase + ", " + name + "! Great to see you. Is there anything I can help you with?"
+    tts = getattr(container, "tts_service", None)
+    if tts is None:
+        return JSONResponse({"error": "TTS not available"}, status_code=503)
+    wav_bytes, _ = await tts.synthesise_with_timing(msg)
+    return _Resp(content=wav_bytes, media_type="audio/wav")
+
 @router.post("/face/recognize", dependencies=[Depends(verify_api_key)])
 async def recognize_face(request: Request, container: AppContainer = Depends(get_container)):
     """Accept a JPEG frame from the browser webcam and return recognized faces."""

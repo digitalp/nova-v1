@@ -78,6 +78,10 @@
     "binary_sensor.rk3566_device_admin",
     "binary_sensor.rk3566_kiosk_mode"
   ],
+  "greeting_active_end": 23,
+  "greeting_active_start": 6,
+  "greeting_camera": "camera.tangu_home_hallway",
+  "greeting_cooldown_minutes": 30,
   "kiosk_restart_entity": "button.rk3566_restart_browser",
   "kitchen_watch_camera": "camera.tangu_home_kitchen",
   "kitchen_watch_tasks": {
