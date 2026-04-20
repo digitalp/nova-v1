@@ -173,6 +173,16 @@ class ScoreboardService:
     def save_config(self, config: dict[str, Any]) -> None:
         self._config_path.write_text(json.dumps(config, indent=2) + "\n")
 
+
+    def get_penalties(self) -> list[dict]:
+        return self.get_config().get("penalties", [])
+
+    def get_penalty(self, penalty_id: str) -> dict | None:
+        for p in self.get_penalties():
+            if p["id"] == penalty_id:
+                return p
+        return None
+
     def get_task(self, task_id: str) -> dict[str, Any] | None:
         for t in self.get_config().get("tasks", []):
             if t["id"] == task_id:

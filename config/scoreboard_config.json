@@ -450,5 +450,42 @@
       "keywords": []
     }
   ],
-  "show_widget": true
+  "show_widget": true,
+  "penalties": [
+    {
+      "id": "rude_behaviour",
+      "label": "Rude Behaviour",
+      "points": 10
+    },
+    {
+      "id": "lying",
+      "label": "Lying",
+      "points": 15
+    },
+    {
+      "id": "disobedience",
+      "label": "Disobedience",
+      "points": 10
+    },
+    {
+      "id": "fighting",
+      "label": "Fighting / Aggression",
+      "points": 20
+    },
+    {
+      "id": "bad_language",
+      "label": "Bad Language",
+      "points": 10
+    },
+    {
+      "id": "disrespect",
+      "label": "Disrespect to Adults",
+      "points": 15
+    },
+    {
+      "id": "damaging_property",
+      "label": "Damaging Property",
+      "points": 20
+    }
+  ]
 }

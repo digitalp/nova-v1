@@ -180,6 +180,9 @@ class HAProxy:
         if tool_call.function_name == "get_scoreboard":
             return await self._get_scoreboard(tool_call.arguments)
 
+        if tool_call.function_name == "deduct_points":
+            return await self._deduct_points(tool_call.arguments)
+
         if tool_call.function_name != "call_ha_service":
             logger.warning("ha_proxy.unknown_tool", name=tool_call.function_name)
             return ToolResult(

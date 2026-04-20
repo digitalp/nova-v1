@@ -6161,3 +6161,68 @@ async function sbSaveNotifications() {
     showToast('Blind reminder names saved.');
   } catch(e) { showToast('Save failed: ' + e.message, true); }
 }
+
+async function loadPenalties() {
+  try {
+    const d = await api('GET', '/admin/scoreboard/penalties');
+    const penalties = d.penalties || [];
+    // Populate dropdown in Deductions card
+    const sel = document.getElementById('sb-deduct-penalty');
+    if (sel) sel.innerHTML = penalties.map(p => `<option value="${p.id}">${p.label} (-${p.points}pts)</option>`).join('');
+    // Render manage list
+    const list = document.getElementById('sb-penalties-list');
+    if (list) {
+      if (!penalties.length) {
+        list.innerHTML = '<span style="color:var(--muted);font-size:13px;">No penalty types configured.</span>';
+      } else {
+        list.innerHTML = '<table style="width:100%;border-collapse:collapse;">' +
+          '<thead><tr style="color:var(--muted);font-size:12px;text-align:left;">' +
+          '<th style="padding:4px 8px;">Label</th><th style="padding:4px 8px;">Points</th><th style="padding:4px 8px;"></th>' +
+          '</tr></thead><tbody>' +
+          penalties.map(p => `<tr>
+            <td style="padding:4px 8px;font-size:13px;">${p.label}</td>
+            <td style="padding:4px 8px;font-size:13px;color:#e53e3e;">-${p.points}</td>
+            <td style="padding:4px 8px;">
+              <button class="btn" style="padding:2px 8px;font-size:11px;" onclick="sbDeletePenalty('${p.id}')">Remove</button>
+            </td>
+          </tr>`).join('') +
+          '</tbody></table>';
+      }
+    }
+  } catch(e) { console.warn('loadPenalties', e); }
+}
+
+async function sbIssueDeduction() {
+  const person = document.getElementById('sb-deduct-person')?.value;
+  const penalty_id = document.getElementById('sb-deduct-penalty')?.value;
+  if (!person || !penalty_id) { toast('Select a member and penalty', 'err'); return; }
+  try {
+    const r = await api('POST', '/admin/scoreboard/penalty', { person, penalty_id });
+    toast(`-${r.deducted}pts deducted from ${person} for ${r.label}`, 'ok');
+    loadScoreboard();
+  } catch(e) { toast('Deduction failed: ' + e.message, 'err'); }
+}
+
+async function sbAddPenalty() {
+  const id = (document.getElementById('sb-new-penalty-id')?.value || '').trim();
+  const label = (document.getElementById('sb-new-penalty-label')?.value || '').trim();
+  const points = parseInt(document.getElementById('sb-new-penalty-points')?.value || '10');
+  if (!id || !label) { toast('ID and label required', 'err'); return; }
+  try {
+    await api('POST', '/admin/scoreboard/penalties', { id, label, points });
+    document.getElementById('sb-new-penalty-id').value = '';
+    document.getElementById('sb-new-penalty-label').value = '';
+    document.getElementById('sb-new-penalty-points').value = '10';
+    toast('Penalty type added', 'ok');
+    loadPenalties();
+  } catch(e) { toast('Failed: ' + e.message, 'err'); }
+}
+
+async function sbDeletePenalty(penalty_id) {
+  if (!confirm('Remove this penalty type?')) return;
+  try {
+    await api('DELETE', '/admin/scoreboard/penalties/' + penalty_id);
+    toast('Penalty removed', 'ok');
+    loadPenalties();
+  } catch(e) { toast('Failed: ' + e.message, 'err'); }
+}

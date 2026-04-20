@@ -177,3 +177,86 @@ async def update_notifications(request: Request, container: AppContainer = Depen
     out = _json.dumps(raw, indent=2, sort_keys=True) + chr(10)
     _RUNTIME_FILE.write_text(out)
     return {"ok": True}
+
+
+@router.get("/scoreboard/penalties")
+async def get_penalties(request: Request, container: AppContainer = Depends(get_container)):
+    _require_session(request, min_role="viewer")
+    return {"penalties": _svc(container).get_penalties()}
+
+
+@router.post("/scoreboard/penalties")
+async def add_penalty(request: Request, container: AppContainer = Depends(get_container)):
+    _require_session(request, min_role="admin")
+    body = await request.json()
+    svc = _svc(container)
+    cfg = svc.get_config()
+    pid = str(body.get("id") or "").strip().lower().replace(" ", "_")
+    if not pid or not body.get("label"):
+        return JSONResponse({"ok": False, "error": "id and label required"}, status_code=400)
+    if any(p["id"] == pid for p in cfg.get("penalties", [])):
+        return JSONResponse({"ok": False, "error": "Penalty id already exists"}, status_code=409)
+    entry = {
+        "id": pid,
+        "label": str(body["label"]).strip(),
+        "points": int(body.get("points") or 10),
+    }
+    cfg.setdefault("penalties", []).append(entry)
+    svc.save_config(cfg)
+    return {"ok": True, "penalty": entry}
+
+
+@router.patch("/scoreboard/penalties/{penalty_id}")
+async def update_penalty(penalty_id: str, request: Request, container: AppContainer = Depends(get_container)):
+    _require_session(request, min_role="admin")
+    body = await request.json()
+    svc = _svc(container)
+    cfg = svc.get_config()
+    for p in cfg.get("penalties", []):
+        if p["id"] == penalty_id:
+            if "label" in body:
+                p["label"] = str(body["label"]).strip()
+            if "points" in body:
+                p["points"] = int(body["points"])
+            svc.save_config(cfg)
+            return {"ok": True}
+    return JSONResponse({"ok": False, "error": "Penalty not found"}, status_code=404)
+
+
+@router.delete("/scoreboard/penalties/{penalty_id}")
+async def delete_penalty(penalty_id: str, request: Request, container: AppContainer = Depends(get_container)):
+    _require_session(request, min_role="admin")
+    svc = _svc(container)
+    cfg = svc.get_config()
+    before = len(cfg.get("penalties", []))
+    cfg["penalties"] = [p for p in cfg.get("penalties", []) if p["id"] != penalty_id]
+    if len(cfg["penalties"]) == before:
+        return JSONResponse({"ok": False, "error": "Penalty not found"}, status_code=404)
+    svc.save_config(cfg)
+    return {"ok": True}
+
+
+@router.post("/scoreboard/penalty")
+async def issue_penalty(request: Request, container: AppContainer = Depends(get_container)):
+    """Admin manual point deduction."""
+    _require_session(request, min_role="admin")
+    body = await request.json()
+    svc = _svc(container)
+    person = str(body.get("person") or "").strip().lower()
+    penalty_id = str(body.get("penalty_id") or "").strip()
+    custom_reason = str(body.get("custom_reason") or "").strip()
+    custom_points = int(body.get("custom_points") or 0)
+    if not person:
+        return JSONResponse({"ok": False, "error": "person required"}, status_code=400)
+    penalty = svc.get_penalty(penalty_id)
+    if penalty:
+        label = penalty["label"]
+        points = int(penalty["points"])
+    elif custom_reason and custom_points > 0:
+        label = custom_reason
+        points = custom_points
+        penalty_id = "custom"
+    else:
+        return JSONResponse({"ok": False, "error": "penalty_id not found and no custom reason/points given"}, status_code=400)
+    log_id = svc.record_chore(person, "penalty_" + penalty_id, label, -points, verified=True)
+    return {"ok": True, "log_id": log_id, "person": person, "label": label, "deducted": points}

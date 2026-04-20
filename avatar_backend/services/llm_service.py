@@ -218,6 +218,40 @@ HA_TOOLS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "deduct_points",
+            "description": (
+                "Deduct points from a family member as a penalty for bad behaviour. "
+                "Use when a parent says someone was rude, lied, fought, used bad language, "
+                "was disobedient, disrespectful, or explicitly asks to deduct/remove points. "
+                "Use penalty_id from the configured list; for unlisted reasons use custom_reason + custom_points."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "person": {
+                        "type": "string",
+                        "description": "First name of the person to penalise.",
+                    },
+                    "penalty_id": {
+                        "type": "string",
+                        "description": "Preset penalty reason ID, e.g. rude_behaviour, lying, fighting, disobedience, bad_language, disrespect, damaging_property.",
+                    },
+                    "custom_reason": {
+                        "type": "string",
+                        "description": "Free-text reason if no preset penalty_id matches.",
+                    },
+                    "custom_points": {
+                        "type": "integer",
+                        "description": "Points to deduct when using a custom reason (positive number).",
+                    },
+                },
+                "required": ["person", "penalty_id"],
+            },
+        },
+    },
 ]
 
 # Anthropic uses a slightly different tool schema format
