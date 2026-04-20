@@ -177,6 +177,9 @@ class HAProxy:
         if tool_call.function_name == "log_chore":
             return await self._log_chore(tool_call.arguments)
 
+        if tool_call.function_name == "get_scoreboard":
+            return await self._get_scoreboard(tool_call.arguments)
+
         if tool_call.function_name != "call_ha_service":
             logger.warning("ha_proxy.unknown_tool", name=tool_call.function_name)
             return ToolResult(
@@ -422,6 +425,49 @@ class HAProxy:
         result = await svc.handle_log_chore(args, ha_proxy=self, llm_service=llm)
         from avatar_backend.models.tool_result import ToolResult
         return ToolResult(success=True, message=result)
+
+    async def _get_scoreboard(self, args: dict) -> "ToolResult":
+        from avatar_backend.models.tool_result import ToolResult
+        svc = getattr(self, "_scoreboard_service", None)
+        if svc is None:
+            return ToolResult(success=False, message="Scoreboard service not available.")
+        from datetime import datetime as _dt
+        from collections import defaultdict
+        period = str(args.get("period") or "week").strip().lower()
+        lines = []
+        try:
+            if period == "today":
+                midnight = _dt.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+                logs = [l for l in svc.all_logs(days=1) if l["ts"] >= midnight]
+                if not logs:
+                    return ToolResult(success=True, message="No chores have been logged today yet.")
+                by_person: dict = defaultdict(lambda: {"count": 0, "points": 0, "tasks": []})
+                for log in logs:
+                    p = log["person"].title()
+                    by_person[p]["count"] += 1
+                    by_person[p]["points"] += log["points"]
+                    by_person[p]["tasks"].append(log["task_label"])
+                for p, d in sorted(by_person.items(), key=lambda x: -x[1]["points"]):
+                    lines.append(p + ": " + str(d["count"]) + " chore(s), " + str(d["points"]) + " pts - " + ", ".join(d["tasks"]))
+                return ToolResult(success=True, message="Today's chores: " + "; ".join(lines))
+            elif period == "week":
+                scores = svc.weekly_scores()
+                if not scores:
+                    return ToolResult(success=True, message="No chores logged this week yet.")
+                for i, s in enumerate(scores):
+                    rank = ["1st", "2nd", "3rd"][i] if i < 3 else str(i+1) + "th"
+                    lines.append(rank + ": " + s["person"].title() + " - " + str(s["points"]) + " pts (" + str(s["tasks"]) + " tasks)")
+                return ToolResult(success=True, message="Weekly scoreboard: " + "; ".join(lines))
+            else:
+                logs = svc.recent_logs(10)
+                if not logs:
+                    return ToolResult(success=True, message="No chores logged recently.")
+                for log in logs:
+                    when = _dt.fromtimestamp(log["ts"]).strftime("%a %H:%M")
+                    lines.append(log["person"].title() + ": " + log["task_label"] + " (+" + str(log["points"]) + "pts) at " + when)
+                return ToolResult(success=True, message="Recent chores: " + "; ".join(lines))
+        except Exception as exc:
+            return ToolResult(success=False, message="Error fetching scoreboard: " + str(exc))
 
     async def _play_music(self, args: dict) -> ToolResult:
         """Search Music Assistant and play the first result on a speaker."""

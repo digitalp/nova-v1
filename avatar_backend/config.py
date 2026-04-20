@@ -100,6 +100,8 @@ class Settings(BaseSettings):
 
     # ── Blue Iris ─────────────────────────────────────────────────────────
     blueiris_url: str = ""  # e.g. http://192.168.0.33:81
+    blueiris_user: str = ""
+    blueiris_password: str = ""
 
     # ── Face Recognition ──────────────────────────────────────────────────
     codeproject_ai_url: str = ""  # e.g. http://192.168.0.33:32168

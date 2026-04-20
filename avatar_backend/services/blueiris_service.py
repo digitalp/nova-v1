@@ -3,11 +3,14 @@
 Connects to Blue Iris at BI_URL (e.g. http://192.168.0.33:81) for:
 - Snapshots: /image/{camera}?q=60
 - MJPEG streams: /mjpg/{camera}
+- PTZ control via JSON API (requires BLUEIRIS_USER / BLUEIRIS_PASSWORD)
 
 Camera name mapping is configured in home_runtime.json under
 "blueiris_camera_map": {"camera.ha_entity_id": "bi_short_name"}.
 """
 from __future__ import annotations
+
+import hashlib
 
 import httpx
 import structlog
@@ -18,8 +21,11 @@ _LOGGER = structlog.get_logger()
 
 
 class BlueIrisService:
-    def __init__(self, bi_url: str = "") -> None:
+    def __init__(self, bi_url: str = "", bi_user: str = "", bi_password: str = "") -> None:
         self._bi_url = bi_url.rstrip("/")
+        self._bi_user = bi_user
+        self._bi_password = bi_password
+        self._session: str | None = None
         runtime = load_home_runtime_config()
         self._camera_map: dict[str, str] = runtime.blueiris_camera_map
 
@@ -30,6 +36,70 @@ class BlueIrisService:
     def resolve_camera(self, ha_entity_id: str) -> str | None:
         """Map an HA camera entity ID to a Blue Iris short name."""
         return self._camera_map.get(ha_entity_id)
+
+    async def _authenticate(self, client: httpx.AsyncClient) -> str | None:
+        """Authenticate with Blue Iris JSON API; returns session token or None."""
+        if not self._bi_user or not self._bi_password:
+            return None
+        url = f"{self._bi_url}/json"
+        try:
+            r1 = await client.post(url, json={"cmd": "login"}, timeout=5.0)
+            data1 = r1.json()
+            if data1.get("result") == "fail" and "IP banned" in str(data1.get("data", "")):
+                _LOGGER.warning("blueiris.ptz_ip_banned")
+                return None
+            session = data1.get("session", "")
+            if not session:
+                return None
+            pw_md5 = hashlib.md5(self._bi_password.encode()).hexdigest()
+            response = hashlib.md5(f"{self._bi_user}:{pw_md5}:{session}".encode()).hexdigest()
+            r2 = await client.post(url, json={"cmd": "login", "session": session, "response": response}, timeout=5.0)
+            data2 = r2.json()
+            if data2.get("result") == "success":
+                self._session = session
+                return session
+            _LOGGER.warning("blueiris.auth_failed", reason=data2.get("data", {}).get("reason", "unknown"))
+        except Exception as exc:
+            _LOGGER.warning("blueiris.auth_error", exc=str(exc)[:100])
+        return None
+
+    async def ptz_preset(self, bi_camera: str, preset: int) -> bool:
+        """Move camera to PTZ preset (0-indexed). Returns True on success."""
+        if not self._bi_url:
+            return False
+        # BI preset button numbers: 100=preset1, 101=preset2, ...
+        button = 100 + preset
+        url = f"{self._bi_url}/json"
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                session = await self._authenticate(client)
+                if not session:
+                    return False
+                payload = {"cmd": "ptz", "camera": bi_camera, "button": button, "session": session}
+                r = await client.post(url, json=payload, timeout=5.0)
+                result = r.json().get("result")
+                if result == "success":
+                    _LOGGER.info("blueiris.ptz_preset_ok", camera=bi_camera, preset=preset)
+                    return True
+                _LOGGER.warning("blueiris.ptz_preset_failed", camera=bi_camera, preset=preset, result=result)
+        except Exception as exc:
+            _LOGGER.warning("blueiris.ptz_error", camera=bi_camera, exc=str(exc)[:100])
+        return False
+
+    async def fetch_snapshot_by_name(self, bi_name: str) -> bytes | None:
+        """Fetch a JPEG snapshot by Blue Iris short name (no auth needed from LAN)."""
+        if not self._bi_url or not bi_name:
+            return None
+        url = f"{self._bi_url}/image/{bi_name}?q=70"
+        try:
+            async with httpx.AsyncClient(timeout=6.0) as client:
+                resp = await client.get(url)
+                if resp.status_code == 200 and len(resp.content) > 2000:
+                    return resp.content
+                _LOGGER.warning("blueiris.snapshot_failed", camera=bi_name, status=resp.status_code)
+        except Exception as exc:
+            _LOGGER.warning("blueiris.snapshot_error", camera=bi_name, exc=str(exc)[:100])
+        return None
 
     async def fetch_snapshot(self, ha_entity_id: str) -> bytes | None:
         """Fetch a JPEG snapshot directly from Blue Iris."""

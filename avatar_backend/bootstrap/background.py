@@ -116,8 +116,7 @@ async def _kitchen_watch_loop(announce_fn, scoreboard_service, ha_proxy, llm_ser
     KITCHEN_CAM  = "camera.tangu_home_kitchen"
     # task_id -> min cooldown between announcements (seconds)
     WATCH_TASKS  = {
-        "empty_kitchen_bin": 7200,   # 2h between reminders
-        "load_dishwasher":   7200,
+        "empty_kitchen_bin": 7200,
     }
     last_announced: dict[str, float] = {}
 
@@ -136,13 +135,15 @@ async def _kitchen_watch_loop(announce_fn, scoreboard_service, ha_proxy, llm_ser
 
                 if image_bytes:
                     prompt = (
-                        "Look carefully at this kitchen image and answer TWO questions: " "1. BIN: Is the kitchen bin overflowing or visibly full? Answer YES or NO. " "2. SINK: Is the sink noticeably full of dishes or cluttered? Answer YES or NO. " "Reply in exactly this format - BIN: YES/NO SINK: YES/NO"
+                        "Look at this kitchen image. "
+                        "Is the kitchen bin overflowing or visibly full? "
+                        "Answer YES or NO only."
                     )
                     try:
                         description = await llm_service.describe_image(image_bytes, prompt=prompt)
                         desc_upper = description.upper()
-                        bin_full  = "BIN: YES"  in desc_upper
-                        sink_full = "SINK: YES" in desc_upper
+                        bin_full  = "YES" in desc_upper
+                        sink_full = False
                         logger.debug("kitchen_watch.result", bin_full=bin_full, sink_full=sink_full, desc=description[:120])
                     except Exception as exc:
                         logger.debug("kitchen_watch.llm_failed", exc=str(exc)[:80])
@@ -188,6 +189,164 @@ async def _kitchen_watch_loop(announce_fn, scoreboard_service, ha_proxy, llm_ser
             structlog.get_logger().warning("kitchen_watch.error", exc=str(exc)[:120])
         await asyncio.sleep(interval_m * 60)
 
+
+
+async def _living_room_sweep_loop(announce_fn, scoreboard_service, blueiris_service,
+                                   llm_service, ha_proxy, interval_m: int = 30) -> None:
+    """Weekdays 15:00-20:00: PTZ sweep of living room, announce if messy."""
+    from datetime import datetime as _dt
+    import time as _time
+    await asyncio.sleep(180)
+    logger = structlog.get_logger()
+    WINDOW_START  = (15, 0)
+    WINDOW_END    = (20, 0)
+    WEEKDAYS      = {0, 1, 2, 3, 4}  # Mon-Fri
+    LR_TASK_ID    = "tidy_living_room"
+    LR_BI_CAM     = "sittingroom"
+    LR_HA_CAM     = "camera.reolink_living_room_profile000_mainstream"
+    # PTZ preset numbers (Blue Iris: 100=preset1, 101=preset2, ...)
+    PTZ_PRESETS   = [0, 1, 2]  # sweep positions; empty = no PTZ, single snapshot
+    COOLDOWN_S    = 7200
+    last_announced: float = 0.0
+
+    while True:
+        try:
+            now = _dt.now()
+            if now.weekday() in WEEKDAYS:
+                h, m = now.hour, now.minute
+                in_window = (h, m) >= WINDOW_START and (h, m) < WINDOW_END
+                if in_window and (_time.time() - last_announced) >= COOLDOWN_S:
+                    task = scoreboard_service.get_task(LR_TASK_ID)
+                    assigned = (task or {}).get("assigned_to") or []
+                    members = await scoreboard_service.get_members()
+                    check_members = assigned if assigned else members
+                    already_done = any(
+                        scoreboard_service.already_logged_today(LR_TASK_ID, m)
+                        for m in check_members
+                    )
+                    if not already_done:
+                        has_ptz = bool(getattr(blueiris_service, "_bi_user", ""))
+                        positions = PTZ_PRESETS if has_ptz else [None]
+                        untidy_details = []
+
+                        for preset in positions:
+                            # Move to PTZ preset if available
+                            if preset is not None:
+                                moved = await blueiris_service.ptz_preset(LR_BI_CAM, preset)
+                                if moved:
+                                    await asyncio.sleep(3)  # let camera settle
+
+                            # Fetch snapshot: Blue Iris first, then HA
+                            image_bytes = await blueiris_service.fetch_snapshot_by_name(LR_BI_CAM)
+                            if not image_bytes:
+                                try:
+                                    image_bytes = await ha_proxy.fetch_camera_image(LR_HA_CAM)
+                                except Exception:
+                                    pass
+
+                            if not image_bytes:
+                                continue
+
+                            prompt = (
+                                "Look carefully at this living room image. "
+                                "Is the room tidy? Check: cushions straight on sofa, "
+                                "floor clear of items, no obvious mess on tables or surfaces. "
+                                "Answer YES if it looks reasonably tidy, or NO followed by a brief "
+                                "description of what needs tidying (one sentence, max 20 words)."
+                            )
+                            try:
+                                result = await llm_service.describe_image(image_bytes, prompt=prompt)
+                                logger.debug("lr_sweep.position_result", preset=preset, result=result[:120])
+                                if result.upper().startswith("NO"):
+                                    detail = result[2:].lstrip(":- ").strip()
+                                    untidy_details.append(detail)
+                            except Exception as exc:
+                                logger.debug("lr_sweep.llm_failed", preset=preset, exc=str(exc)[:80])
+
+                        if untidy_details:
+                            detail = untidy_details[0]
+                            if assigned:
+                                names = " and ".join(m.title() for m in assigned)
+                                msg = f"Hey {names}, the living room needs tidying — {detail}"
+                            else:
+                                msg = f"Can someone tidy the living room? {detail}"
+                            last_announced = _time.time()
+                            await announce_fn(msg, "normal")
+                            logger.info("lr_sweep.announced", positions_checked=len(positions),
+                                        untidy_count=len(untidy_details))
+        except Exception as exc:
+            structlog.get_logger().warning("lr_sweep.error", exc=str(exc)[:120])
+        await asyncio.sleep(interval_m * 60)
+
+
+
+
+async def _daily_chore_summary_loop(announce_fn, scoreboard_service, llm_service) -> None:
+    """Every day at 20:00 announce a summary of completed chores and scores."""
+    from datetime import datetime as _dt
+    from collections import defaultdict
+    await asyncio.sleep(60)
+    logger = structlog.get_logger()
+    last_fired_date: str = ""
+
+    while True:
+        try:
+            now = _dt.now()
+            date_str = now.strftime("%Y-%m-%d")
+            if now.hour == 20 and now.minute == 0 and last_fired_date != date_str:
+                last_fired_date = date_str
+                midnight = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+                logs = scoreboard_service.all_logs(days=1)
+                today_logs = [l for l in logs if l["ts"] >= midnight]
+
+                by_person: dict = defaultdict(lambda: {"tasks": [], "points": 0})
+                for log in today_logs:
+                    p = log["person"].title()
+                    by_person[p]["tasks"].append(log["task_label"])
+                    by_person[p]["points"] += log["points"]
+
+                weekly = scoreboard_service.weekly_scores()
+
+                if not by_person:
+                    msg = "No chores were logged today. Let us do better tomorrow everyone!"
+                else:
+                    lines = []
+                    for person, data in sorted(by_person.items(), key=lambda x: -x[1]["points"]):
+                        task_list = ", ".join(data["tasks"])
+                        lines.append(f"{person}: {data['points']} points ({task_list})")
+                    weekly_lines = [
+                        f"{s['person'].title()}: {s['points']} points this week"
+                        for s in weekly
+                    ]
+                    summary_data = (
+                        "Chores completed today: " + "; ".join(lines) +
+                        ". Weekly standings: " + ", ".join(weekly_lines) + "."
+                    )
+                    prompt = (
+                        "You are Nova, a friendly home assistant. "
+                        "Give a warm, encouraging spoken announcement (2-4 sentences) "
+                        "summarising today's chore results and the weekly scoreboard. "
+                        "Congratulate everyone who did chores. Keep it upbeat and natural "
+                        "as this will be read aloud. Data: " + summary_data
+                    )
+                    try:
+                        msg = await llm_service.complete(prompt, max_tokens=200)
+                    except Exception as exc:
+                        logger.warning("daily_summary.llm_failed", exc=str(exc)[:80])
+                        msg = "Great work today! " + " ".join(
+                            f"{p} earned {d['points']} points." for p, d in by_person.items()
+                        )
+                        if weekly:
+                            leader = weekly[0]["person"].title()
+                            msg += f" {leader} is leading this week. Keep it up everyone!"
+
+                await announce_fn(msg, "normal")
+                logger.info("daily_summary.announced", persons=list(by_person.keys()))
+        except Exception as exc:
+            structlog.get_logger().warning("daily_summary.error", exc=str(exc)[:120])
+        await asyncio.sleep(30)
+
 def schedule_background_tasks(app: FastAPI, container) -> None:
     """Schedule all background asyncio tasks. Called after service creation."""
     container._background_tasks.append(asyncio.create_task(_restart_fully_kiosk_after_startup(app), name="kiosk_restart"))
@@ -199,16 +358,4 @@ def schedule_background_tasks(app: FastAPI, container) -> None:
         container._background_tasks.append(asyncio.create_task(
             _chore_reminder_loop(container._proactive_announce, container.scoreboard_service),
             name="chore_reminders",
-        ))
-    if (getattr(container, 'scoreboard_service', None) is not None
-            and getattr(container, 'ha_proxy', None) is not None
-            and getattr(container, 'llm_service', None) is not None):
-        container._background_tasks.append(asyncio.create_task(
-            _kitchen_watch_loop(
-                container._proactive_announce,
-                container.scoreboard_service,
-                container.ha_proxy,
-                container.llm_service,
-            ),
-            name="kitchen_watch",
         ))

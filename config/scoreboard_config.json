@@ -191,30 +191,6 @@
       ]
     },
     {
-      "id": "load_dishwasher",
-      "label": "Load/Unload Dishwasher",
-      "points": 8,
-      "cooldown_hours": 8,
-      "verification": "camera",
-      "camera_entity_id": "camera.tangu_home_kitchen",
-      "camera_prompt": "Look at the kitchen. Does it look like the dishwasher has been loaded or unloaded \u2014 dishes put away, sink area tidy? Answer YES or NO.",
-      "requires_approval": false,
-      "reminders": [
-        {
-          "time": "19:30",
-          "message": "Don't forget to load or empty the dishwasher!"
-        }
-      ],
-      "keywords": [
-        "dishwasher",
-        "loaded dishwasher",
-        "unloaded dishwasher",
-        "emptied dishwasher",
-        "put away dishes"
-      ],
-      "assigned_to": []
-    },
-    {
       "id": "wipe_kitchen",
       "label": "Wipe Kitchen Surfaces",
       "points": 8,
@@ -286,7 +262,11 @@
         "vacuumed living room",
         "done the hoovering"
       ],
-      "assigned_to": []
+      "assigned_to": [
+        "jason",
+        "joel",
+        "miya"
+      ]
     },
     {
       "id": "take_recycling",
@@ -306,6 +286,168 @@
       "assigned_to": [
         "jason"
       ]
+    },
+    {
+      "id": "wash_dishes",
+      "label": "Wash Dishes",
+      "points": 8,
+      "cooldown_hours": 16,
+      "verification": "camera",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "assigned_to": [
+        "jason"
+      ],
+      "reminders": [],
+      "keywords": []
+    },
+    {
+      "id": "miya_tidy_shoes",
+      "label": "Miya Tidy Shoes",
+      "points": 5,
+      "cooldown_hours": 16,
+      "verification": "honour",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "assigned_to": [
+        "miya"
+      ],
+      "reminders": [],
+      "keywords": []
+    },
+    {
+      "id": "anye_tidy_shoes",
+      "label": "Anye Tidy Shoes",
+      "points": 5,
+      "cooldown_hours": 16,
+      "verification": "honour",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "assigned_to": [
+        "joel"
+      ],
+      "reminders": [],
+      "keywords": []
+    },
+    {
+      "id": "jason_tidy_shoes",
+      "label": "Jason Tidy Shoes",
+      "points": 5,
+      "cooldown_hours": 16,
+      "verification": "honour",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "assigned_to": [
+        "jason"
+      ],
+      "reminders": [],
+      "keywords": []
+    },
+    {
+      "id": "miya_fold_&_park_clothes",
+      "label": "Miya Fold & Park Clothes",
+      "points": 5,
+      "cooldown_hours": 16,
+      "verification": "honour",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "assigned_to": [
+        "miya"
+      ],
+      "reminders": [],
+      "keywords": []
+    },
+    {
+      "id": "anye_fold_&_park_clothes",
+      "label": "Anye Fold & Park Clothes",
+      "points": 5,
+      "cooldown_hours": 16,
+      "verification": "honour",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "assigned_to": [
+        "joel"
+      ],
+      "reminders": [],
+      "keywords": []
+    },
+    {
+      "id": "jason_fold_&_park_clothes",
+      "label": "Jason Fold & Park Clothes",
+      "points": 5,
+      "cooldown_hours": 16,
+      "verification": "honour",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "assigned_to": [
+        "jason"
+      ],
+      "reminders": [],
+      "keywords": []
+    },
+    {
+      "id": "return_from_school_clean",
+      "label": "Return From School Clean",
+      "points": 15,
+      "cooldown_hours": 16,
+      "verification": "honour",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "assigned_to": [
+        "jason",
+        "joel",
+        "miya"
+      ],
+      "reminders": [],
+      "keywords": []
+    },
+    {
+      "id": "clean_the_bathroom",
+      "label": "Clean The Bathroom",
+      "points": 5,
+      "cooldown_hours": 16,
+      "verification": "honour",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "assigned_to": [
+        "jason",
+        "joel",
+        "miya"
+      ],
+      "reminders": [],
+      "keywords": []
+    },
+    {
+      "id": "tidy_closet",
+      "label": "Tidy Closet",
+      "points": 5,
+      "cooldown_hours": 16,
+      "verification": "honour",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "assigned_to": [
+        "jason",
+        "joel",
+        "miya"
+      ],
+      "reminders": [],
+      "keywords": []
+    },
+    {
+      "id": "read_at_7pm",
+      "label": "Read at 7pm",
+      "points": 8,
+      "cooldown_hours": 16,
+      "verification": "honour",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "assigned_to": [
+        "jason",
+        "joel",
+        "miya"
+      ],
+      "reminders": [],
+      "keywords": []
     }
   ],
   "show_widget": true

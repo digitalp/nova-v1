@@ -176,7 +176,7 @@ HA_TOOLS: list[dict] = [
                 "Record that a person completed a chore and award them points on the family scoreboard. "
                 "Use when someone says they did a task like emptied the bin, made their bed, tidied their room, "
                 "said prayers, etc. Valid task_ids: morning_prayer, make_bed, meal_prayer, empty_toilet_bin, "
-                "tidy_bedroom, empty_kitchen_bin, tidy_living_room, load_dishwasher, wipe_kitchen, "
+                "tidy_bedroom, empty_kitchen_bin, tidy_living_room, wipe_kitchen, "
                 "clear_table, hoover_living_room, take_recycling."
             ),
             "parameters": {
@@ -192,6 +192,29 @@ HA_TOOLS: list[dict] = [
                     },
                 },
                 "required": ["task_id", "person"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_scoreboard",
+            "description": (
+                "Look up the family chore scoreboard. Use whenever someone asks about chores: "
+                "scores, rankings, who is winning, how many chores done today or this week, "
+                "recent activity, or any scoreboard question. "
+                "Pass a period of today, week, or recent depending on what they asked."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "period": {
+                        "type": "string",
+                        "enum": ["today", "week", "recent"],
+                        "description": "today=chores today, week=weekly scores, recent=last 10 logs",
+                    },
+                },
+                "required": ["period"],
             },
         },
     },

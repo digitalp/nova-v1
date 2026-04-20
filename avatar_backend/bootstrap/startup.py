@@ -193,7 +193,7 @@ async def bootstrap(app: FastAPI, settings, system_prompt: str) -> AppContainer:
     c.ha_proxy._music_service = c.music_service
 
     from avatar_backend.services.blueiris_service import BlueIrisService
-    c.blueiris_service = BlueIrisService(bi_url=settings.blueiris_url)
+    c.blueiris_service = BlueIrisService(bi_url=settings.blueiris_url, bi_user=settings.blueiris_user, bi_password=settings.blueiris_password)
     c.ha_proxy._blueiris_service = c.blueiris_service
     if settings.blueiris_url:
         logger.info("blueiris.configured", url=settings.blueiris_url)
