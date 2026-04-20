@@ -1,0 +1,180 @@
+{
+  "blueiris_camera_map": {
+    "camera.outdoor2_profile000_mainstream": "outdoor_2",
+    "camera.reolink_door_bell_profile000_mainstream": "doorbell",
+    "camera.reolink_profile000_mainstream": "Outdoor1",
+    "camera.tangu_home_door_bell": "doorbell",
+    "camera.tangu_home_hallway": "hallway",
+    "camera.tangu_home_kitchen": "kitchen",
+    "camera.tangu_home_sitting_room": "sittingroom"
+  },
+  "bypass_global_motion_cameras": [
+    "camera.outdoor2_profile000_mainstream"
+  ],
+  "camera_aliases": {
+    "camera.doorbell": "camera.reolink_video_doorbell_poe_fluent",
+    "camera.front_door": "camera.reolink_video_doorbell_poe_fluent",
+    "camera.living_room": "camera.reolink_living_room_profile000_mainstream",
+    "camera.outdoor": "camera.rlc_410w_fluent",
+    "camera.outdoor_1": "camera.rlc_410w_fluent",
+    "camera.outdoor_2": "camera.rlc_1224a_fluent"
+  },
+  "camera_labels": {
+    "camera.outdoor2_profile000_mainstream": "Driveway 2 Camera",
+    "camera.reolink_door_bell_profile000_mainstream": "Door Bell (HD)",
+    "camera.reolink_living_room_profile000_mainstream": "Living Room",
+    "camera.reolink_profile000_mainstream": "Driveway Camera",
+    "camera.reolink_video_doorbell_poe_fluent": "Door Bell",
+    "camera.rlc_1224a_fluent": "Rear Garden",
+    "camera.rlc_410w_fluent": "Driveway",
+    "camera.tangu_home_door_bell": "Front Door Bell"
+  },
+  "camera_vision_prompts": {
+    "camera.outdoor2_profile000_mainstream": "This is a security camera snapshot of the rear garden / outdoor area. Only alert if you see a person, an unfamiliar vehicle, an animal, or unusual activity. If motion was caused solely by plants moving in the wind, lighting changes, or has no obvious cause, reply with exactly: NO_MOTION. Otherwise describe what you see in 1-2 sentences. Do NOT mention age, race, gender or personal attributes.",
+    "camera.reolink_profile000_mainstream": "This is a security camera snapshot of a residential driveway. Only alert if you see: a person, an unfamiliar vehicle, an unexpected object, or unusual activity. If motion was caused solely by a parked car (e.g. lighting change) or has no obvious cause, reply with exactly: NO_MOTION. Otherwise describe what you see in 1-2 sentences. Do NOT mention age, race, gender or personal attributes. If you can see someone making a delivery (carrying a parcel, delivery uniform, or liveried van), append a new line with EXACTLY: DELIVERY: <company> where <company> is one of: DHL, Royal Mail, Amazon, Evri, or Unknown. Only include the DELIVERY line if you are confident a delivery is taking place.",
+    "camera.tangu_home_door_bell": "This is a snapshot from a front-door security camera taken because the doorbell was just rung or a person was detected. Is there a person clearly visible at or approaching the door? If YES: describe them in one sentence \u2014 clothing colours and any items they are carrying only. Do NOT mention age, race, gender, or any personal attributes. If you can see someone making a delivery (carrying a parcel, delivery uniform, or liveried van), append a new line with EXACTLY: DELIVERY: <company> where <company> is one of: DHL, Royal Mail, Amazon, Evri, or Unknown. Only include the DELIVERY line if you are confident a delivery is taking place. If NO person is clearly visible, reply with exactly: NO_PERSON"
+  },
+  "default_doorbell_camera": "camera.reolink_video_doorbell_poe_fluent",
+  "energy_device_entities": {
+    "Denon AVR": "sensor.denon_avr_power",
+    "Fridge": "sensor.fridge_power_comp",
+    "Main Room": "sensor.main_room_power",
+    "Office": "sensor.office_space_power",
+    "Server Cabinet": "sensor.server_cabinet_current_consumption",
+    "Shed Fridge": "sensor.shed_fridge_power",
+    "Sonos": "sensor.sonos_power",
+    "Washing Machine": "sensor.washine_machine_power",
+    "Xbox": "sensor.xbox_power"
+  },
+  "energy_summary_entities": {
+    "daily_consumption": "sensor.daily_power_consumption",
+    "daily_cost": "sensor.daily_power_cost",
+    "elec_prev_cost": "sensor.octopus_energy_electricity_16p0478729_1610011140937_previous_accumulative_cost",
+    "elec_prev_kwh": "sensor.octopus_energy_electricity_16p0478729_1610011140937_previous_accumulative_consumption",
+    "elec_rate": "sensor.octopus_energy_electricity_16p0478729_1610011140937_current_rate",
+    "elec_standing": "sensor.octopus_energy_electricity_16p0478729_1610011140937_current_standing_charge",
+    "gas_daily": "sensor.daily_gas_consumption",
+    "gas_prev_cost": "sensor.octopus_energy_gas_g4p04330231600_1491216401_previous_accumulative_cost",
+    "gas_prev_kwh": "sensor.octopus_energy_gas_g4p04330231600_1491216401_previous_accumulative_consumption_kwh",
+    "gas_rate": "sensor.octopus_energy_gas_g4p04330231600_1491216401_current_rate",
+    "gas_standing": "sensor.octopus_energy_gas_g4p04330231600_1491216401_current_standing_charge",
+    "monthly_consumption": "sensor.monthly_power_consumption",
+    "monthly_cost": "sensor.monthly_power_cost",
+    "smart_elec_cost_today": "sensor.dcc_sourced_smart_electricity_meter_cost_today",
+    "smart_elec_today": "sensor.dcc_sourced_smart_electricity_meter_usage_today",
+    "smart_gas_cost_today": "sensor.dcc_sourced_smart_gas_meter_cost_today",
+    "smart_gas_today": "sensor.dcc_sourced_smart_gas_meter_usage_today",
+    "total_cost_hourly": "sensor.total_power_cost",
+    "total_power": "sensor.total_power_consumption"
+  },
+  "exclude_entities": [
+    "binary_sensor.reolink_video_doorbell_poe_vehicle",
+    "binary_sensor.reolink_video_doorbell_poe_face",
+    "binary_sensor.reolink_video_doorbell_poe_package",
+    "binary_sensor.terminator5704",
+    "binary_sensor.rk3566_device_admin",
+    "binary_sensor.rk3566_kiosk_mode"
+  ],
+  "kiosk_restart_entity": "button.rk3566_restart_browser",
+  "motion_camera_map": {
+    "binary_sensor.reolink_video_doorbell_poe_person": "camera.tangu_home_door_bell",
+    "binary_sensor.reolink_video_doorbell_poe_visitor": "camera.tangu_home_door_bell",
+    "binary_sensor.rlc_1224a_motion": "camera.outdoor2_profile000_mainstream",
+    "binary_sensor.rlc_1224a_person": "camera.outdoor2_profile000_mainstream",
+    "binary_sensor.rlc_410w_motion": "camera.reolink_profile000_mainstream"
+  },
+  "phone_notify_services": [
+    "notify/mobile_app_pixel_7",
+    "notify/mobile_app_pixel_9_pro_xl"
+  ],
+  "polling_only_cameras": [
+    "camera.tangu_home_door_bell",
+    "camera.reolink_door_bell_profile000_mainstream"
+  ],
+  "sensor_shortcuts": {
+    "Car status": "sensor.ko66ewx_lock",
+    "Daily power cost": "sensor.daily_power_cost",
+    "Fuel level": "sensor.ko66ewx_fuel_level",
+    "Kids bedroom temp": "sensor.bedroom_sensor_temperature",
+    "Living room temp": "sensor.living_room_sensor_temperature",
+    "Main bedroom temp": "sensor.main_bedroom_temp_temperature",
+    "Total power": "sensor.total_power_consumption"
+  },
+  "sensor_snapshot_exclude_prefixes": [
+    "sensor.awtrix_b21ffc_",
+    "sensor.calex_",
+    "sensor.octopus_energy_a_ffd8c137_",
+    "sensor.octopus_energy_electricity_16p0478729_",
+    "sensor.octopus_energy_gas_g4p04330231600_",
+    "sensor.daddy_s_pixel",
+    "sensor.bedroom_1_thermo_",
+    "sensor.back_door_device_temperature",
+    "sensor.back_entrance_device_temperature",
+    "sensor.living_room_thermostat_temperature",
+    "sensor.openweathermap_",
+    "sensor.met_office_",
+    "sensor.tangu_home_"
+  ],
+  "sensor_temp_exclude_prefixes": [
+    "sensor.awtrix_",
+    "sensor.back_door_device_",
+    "sensor.back_entrance_device_",
+    "sensor.bedroom_1_thermo_",
+    "sensor.openweathermap_",
+    "sensor.192_168_",
+    "sensor.living_room_thermostat_",
+    "sensor.living_room_1_thermostat_",
+    "sensor.living_room_2_better_thermostat_",
+    "sensor.main_room_thermo",
+    "sensor.tse_s_bedroom_thermostat_",
+    "sensor.tse_room_thermostat_",
+    "sensor.hallway_thermostat_",
+    "sensor.dinning_section_trv_"
+  ],
+  "sensor_threshold_rules": {
+    "sensor.19_patterdale_place_black_bin_days_until_collection": {
+      "equals": 1,
+      "equals_msg": "Reminder: the black bin needs to go out tomorrow.",
+      "label": "Black bin collection",
+      "max": null,
+      "min": null,
+      "unit": "days"
+    },
+    "sensor.19_patterdale_place_blue_bin_days_until_collection": {
+      "equals": 1,
+      "equals_msg": "Reminder: the blue bin needs to go out tomorrow.",
+      "label": "Blue bin collection",
+      "max": null,
+      "min": null,
+      "unit": "days"
+    },
+    "sensor.19_patterdale_place_brown_bin_days_until_collection": {
+      "equals": 1,
+      "equals_msg": "Reminder: the brown bin needs to go out tomorrow.",
+      "label": "Brown bin collection",
+      "max": null,
+      "min": null,
+      "unit": "days"
+    },
+    "sensor.19_patterdale_place_green_bin_days_until_collection": {
+      "equals": 1,
+      "equals_msg": "Reminder: the green bin needs to go out tomorrow.",
+      "label": "Green bin collection",
+      "max": null,
+      "min": null,
+      "unit": "days"
+    },
+    "sensor.ko66ewx_fuel_level": {
+      "label": "Car fuel level",
+      "max": null,
+      "min": 15.0,
+      "min_msg": "Heads up \u2014 the car fuel level is low at {value}%. Consider filling up soon.",
+      "unit": "%"
+    }
+  },
+  "vision_enabled_cameras": [
+    "camera.outdoor2_profile000_mainstream",
+    "camera.tangu_home_door_bell"
+  ],
+  "weather_entity": "weather.met_office_ince_in_makerfield"
+}

@@ -176,6 +176,14 @@ async def bootstrap(app: FastAPI, settings, system_prompt: str) -> AppContainer:
     else:
         logger.info("speaker_service.disabled")
 
+    from avatar_backend.services.scoreboard_service import ScoreboardService
+    c.scoreboard_service = ScoreboardService(
+        db_path=_CONFIG_DIR / "scoreboard.db",
+        config_path=_CONFIG_DIR / "scoreboard_config.json",
+    )
+    c.ha_proxy._scoreboard_service = c.scoreboard_service
+    c.ha_proxy._llm_service = c.llm_service
+
     from avatar_backend.services.energy_service import EnergyService
     c.energy_service = EnergyService(ha_proxy=c.ha_proxy)
 
@@ -304,6 +312,9 @@ async def _bootstrap_phase3(app, settings, system_prompt, c, logger):
     c.log_store = LogStore()
     c.log_store.set_db(c.metrics_db)
     _logging.getLogger().addHandler(c.log_store.make_handler())
+
+    # Stash announce fn so background tasks can use it
+    c._proactive_announce = _proactive_announce
 
     # Background tasks
     from avatar_backend.bootstrap.background import schedule_background_tasks

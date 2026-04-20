@@ -1,0 +1,267 @@
+{
+  "members": [
+    "penn",
+    "tangu"
+  ],
+  "week_start": "monday",
+  "tasks": [
+    {
+      "id": "morning_prayer",
+      "label": "Morning Prayer",
+      "points": 10,
+      "cooldown_hours": 16,
+      "verification": "honour",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "reminders": [
+        {
+          "time": "06:45",
+          "message": "Time for morning prayer \u2014 let's start the day right!"
+        }
+      ],
+      "keywords": [
+        "morning prayer",
+        "said prayer",
+        "prayed",
+        "said our prayer",
+        "morning prayers"
+      ]
+    },
+    {
+      "id": "make_bed",
+      "label": "Make Bed",
+      "points": 5,
+      "cooldown_hours": 16,
+      "verification": "honour",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "reminders": [
+        {
+          "time": "07:00",
+          "message": "Don't forget to make your bed before you start the day!"
+        }
+      ],
+      "keywords": [
+        "made my bed",
+        "made bed",
+        "tidied my bed",
+        "made up bed"
+      ]
+    },
+    {
+      "id": "meal_prayer",
+      "label": "Prayer Before Meal",
+      "points": 10,
+      "cooldown_hours": 4,
+      "verification": "honour",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "reminders": [
+        {
+          "time": "15:30",
+          "message": "Time to say grace before your meal!"
+        }
+      ],
+      "keywords": [
+        "meal prayer",
+        "said grace",
+        "prayer before meal",
+        "blessed the food",
+        "prayed before eating"
+      ]
+    },
+    {
+      "id": "empty_toilet_bin",
+      "label": "Empty Toilet Bin",
+      "points": 5,
+      "cooldown_hours": 16,
+      "verification": "honour",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "reminders": [
+        {
+          "time": "19:00",
+          "message": "Has the toilet bin been emptied today?"
+        }
+      ],
+      "keywords": [
+        "emptied toilet bin",
+        "toilet bin",
+        "bathroom bin",
+        "empty toilet bin"
+      ]
+    },
+    {
+      "id": "tidy_bedroom",
+      "label": "Tidy Bedroom",
+      "points": 10,
+      "cooldown_hours": 16,
+      "verification": "honour",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "reminders": [
+        {
+          "time": "16:00",
+          "message": "Time to tidy your bedroom!"
+        }
+      ],
+      "keywords": [
+        "tidied bedroom",
+        "tidied my room",
+        "cleaned bedroom",
+        "cleaned my room",
+        "tidy bedroom",
+        "tidy room"
+      ]
+    },
+    {
+      "id": "empty_kitchen_bin",
+      "label": "Empty Kitchen Bin",
+      "points": 10,
+      "cooldown_hours": 16,
+      "verification": "camera",
+      "camera_entity_id": "camera.tangu_home_kitchen",
+      "camera_prompt": "Look at the kitchen bin area. Is the bin empty or has it been recently emptied? Answer YES if the bin looks empty or has a fresh liner, NO if it looks full.",
+      "requires_approval": false,
+      "reminders": [
+        {
+          "time": "19:00",
+          "message": "Has the kitchen bin been emptied today?"
+        }
+      ],
+      "keywords": [
+        "emptied kitchen bin",
+        "kitchen bin",
+        "emptied the bin",
+        "empty kitchen bin"
+      ]
+    },
+    {
+      "id": "tidy_living_room",
+      "label": "Tidy Living Room",
+      "points": 8,
+      "cooldown_hours": 6,
+      "verification": "camera",
+      "camera_entity_id": "camera.reolink_living_room_profile000_mainstream",
+      "camera_prompt": "Look at the living room. Is it tidy \u2014 cushions straight, no items left on the floor or sofa? Answer YES if it looks reasonably tidy, NO if it's messy.",
+      "requires_approval": false,
+      "reminders": [
+        {
+          "time": "17:15",
+          "message": "Please tidy the living room after eating!"
+        }
+      ],
+      "keywords": [
+        "tidied living room",
+        "tidied lounge",
+        "cleaned living room",
+        "tidy living room",
+        "tidied sitting room"
+      ]
+    },
+    {
+      "id": "load_dishwasher",
+      "label": "Load/Unload Dishwasher",
+      "points": 8,
+      "cooldown_hours": 8,
+      "verification": "camera",
+      "camera_entity_id": "camera.tangu_home_kitchen",
+      "camera_prompt": "Look at the kitchen. Does it look like the dishwasher has been loaded or unloaded \u2014 dishes put away, sink area tidy? Answer YES or NO.",
+      "requires_approval": false,
+      "reminders": [
+        {
+          "time": "19:30",
+          "message": "Don't forget to load or empty the dishwasher!"
+        }
+      ],
+      "keywords": [
+        "dishwasher",
+        "loaded dishwasher",
+        "unloaded dishwasher",
+        "emptied dishwasher",
+        "put away dishes"
+      ]
+    },
+    {
+      "id": "wipe_kitchen",
+      "label": "Wipe Kitchen Surfaces",
+      "points": 8,
+      "cooldown_hours": 16,
+      "verification": "camera",
+      "camera_entity_id": "camera.tangu_home_kitchen",
+      "camera_prompt": "Look at the kitchen surfaces and worktops. Do they look clean and wiped down? Answer YES if they look clean, NO if they look dirty or cluttered.",
+      "requires_approval": false,
+      "reminders": [
+        {
+          "time": "20:00",
+          "message": "Please wipe down the kitchen surfaces!"
+        }
+      ],
+      "keywords": [
+        "wiped kitchen",
+        "cleaned kitchen",
+        "wiped surfaces",
+        "cleaned surfaces",
+        "wiped the kitchen"
+      ]
+    },
+    {
+      "id": "clear_table",
+      "label": "Clear Table After Meal",
+      "points": 5,
+      "cooldown_hours": 4,
+      "verification": "camera",
+      "camera_entity_id": "camera.reolink_living_room_profile000_mainstream",
+      "camera_prompt": "Look at the dining table or eating area. Has it been cleared after a meal \u2014 no plates, cups or food left on it? Answer YES if cleared, NO if still has items on it.",
+      "requires_approval": false,
+      "reminders": [],
+      "keywords": [
+        "cleared table",
+        "cleared the table",
+        "tidied table",
+        "cleared up after dinner",
+        "cleared up after eating"
+      ]
+    },
+    {
+      "id": "hoover_living_room",
+      "label": "Hoover Living Room",
+      "points": 12,
+      "cooldown_hours": 48,
+      "verification": "camera",
+      "camera_entity_id": "camera.reolink_living_room_profile000_mainstream",
+      "camera_prompt": "Look at the living room floor. Does the carpet/floor look clean and freshly hoovered? Answer YES if it looks clean, NO if it looks dirty.",
+      "requires_approval": true,
+      "reminders": [
+        {
+          "time": "10:00",
+          "day": "saturday",
+          "message": "Time to hoover the living room \u2014 it's Saturday cleaning day!"
+        }
+      ],
+      "keywords": [
+        "hoovered",
+        "vacuumed",
+        "hoovered living room",
+        "vacuumed living room",
+        "done the hoovering"
+      ]
+    },
+    {
+      "id": "take_recycling",
+      "label": "Take Recycling Out",
+      "points": 8,
+      "cooldown_hours": 48,
+      "verification": "honour",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "reminders": [],
+      "keywords": [
+        "recycling",
+        "took out recycling",
+        "put out recycling",
+        "taken recycling out"
+      ]
+    }
+  ]
+}

@@ -339,6 +339,7 @@ function navigate(el) {
   if (sec === 'tools')   { loadWakeStatus(); loadAnnouncementLog(); loadHeatingShadow(); }
   if (sec === 'selfheal') loadSelfHeal();
   if (sec === 'faces')    loadFaces();
+  if (sec === 'scoreboard') loadScoreboard();
 }
 
 function refreshSection() {
@@ -5919,8 +5920,107 @@ document.getElementById('btn-sh-toggle-openai-key')?.addEventListener('click', f
 });
 document.getElementById('btn-sh-save-config')?.addEventListener('click', () => shSaveConfig());
 
+
+// ══════════════════════════════════════════════════════════════════
+// Scoreboard
+// ══════════════════════════════════════════════════════════════════
+async function loadScoreboard() {
+  try {
+    const d = await api('GET', '/admin/scoreboard');
+    _renderSbLeaderboard(d.weekly || []);
+    _renderSbRecent(d.recent || []);
+    _populateSbTaskSelect(d.config || {});
+  } catch (e) { console.error('loadScoreboard', e); }
+}
+
+function _renderSbLeaderboard(weekly) {
+  const el = document.getElementById('sb-leaderboard');
+  if (!el) return;
+  if (!weekly.length) { el.innerHTML = '<span style="color:var(--muted)">No scores yet this week.</span>'; return; }
+  const medals = ['🥇','🥈','🥉'];
+  el.innerHTML = weekly.map((s, i) => `
+    <div style="background:var(--bg3);border-radius:10px;padding:16px 24px;min-width:120px;text-align:center;">
+      <div style="font-size:28px;">${medals[i] || '🏅'}</div>
+      <div style="font-weight:700;font-size:16px;margin:4px 0;">${s.person.charAt(0).toUpperCase()+s.person.slice(1)}</div>
+      <div style="font-size:22px;font-weight:700;color:var(--accent);">${s.points} pts</div>
+      <div style="font-size:11px;color:var(--muted);">${s.tasks} tasks</div>
+    </div>`).join('');
+}
+
+function _renderSbRecent(recent) {
+  const el = document.getElementById('sb-recent');
+  if (!el) return;
+  if (!recent.length) { el.innerHTML = '<span style="color:var(--muted)">No recent activity.</span>'; return; }
+  el.innerHTML = '<table style="width:100%;border-collapse:collapse;">' +
+    '<thead><tr style="color:var(--muted);text-align:left;"><th style="padding:4px 8px;">Person</th><th style="padding:4px 8px;">Task</th><th style="padding:4px 8px;">Points</th><th style="padding:4px 8px;">When</th><th></th></tr></thead><tbody>' +
+    recent.map(r => {
+      const when = new Date(r.ts * 1000).toLocaleString();
+      return `<tr style="border-top:1px solid var(--border);">
+        <td style="padding:4px 8px;">${r.person}</td>
+        <td style="padding:4px 8px;">${r.task_label}</td>
+        <td style="padding:4px 8px;color:var(--accent);">+${r.points}</td>
+        <td style="padding:4px 8px;color:var(--muted);">${when}</td>
+        <td style="padding:4px 8px;"><button class="btn btn-outline" style="font-size:11px;padding:2px 8px;" onclick="sbDeleteLog(${r.id})">Delete</button></td>
+      </tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+function _populateSbTaskSelect(cfg) {
+  const sel = document.getElementById('sb-award-task');
+  if (!sel) return;
+  sel.innerHTML = (cfg.tasks || []).map(t => `<option value="${t.id}">${t.label} (${t.points}pts)</option>`).join('');
+}
+
+async function sbDeleteLog(id) {
+  if (!confirm('Delete this log entry?')) return;
+  try {
+    await api('DELETE', '/admin/scoreboard/logs/' + id);
+    loadScoreboard();
+  } catch (e) { toast('Failed to delete', 'err'); }
+}
+
+async function sbAward() {
+  const person = document.getElementById('sb-award-person').value.trim();
+  const taskId = document.getElementById('sb-award-task').value;
+  const msg = document.getElementById('sb-award-msg');
+  if (!person || !taskId) { if (msg) msg.textContent = 'Fill in person and task.'; return; }
+  try {
+    const r = await api('POST', '/admin/scoreboard/log', { person, task_id: taskId });
+    if (msg) msg.textContent = r.ok ? 'Points awarded!' : (r.error || 'Error');
+    loadScoreboard();
+  } catch (e) { if (msg) msg.textContent = 'Error: ' + e.message; }
+}
+
+async function sbLoadLogs() {
+  const days = document.getElementById('sb-log-days')?.value || 7;
+  const el = document.getElementById('sb-logs-table');
+  try {
+    const d = await api('GET', '/admin/scoreboard/logs?days=' + days);
+    const logs = d.logs || [];
+    if (!logs.length) { if (el) el.innerHTML = '<span style="color:var(--muted)">No logs found.</span>'; return; }
+    if (el) el.innerHTML = '<table style="width:100%;border-collapse:collapse;">' +
+      '<thead><tr style="color:var(--muted);"><th style="padding:4px 8px;text-align:left;">Date</th><th style="padding:4px 8px;text-align:left;">Person</th><th style="padding:4px 8px;text-align:left;">Task</th><th style="padding:4px 8px;">Pts</th><th style="padding:4px 8px;">Verified</th><th></th></tr></thead><tbody>' +
+      logs.map(r => {
+        const when = new Date(r.ts * 1000).toLocaleString();
+        return `<tr style="border-top:1px solid var(--border);">
+          <td style="padding:4px 8px;color:var(--muted);">${when}</td>
+          <td style="padding:4px 8px;">${r.person}</td>
+          <td style="padding:4px 8px;">${r.task_label}</td>
+          <td style="padding:4px 8px;text-align:center;color:var(--accent);">+${r.points}</td>
+          <td style="padding:4px 8px;text-align:center;">${r.verified ? '✓' : '—'}</td>
+          <td style="padding:4px 8px;"><button class="btn btn-outline" style="font-size:11px;padding:2px 8px;" onclick="sbDeleteLog(${r.id})">Del</button></td>
+        </tr>`;
+      }).join('') + '</tbody></table>';
+  } catch (e) { if (el) el.innerHTML = 'Error loading logs.'; }
+}
+
 // -- Faces --
 document.getElementById('btn-refresh-faces')?.addEventListener('click', () => loadFaces());
+
+// -- Scoreboard --
+document.getElementById('btn-sb-refresh')?.addEventListener('click', () => loadScoreboard());
+document.getElementById('btn-sb-award')?.addEventListener('click', () => sbAward());
+document.getElementById('btn-sb-logs')?.addEventListener('click', () => sbLoadLogs());
 
 // -- Users --
 document.getElementById('btn-create-user')?.addEventListener('click', () => createUser());

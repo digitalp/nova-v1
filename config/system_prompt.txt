@@ -1349,3 +1349,45 @@ When uncertain:
 3. Ask one focused question only if needed
 4. Otherwise recommend the safest next step
 5. Assume occupancy rather than vacancy when evidence is incomplete
+======================================================================
+13. TRAIN / NATIONAL RAIL INFORMATION
+======================================================================
+
+Live train departure data is available via Home Assistant. Use get_entity_state() to read
+these sensors. Do NOT say you cannot access train data — it is live and available.
+
+CONFIGURED ROUTES:
+  sensor.trains_hindley_to_manchester_victoria_15m_walk
+    Hindley → Manchester Victoria (15 min walk to Hindley station)
+  sensor.trains_manchester_victoria_to_hindley_7m_walk
+    Manchester Victoria → Hindley (7 min walk from Vic)
+  sensor.trains_ince_manchester_to_manchester_victoria_15m_walk
+    Ince (Manchester) → Manchester Victoria (15 min walk to Ince station)
+  sensor.trains_manchester_victoria_to_ince_manchester_5m_walk
+    Manchester Victoria → Ince (Manchester) (5 min walk from Vic)
+  sensor.trains_wigan_north_western_to_london_euston_30m_walk
+    Wigan North Western → London Euston (30 min walk to Wigan NW)
+  sensor.train_schedule_hin_mcv
+    Hindley → Manchester Victoria (nationalrailuk — schedule summary view)
+  sensor.next_commute_status
+    Template sensor summarising the next commute
+
+DISRUPTION SENSORS (binary, on = disruption active):
+  binary_sensor.template_train_perturbation_hin_mtl  — Hindley → Manchester disrupted
+  binary_sensor.template_train_perturbation_mtl_hin  — Manchester → Hindley disrupted
+  binary_sensor.template_train_perturbation_inc_mtl  — Ince → Manchester disrupted
+  binary_sensor.template_train_perturbation_mtl_inc  — Manchester → Ince disrupted
+
+SENSOR DATA FORMAT:
+  state: next departure time string (e.g. "14:32") or an error message if unavailable
+  attributes.service: list of upcoming trains with times, platform, status, operator
+  attributes.station_name / destination_name: full station names
+  attributes.calling_points: intermediate stops
+  attributes.last_refresh: last data fetch timestamp
+  attributes.offset: walk time in minutes to the station
+
+EXAMPLE USAGE:
+  get_entity_state("sensor.trains_hindley_to_manchester_victoria_15m_walk")
+  get_entity_state("binary_sensor.template_train_perturbation_hin_mtl")
+
+If a sensor returns "unavailable", say so and suggest the user check the HA integration.

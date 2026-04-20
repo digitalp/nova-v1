@@ -68,6 +68,42 @@ async def _restart_fully_kiosk_after_startup(app: FastAPI, delay_s: float = 5.0)
         logger.info("avatar_backend.restart_signal_broadcast")
 
 
+
+async def _chore_reminder_loop(announce_fn, scoreboard_service) -> None:
+    """Check reminder schedule every minute and announce unlogged chores."""
+    from datetime import datetime as _dt
+    await asyncio.sleep(90)
+    last_fired: set[str] = set()
+    logger = structlog.get_logger()
+    while True:
+        try:
+            now = _dt.now()
+            time_str = now.strftime("%H:%M")
+            day_str = now.strftime("%A").lower()
+            date_str = now.strftime("%Y-%m-%d")
+            cfg = scoreboard_service.get_config()
+            members = cfg.get("members", [])
+            for task in cfg.get("tasks", []):
+                for reminder in task.get("reminders", []):
+                    if reminder.get("time") != time_str:
+                        continue
+                    if reminder.get("day") and reminder["day"] != day_str:
+                        continue
+                    fire_key = f"{task['id']}:{date_str}:{time_str}"
+                    if fire_key in last_fired:
+                        continue
+                    already_done = any(
+                        scoreboard_service.already_logged_today(task["id"], m)
+                        for m in members
+                    )
+                    if not already_done:
+                        last_fired.add(fire_key)
+                        await announce_fn(reminder["message"], "normal")
+                        logger.info("chore_reminder.fired", task=task["id"], time=time_str)
+        except Exception as exc:
+            structlog.get_logger().warning("chore_reminder.error", exc=str(exc)[:120])
+        await asyncio.sleep(60)
+
 def schedule_background_tasks(app: FastAPI, container) -> None:
     """Schedule all background asyncio tasks. Called after service creation."""
     container._background_tasks.append(asyncio.create_task(_restart_fully_kiosk_after_startup(app), name="kiosk_restart"))
@@ -75,3 +111,8 @@ def schedule_background_tasks(app: FastAPI, container) -> None:
     container._background_tasks.append(asyncio.create_task(_clip_cleanup_loop(container.motion_clip_service), name="clip_cleanup"))
     container._background_tasks.append(asyncio.create_task(_audit_cleanup_loop(container.metrics_db), name="audit_cleanup"))
     container._background_tasks.append(asyncio.create_task(_backfill_thumbs(container.motion_clip_service), name="thumb_backfill"))
+    if getattr(container, 'scoreboard_service', None) is not None:
+        container._background_tasks.append(asyncio.create_task(
+            _chore_reminder_loop(container._proactive_announce, container.scoreboard_service),
+            name="chore_reminders",
+        ))

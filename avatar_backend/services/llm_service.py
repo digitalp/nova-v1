@@ -168,6 +168,33 @@ HA_TOOLS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "log_chore",
+            "description": (
+                "Record that a person completed a chore and award them points on the family scoreboard. "
+                "Use when someone says they did a task like emptied the bin, made their bed, tidied their room, "
+                "said prayers, etc. Valid task_ids: morning_prayer, make_bed, meal_prayer, empty_toilet_bin, "
+                "tidy_bedroom, empty_kitchen_bin, tidy_living_room, load_dishwasher, wipe_kitchen, "
+                "clear_table, hoover_living_room, take_recycling."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The task identifier, e.g. 'empty_kitchen_bin'.",
+                    },
+                    "person": {
+                        "type": "string",
+                        "description": "The person's name, e.g. 'penn' or 'tangu'.",
+                    },
+                },
+                "required": ["task_id", "person"],
+            },
+        },
+    },
 ]
 
 # Anthropic uses a slightly different tool schema format

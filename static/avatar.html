@@ -653,6 +653,32 @@
       .wc-stats { gap: 6px; }
       .wc-chip { padding: 10px 6px; border-radius: 12px; }
     }
+
+    /* ── Scoreboard widget ─────────────────────────────────────── */
+    #scoreboard-widget {
+      position: fixed;
+      bottom: 80px;
+      left: 16px;
+      background: rgba(10,14,26,0.82);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      padding: 12px 16px;
+      min-width: 160px;
+      max-width: 220px;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+      pointer-events: none;
+      z-index: 90;
+    }
+    #scoreboard-widget.on { opacity: 1; }
+    #scoreboard-widget.hidden-by-event { opacity: 0 !important; }
+    .sb-title { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; color: rgba(255,255,255,0.45); text-transform: uppercase; margin-bottom: 8px; }
+    .sb-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+    .sb-medal { font-size: 16px; width: 20px; text-align: center; }
+    .sb-name { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.9); flex: 1; }
+    .sb-pts { font-size: 13px; font-weight: 700; color: #7dd3fc; }
   </style>
 </head>
 <body>
@@ -680,7 +706,13 @@
   <div id="subtitle"></div>
 
 
-  <!-- Weather Card (Dribbble-inspired, right side of avatar) -->
+  <!-- Scoreboard leaderboard widget (bottom-left) -->
+  <div id="scoreboard-widget">
+    <div class="sb-title">This Week</div>
+    <div id="sb-widget-rows"></div>
+  </div>
+
+    <!-- Weather Card (Dribbble-inspired, right side of avatar) -->
   <div id="weather-card">
     <div class="wc-glass">
       <div class="wc-top">
@@ -2904,6 +2936,38 @@ function _wcSyncWithPopup(popupVisible) {
 }
 
 setTimeout(_initWeatherCard, 200);
+
+// ── Scoreboard widget ─────────────────────────────────────────────
+const _medals = ['🥇','🥈','🥉'];
+
+function _initScoreboardWidget() {
+  const el = document.getElementById('scoreboard-widget');
+  if (!el) return;
+  _fetchScoreboardWidget();
+  setInterval(_fetchScoreboardWidget, 120000); // refresh every 2 min
+  setTimeout(() => el.classList.add('on'), 2000);
+}
+
+async function _fetchScoreboardWidget() {
+  try {
+    const resp = await fetch(SERVER + '/admin/scoreboard', { credentials: 'include' });
+    if (!resp.ok) return;
+    const d = await resp.json();
+    const rows = document.getElementById('sb-widget-rows');
+    if (!rows) return;
+    const weekly = d.weekly || [];
+    if (!weekly.length) { rows.innerHTML = '<div style="font-size:12px;color:rgba(255,255,255,0.4);">No scores yet</div>'; return; }
+    rows.innerHTML = weekly.slice(0, 3).map((s, i) => `
+      <div class="sb-row">
+        <span class="sb-medal">${_medals[i] || '🏅'}</span>
+        <span class="sb-name">${s.person.charAt(0).toUpperCase()+s.person.slice(1)}</span>
+        <span class="sb-pts">${s.points}</span>
+      </div>`).join('');
+  } catch(e) {}
+}
+
+setTimeout(_initScoreboardWidget, 2500);
+
 
 </script>
 </body>

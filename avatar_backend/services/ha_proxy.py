@@ -174,6 +174,9 @@ class HAProxy:
         if tool_call.function_name == "play_music":
             return await self._play_music(tool_call.arguments)
 
+        if tool_call.function_name == "log_chore":
+            return await self._log_chore(tool_call.arguments)
+
         if tool_call.function_name != "call_ha_service":
             logger.warning("ha_proxy.unknown_tool", name=tool_call.function_name)
             return ToolResult(
@@ -409,6 +412,16 @@ class HAProxy:
                 msg += f"\n{forecast_text}"
 
         return ToolResult(success=True, message=msg)
+
+    async def _log_chore(self, args: dict) -> "ToolResult":
+        svc = getattr(self, "_scoreboard_service", None)
+        llm = getattr(self, "_llm_service", None)
+        if svc is None:
+            from avatar_backend.models.tool_result import ToolResult
+            return ToolResult(success=False, message="Scoreboard service not available.")
+        result = await svc.handle_log_chore(args, ha_proxy=self, llm_service=llm)
+        from avatar_backend.models.tool_result import ToolResult
+        return ToolResult(success=True, message=result)
 
     async def _play_music(self, args: dict) -> ToolResult:
         """Search Music Assistant and play the first result on a speaker."""
