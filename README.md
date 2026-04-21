@@ -215,18 +215,24 @@ All config lives in `/opt/avatar-server/.env`:
 | `OLLAMA_MODEL` | Local chat model | `qwen2.5:7b` |
 | `OLLAMA_VISION_MODEL` | Vision model for camera descriptions | `llama3.2-vision:11b` |
 | `CLOUD_MODEL` | Cloud model name | `gemini-2.5-flash` |
-| `OLLAMA_BACKGROUND_MODEL` | Local model used by background loops (sensor watch, heating shadow, daily summary) — never routed to cloud | `gemma2:9b` |
+| `OLLAMA_LOCAL_TEXT_MODEL` | Override local chat model selection used for text/triage paths | *(auto-select)* |
+| `PROACTIVE_OLLAMA_MODEL` | Override the local model used by proactive/background LLM work | *(optional)* |
+| `SENSOR_WATCH_OLLAMA_MODEL` | Override the local model used by sensor watch review passes | *(optional)* |
 | `TTS_PROVIDER` | `piper` / `afrotts` / `elevenlabs` | `piper` |
-| `AFROTTS_VOICE` | Intron Afro TTS voice ID | `am_adam` |
-| `WHISPER_MODEL` | STT model size | `base` |
+| `AFROTTS_VOICE` | AfroTTS voice ID | `af_heart` |
+| `WHISPER_MODEL` | STT model size | `small` |
 | `SPEAKERS` | Comma-separated HA `media_player` entity IDs | *(optional)* |
 | `PUBLIC_URL` | Public HTTPS URL for SSML audio delivery (e.g. Cloudflare tunnel) | *(optional)* |
 | `PORT` | Backend port | `8001` |
 | `SCOREBOARD_ENABLED` | Enable family chore scoreboard | `true` |
+| `MOTION_VISION_PROVIDER` | `gemini` / `ollama` / `ollama_remote` | `gemini` |
+| `HEATING_LLM_PROVIDER` | Heating evaluator provider | `gemini` |
+| `GEMINI_API_KEYS` | Comma-separated Gemini key pool for vision rotation/fallback | *(optional)* |
 | `BLUEIRIS_URL` | Blue Iris NVR base URL (e.g. `http://192.168.0.33:81`) | *(optional)* |
 | `BLUEIRIS_USER` | Blue Iris username | *(optional)* |
 | `BLUEIRIS_PASSWORD` | Blue Iris password | *(optional)* |
 | `CODEPROJECT_AI_URL` | CodeProject.AI base URL (e.g. `http://192.168.0.33:32168`) | *(optional)* |
+| `INTRON_AFRO_TTS_URL` | Intron Afro TTS sidecar base URL | `http://127.0.0.1:8021` |
 
 Runtime camera/entity mappings that change frequently live in `config/home_runtime.json` (not in `.env`) and take effect without a restart.
 
@@ -260,9 +266,12 @@ ai_avatar:
 
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/health/public` | Legacy unauthenticated liveness probe |
 | `GET` | `/health/live` | Liveness — always 200 once the process is up (no auth) |
-| `GET` | `/health/ready` | Readiness — checks Ollama reachability + HA connection (no auth) |
+| `GET` | `/health/ready` | Readiness — checks Ollama reachability, HA reachability, and websocket mirror state (no auth) |
 | `GET` | `/health` | Full component status — requires `X-API-Key` header |
+| `GET` | `/health/history` | Rolling component health history — requires `X-API-Key` header |
+| `GET` | `/ambient` | Time/weather payload for the avatar ambient display (no auth) |
 | `POST` | `/chat` | Text chat — JSON response |
 | `WS` | `/ws/voice` | Voice pipeline (WAV in → transcript + LLM + TTS audio out) |
 | `WS` | `/ws/avatar` | State broadcast (idle / listening / thinking / speaking) |

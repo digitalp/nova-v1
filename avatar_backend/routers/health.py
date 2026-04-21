@@ -1,6 +1,8 @@
 """
 GET /health         — full component status (requires API key)
-GET /health/public  — liveness probe (no auth)
+GET /health/public  — unauthenticated legacy liveness probe
+GET /health/live    — liveness probe (no auth)
+GET /health/ready   — readiness probe (depends on Ollama + HA)
 GET /health/history — rolling health-check history
 """
 import asyncio
