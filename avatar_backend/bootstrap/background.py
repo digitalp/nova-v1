@@ -281,73 +281,6 @@ async def _living_room_sweep_loop(announce_fn, scoreboard_service, blueiris_serv
 
 
 
-async def _daily_chore_summary_loop(announce_fn, scoreboard_service, llm_service) -> None:
-    """Every day at 20:00 announce a summary of completed chores and scores."""
-    from datetime import datetime as _dt
-    from collections import defaultdict
-    await asyncio.sleep(60)
-    logger = structlog.get_logger()
-    last_fired_date: str = ""
-
-    while True:
-        try:
-            now = _dt.now()
-            date_str = now.strftime("%Y-%m-%d")
-            if now.hour == 20 and now.minute == 0 and last_fired_date != date_str:
-                last_fired_date = date_str
-                midnight = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-
-                logs = scoreboard_service.all_logs(days=1)
-                today_logs = [l for l in logs if l["ts"] >= midnight]
-
-                by_person: dict = defaultdict(lambda: {"tasks": [], "points": 0})
-                for log in today_logs:
-                    p = log["person"].title()
-                    by_person[p]["tasks"].append(log["task_label"])
-                    by_person[p]["points"] += log["points"]
-
-                weekly = scoreboard_service.weekly_scores()
-
-                if not by_person:
-                    msg = "No chores were logged today. Let us do better tomorrow everyone!"
-                else:
-                    lines = []
-                    for person, data in sorted(by_person.items(), key=lambda x: -x[1]["points"]):
-                        task_list = ", ".join(data["tasks"])
-                        lines.append(f"{person}: {data['points']} points ({task_list})")
-                    weekly_lines = [
-                        f"{s['person'].title()}: {s['points']} points this week"
-                        for s in weekly
-                    ]
-                    summary_data = (
-                        "Chores completed today: " + "; ".join(lines) +
-                        ". Weekly standings: " + ", ".join(weekly_lines) + "."
-                    )
-                    prompt = (
-                        "You are Nova, a friendly home assistant. "
-                        "Give a warm, encouraging spoken announcement (2-4 sentences) "
-                        "summarising today's chore results and the weekly scoreboard. "
-                        "Congratulate everyone who did chores. Keep it upbeat and natural "
-                        "as this will be read aloud. Data: " + summary_data
-                    )
-                    try:
-                        msg = await llm_service.complete(prompt, max_tokens=200)
-                    except Exception as exc:
-                        logger.warning("daily_summary.llm_failed", exc=str(exc)[:80])
-                        msg = "Great work today! " + " ".join(
-                            f"{p} earned {d['points']} points." for p, d in by_person.items()
-                        )
-                        if weekly:
-                            leader = weekly[0]["person"].title()
-                            msg += f" {leader} is leading this week. Keep it up everyone!"
-
-                await announce_fn(msg, "normal")
-                logger.info("daily_summary.announced", persons=list(by_person.keys()))
-        except Exception as exc:
-            structlog.get_logger().warning("daily_summary.error", exc=str(exc)[:120])
-        await asyncio.sleep(30)
-
-
 async def _blind_check_loop(announce_fn, blueiris_service, llm_service, ha_proxy) -> None:
     """At 20:00 check living room blinds; re-remind every 5 min until closed or 21:00."""
     from datetime import datetime as _dt
@@ -437,6 +370,98 @@ async def _blind_check_loop(announce_fn, blueiris_service, llm_service, ha_proxy
 
 
 
+
+
+
+async def _daily_chore_summary_loop(announce_fn, scoreboard_service, llm_service) -> None:
+    """Every day at 20:00 announce a behaviour summary: chores earned + penalties issued."""
+    from datetime import datetime as _dt
+    from collections import defaultdict
+    from pathlib import Path
+    from avatar_backend.config import config_dir
+    await asyncio.sleep(60)
+    logger = structlog.get_logger()
+    last_fired_date: str = ""
+
+    while True:
+        try:
+            now = _dt.now()
+            date_str = now.strftime("%Y-%m-%d")
+            if now.hour == 20 and now.minute == 0 and last_fired_date != date_str:
+                last_fired_date = date_str
+                midnight = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+                logs = scoreboard_service.all_logs(days=1)
+                today_logs = [l for l in logs if l["ts"] >= midnight]
+
+                by_person: dict = defaultdict(lambda: {"chores": [], "penalties": [], "net": 0})
+                for log in today_logs:
+                    p = log["person"].title()
+                    pts = log["points"]
+                    by_person[p]["net"] += pts
+                    if pts >= 0:
+                        by_person[p]["chores"].append(f"{log['task_label']} (+{pts})")
+                    else:
+                        by_person[p]["penalties"].append(f"{log['task_label']} ({pts})")
+
+                weekly = scoreboard_service.weekly_scores()
+
+                if not by_person:
+                    data_block = "No chores or penalties were logged today."
+                else:
+                    lines = []
+                    for person, d in sorted(by_person.items(), key=lambda x: -x[1]["net"]):
+                        good = ", ".join(d["chores"]) or "none"
+                        bad  = ", ".join(d["penalties"]) or "none"
+                        lines.append(
+                            f"{person}: chores={good}; penalties={bad}; net={d['net']:+d} pts"
+                        )
+                    weekly_lines = [
+                        f"{s['person'].title()} {s['points']} pts" for s in weekly
+                    ]
+                    data_block = (
+                        "TODAY'S BEHAVIOUR SUMMARY\n" +
+                        "\n".join(lines) +
+                        "\n\nWEEKLY STANDINGS: " + ", ".join(weekly_lines)
+                    )
+
+                sys_prompt_path = Path(config_dir()) / "system_prompt.txt"
+                try:
+                    system_prompt = sys_prompt_path.read_text()
+                except Exception:
+                    system_prompt = "You are Nova, a home assistant."
+
+                user_msg = (
+                    "It is 8 PM. Give the daily behaviour summary for the family as a "
+                    "warm, natural spoken announcement (3-5 sentences). Cover both good "
+                    "behaviour (chores, points earned) and any bad behaviour (penalties "
+                    "issued) honestly but constructively. If a child had penalties, "
+                    "mention it directly but encourage improvement. If everyone was good, "
+                    "celebrate it. Plain spoken sentences only, no markdown or lists.\n\n"
+                    + data_block
+                )
+
+                try:
+                    messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_msg},
+                    ]
+                    msg, _ = await llm_service.chat(messages, use_tools=False)
+                except Exception as exc:
+                    logger.warning("daily_summary.llm_failed", exc=str(exc)[:80])
+                    if by_person:
+                        msg = "Daily update: " + "; ".join(
+                            f"{p}: net {d['net']:+d} points" for p, d in by_person.items()
+                        ) + ". Keep up the good work!"
+                    else:
+                        msg = "No activity was logged today. Let us aim for a great day tomorrow!"
+
+                await announce_fn(msg, "normal")
+                logger.info("daily_summary.announced", persons=list(by_person.keys()))
+        except Exception as exc:
+            structlog.get_logger().warning("daily_summary.error", exc=str(exc)[:120])
+        await asyncio.sleep(30)
+
 def schedule_background_tasks(app: FastAPI, container) -> None:
     """Schedule all background asyncio tasks. Called after service creation."""
     container._background_tasks.append(asyncio.create_task(_restart_fully_kiosk_after_startup(app), name="kiosk_restart"))
@@ -448,4 +473,12 @@ def schedule_background_tasks(app: FastAPI, container) -> None:
         container._background_tasks.append(asyncio.create_task(
             _chore_reminder_loop(container._proactive_announce, container.scoreboard_service),
             name="chore_reminders",
+        ))
+        container._background_tasks.append(asyncio.create_task(
+            _daily_chore_summary_loop(
+                container._proactive_announce,
+                container.scoreboard_service,
+                container.llm_service,
+            ),
+            name="daily_behaviour_summary",
         ))
