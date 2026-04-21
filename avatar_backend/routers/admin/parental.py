@@ -239,10 +239,14 @@ async def enrollment_info(config_id: int, request: Request):
         cfg = cfg_data.get("data", {})
         qr_key = cfg.get("qrCodeKey", "")
         enroll_url = f"{_HMDM_PUBLIC}/?k={qr_key}"
-        # Generate QR code server-side (MDM has no /qr endpoint)
+        # Fetch the QR JSON content the launcher app actually expects (public endpoint)
+        async with httpx.AsyncClient(timeout=10) as _c:
+            _r = await _c.get(f"{_HMDM_BASE}/rest/public/qr/json/{qr_key}")
+            qr_content = _r.text  # already JSON string
+        # Generate QR code from JSON content
         import qrcode
         qr = qrcode.QRCode(box_size=6, border=2)
-        qr.add_data(enroll_url)
+        qr.add_data(qr_content)
         qr.make(fit=True)
         img = qr.make_image(fill_color="black", back_color="white")
         buf = io.BytesIO()
