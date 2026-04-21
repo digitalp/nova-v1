@@ -221,6 +221,99 @@ HA_TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "get_enrolled_devices",
+            "description": (
+                "List all enrolled children's Android devices managed by Headwind MDM. "
+                "Returns device number, name, online status, and last seen time. "
+                "Call this first to find the device_number before blocking apps or sending messages."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "block_app",
+            "description": (
+                "Block (hide/disable) an Android app on a child's device. "
+                "The app is removed from the home screen and cannot be opened. "
+                "Use get_enrolled_devices first to find the device_number. "
+                "Common packages: TikTok=com.zhiliaoapp.musically, Instagram=com.instagram.android, "
+                "WhatsApp=com.whatsapp, Snapchat=com.snapchat.android, YouTube=com.google.android.youtube, "
+                "Facebook=com.facebook.katana, X/Twitter=com.twitter.android, Roblox=com.roblox.client."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "device_number": {
+                        "type": "string",
+                        "description": "The device number from get_enrolled_devices, e.g. '0001'.",
+                    },
+                    "package": {
+                        "type": "string",
+                        "description": "Android package name, e.g. 'com.zhiliaoapp.musically'.",
+                    },
+                },
+                "required": ["device_number", "package"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "unblock_app",
+            "description": (
+                "Unblock (re-enable) a previously blocked Android app on a child's device. "
+                "Use get_enrolled_devices first to find the device_number."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "device_number": {
+                        "type": "string",
+                        "description": "The device number from get_enrolled_devices.",
+                    },
+                    "package": {
+                        "type": "string",
+                        "description": "Android package name to unblock, e.g. 'com.google.android.youtube'.",
+                    },
+                },
+                "required": ["device_number", "package"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_device_message",
+            "description": (
+                "Send a full-screen push notification to a child's Android device. "
+                "Good for: 'come for dinner', 'homework time', 'phone off now', 'bedtime'. "
+                "Use get_enrolled_devices first to find the device_number."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "device_number": {
+                        "type": "string",
+                        "description": "The device number from get_enrolled_devices.",
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "The message text to display on the device.",
+                    },
+                },
+                "required": ["device_number", "message"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "deduct_points",
             "description": (
                 "Deduct points from a family member as a penalty for bad behaviour. "

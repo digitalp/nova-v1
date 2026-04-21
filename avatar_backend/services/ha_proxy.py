@@ -10,6 +10,7 @@ from avatar_backend.models.acl import ACLManager
 from avatar_backend.models.messages import ToolCall
 from avatar_backend.models.tool_result import ToolResult
 from avatar_backend.services.home_runtime import load_home_runtime_config
+from avatar_backend.services import mdm_client as _mdm
 
 logger = structlog.get_logger()
 
@@ -182,6 +183,18 @@ class HAProxy:
 
         if tool_call.function_name == "deduct_points":
             return await self._deduct_points(tool_call.arguments)
+
+        if tool_call.function_name == "get_enrolled_devices":
+            return await self._get_enrolled_devices()
+
+        if tool_call.function_name == "block_app":
+            return await self._mdm_set_app(tool_call.arguments, action=0)
+
+        if tool_call.function_name == "unblock_app":
+            return await self._mdm_set_app(tool_call.arguments, action=1)
+
+        if tool_call.function_name == "send_device_message":
+            return await self._send_device_message(tool_call.arguments)
 
         if tool_call.function_name != "call_ha_service":
             logger.warning("ha_proxy.unknown_tool", name=tool_call.function_name)
@@ -418,6 +431,45 @@ class HAProxy:
                 msg += f"\n{forecast_text}"
 
         return ToolResult(success=True, message=msg)
+
+    async def _get_enrolled_devices(self) -> "ToolResult":
+        try:
+            devices = await _mdm.get_devices()
+            if not devices:
+                return ToolResult(success=True, message="No devices enrolled.")
+            lines = []
+            for d in devices:
+                number = d.get("number", "?")
+                name = d.get("description") or d.get("name") or d.get("model") or "Unknown"
+                online = "online" if d.get("online") else "offline"
+                last_seen = (d.get("lastUpdate") or "")[:10]
+                lines.append(f"{number}: {name} — {online} (last seen {last_seen})")
+            return ToolResult(success=True, message=chr(10).join(lines))
+        except Exception as exc:
+            return ToolResult(success=False, message=f"MDM error: {exc}")
+
+    async def _mdm_set_app(self, args: dict, action: int) -> "ToolResult":
+        device_number = str(args.get("device_number") or "").strip()
+        package = str(args.get("package") or "").strip()
+        if not device_number or not package:
+            return ToolResult(success=False, message="device_number and package are required.")
+        try:
+            await _mdm.set_app_action(device_number, package, action)
+            verb = "blocked" if action == 0 else "unblocked"
+            return ToolResult(success=True, message=f"{package} {verb} on device {device_number}.")
+        except Exception as exc:
+            return ToolResult(success=False, message=f"MDM error: {exc}")
+
+    async def _send_device_message(self, args: dict) -> "ToolResult":
+        device_number = str(args.get("device_number") or "").strip()
+        message = str(args.get("message") or "").strip()
+        if not device_number or not message:
+            return ToolResult(success=False, message="device_number and message are required.")
+        try:
+            await _mdm.send_message(device_number, message)
+            return ToolResult(success=True, message=f"Message sent to device {device_number}.")
+        except Exception as exc:
+            return ToolResult(success=False, message=f"MDM error: {exc}")
 
     async def _log_chore(self, args: dict) -> "ToolResult":
         svc = getattr(self, "_scoreboard_service", None)
