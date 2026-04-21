@@ -64,6 +64,7 @@ init();
 // ── Navigation ────────────────────────────────────────────────────────────────
 
 const TITLES = {
+  parental:'Parental Control',
   dashboard:'Dashboard', config:'Configuration', speakers:'Speakers', music:'Music', energy:'Energy', prompt:'System Prompt',
   'prompts-tuning':'Prompts & Tuning',
   acl:'ACL Rules', sessions:'Sessions', memory:'Memory',
@@ -3158,6 +3159,149 @@ function startDecisionStream() {
     try { const e = JSON.parse(ev.data); if (e && e.kind) _appendDecEntry(e); } catch {}
   };
   _decES.onerror = () => { if (status) status.textContent = '⚠ Retrying…'; };
+}
+
+
+// ── Parental section ──────────────────────────────────────────────────────────
+let _parentalSelectedDevice = null;
+let _parentalConfigs = [];
+
+const _origNavigateParental = window.navigate;
+window.navigate = function(el) {
+  _origNavigateParental(el);
+  if (el.dataset.section === 'parental') loadParentalSection();
+};
+
+async function loadParentalSection() {
+  try {
+    const s = await api('GET', '/admin/parental/status');
+    const bar = document.getElementById('parental-status-bar');
+    const badge = document.getElementById('parental-hmdm-status');
+    if (bar) bar.style.display = '';
+    if (s.hmdm_reachable) {
+      badge.textContent = 'MDM Connected';
+      badge.className = 'badge badge-ok';
+    } else {
+      badge.textContent = 'MDM Unreachable';
+      badge.className = 'badge badge-err';
+    }
+  } catch(e) {}
+  await loadParentalConfigs();
+  await loadParentalDevices();
+}
+
+async function loadParentalConfigs() {
+  try {
+    const d = await api('GET', '/admin/parental/configurations');
+    _parentalConfigs = d.configurations || [];
+    const sel = document.getElementById('parental-enroll-config');
+    if (sel) {
+      sel.innerHTML = _parentalConfigs.map(c =>
+        `<option value="${c.id}">${esc(c.name)}</option>`
+      ).join('');
+    }
+  } catch(e) { console.error('parental configs', e); }
+}
+
+async function loadParentalDevices() {
+  const el = document.getElementById('parental-device-list');
+  if (!el) return;
+  try {
+    const d = await api('GET', '/admin/parental/devices');
+    const devices = d.devices || [];
+    if (!devices.length) {
+      el.innerHTML = '<p class="text-muted text-sm">No devices enrolled yet. Use the QR code above to enroll a device.</p>';
+      return;
+    }
+    el.innerHTML = devices.map(dev => {
+      const ts = dev.lastUpdate ? new Date(dev.lastUpdate).toLocaleString() : 'Never';
+      const statusColor = dev.statusCode === 'green' ? '#22c55e' : dev.statusCode === 'red' ? '#ef4444' : '#f59e0b';
+      return `<div class="device-row flex-between py-2 border-b" style="cursor:pointer" onclick="parentalSelectDevice(${JSON.stringify(JSON.stringify(dev))})">
+        <div>
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColor};margin-right:6px"></span>
+          <strong>${esc(dev.description || dev.number)}</strong>
+          <span class="text-muted text-sm ml-2">${esc(dev.number)}</span>
+        </div>
+        <div class="text-sm text-muted">${esc(ts)}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = `<p class="text-err text-sm">Error loading devices: ${esc(e.message)}</p>`;
+  }
+}
+
+function parentalSelectDevice(devJson) {
+  const dev = JSON.parse(devJson);
+  _parentalSelectedDevice = dev;
+  const panel = document.getElementById('parental-device-panel');
+  document.getElementById('parental-panel-title').textContent =
+    (dev.description || dev.number) + ' (' + dev.number + ')';
+  panel.style.display = '';
+  // Load location info
+  parentalLoadDeviceInfo(dev.number);
+}
+
+async function parentalLoadDeviceInfo(number) {
+  const locEl = document.getElementById('parental-location');
+  try {
+    const info = await api('GET', `/admin/parental/devices/${number}/info`);
+    const lat = info.lat ?? info.latitude;
+    const lon = info.lon ?? info.longitude ?? info.lng;
+    if (lat && lon) {
+      locEl.innerHTML = `${lat.toFixed(5)}, ${lon.toFixed(5)} — <a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank">View on map</a>`;
+    } else {
+      locEl.textContent = 'Location not reported by device';
+    }
+  } catch(e) {
+    locEl.textContent = 'Location unavailable';
+  }
+}
+
+async function parentalSendAlert() {
+  if (!_parentalSelectedDevice) return;
+  const msg = document.getElementById('parental-alert-msg').value.trim();
+  if (!msg) { toast('Enter a message first', 'err'); return; }
+  try {
+    await api('POST', '/admin/parental/alert', {
+      device_number: _parentalSelectedDevice.number,
+      message: msg,
+      title: 'Nova Alert',
+    });
+    document.getElementById('parental-alert-msg').value = '';
+    toast('Alert sent to ' + (_parentalSelectedDevice.description || _parentalSelectedDevice.number), 'ok');
+  } catch(e) { toast('Failed: ' + e.message, 'err'); }
+}
+
+async function parentalBlockApp(action) {
+  if (!_parentalSelectedDevice) { toast('Select a device first', 'err'); return; }
+  const pkg = document.getElementById('parental-block-pkg').value.trim();
+  if (!pkg) { toast('Enter a package name', 'err'); return; }
+  const configId = _parentalSelectedDevice.configurationId;
+  if (!configId) { toast('Device has no configuration assigned', 'err'); return; }
+  try {
+    await api('POST', '/admin/parental/apps/block', { config_id: configId, pkg, action });
+    document.getElementById('parental-block-pkg').value = '';
+    toast(action === 0 ? `Blocked ${pkg}` : `Unblocked ${pkg}`, 'ok');
+  } catch(e) { toast('Failed: ' + e.message, 'err'); }
+}
+
+function parentalQuickBlock(pkg) {
+  document.getElementById('parental-block-pkg').value = pkg;
+}
+
+async function parentalShowEnroll() {
+  const sel = document.getElementById('parental-enroll-config');
+  const configId = sel?.value;
+  if (!configId) { toast('Select a configuration first', 'err'); return; }
+  try {
+    const d = await api('GET', `/admin/parental/enroll/${configId}`);
+    const area = document.getElementById('parental-qr-area');
+    const img = document.getElementById('parental-qr-img');
+    const urlEl = document.getElementById('parental-enroll-url');
+    img.src = d.qr_image_url;
+    urlEl.textContent = d.enroll_url;
+    area.style.display = '';
+  } catch(e) { toast('Failed: ' + e.message, 'err'); }
 }
 
 const _origNavigate = window.navigate;
