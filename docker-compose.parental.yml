@@ -1,0 +1,54 @@
+services:
+  hmdm-db:
+    image: postgres:15-alpine
+    container_name: hmdm_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hmdm
+      POSTGRES_USER: hmdm
+      POSTGRES_PASSWORD: hmdm_nova_2026
+    volumes:
+      - hmdm_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hmdm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  hmdm:
+    image: headwindmdm/hmdm:latest
+    container_name: hmdm_server
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:8083:8080"
+    depends_on:
+      hmdm-db:
+        condition: service_healthy
+    environment:
+      SQL_HOST: hmdm-db
+      SQL_PORT: "5432"
+      SQL_BASE: hmdm
+      SQL_USER: hmdm
+      SQL_PASS: hmdm_nova_2026
+      SHARED_SECRET: nova-parental-C3z9vi54
+      PROTOCOL: http
+      HTTPS_LETSENCRYPT: "false"
+      INSTALL_LANGUAGE: en
+      HMDM_VARIANT: os
+    volumes:
+      - hmdm_files:/usr/local/tomcat/webapps
+      - hmdm_logs:/usr/local/tomcat/logs
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+volumes:
+  hmdm_db_data:
+    driver: local
+  hmdm_files:
+    driver: local
+  hmdm_logs:
+    driver: local
