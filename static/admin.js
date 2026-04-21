@@ -4275,7 +4275,7 @@ async function loadWakeStatus() {
     const stages = (d.pipeline_stages || []).join(' → ');
     const lines = [
       `<strong>Pipeline:</strong> ${stages || 'not initialized'}`,
-      `Coral TPU: ${d.coral_available ? '✅ Active (~1-3ms)' : '❌ Not available'}`,
+      `Coral TPU: ${d.coral_available ? '✅ Edge TPU (~1ms)' : d.cpu_tflite_available ? '✅ CPU TFLite (~3-8ms)' : '❌ Not available'}`,
     ];
     // Show the best available classifier — only one should be active
     if (d.cpu_tflite_available) {
