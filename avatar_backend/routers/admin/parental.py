@@ -270,3 +270,23 @@ async def parental_status(request: Request):
         return {"hmdm_reachable": True, "url": _HMDM_BASE}
     except Exception as exc:
         return {"hmdm_reachable": False, "error": str(exc)[:100]}
+
+
+# ── APK proxy (bypasses Cloudflare bot challenge on direct MDM URL) ────────────
+
+@router.get("/parental/apk")
+async def download_apk():
+    """Stream the Headwind MDM launcher APK via the Nova backend."""
+    import asyncio
+    from fastapi.responses import StreamingResponse
+    apk_url = f"{_HMDM_BASE}/files/hmdm-6.14-os.apk"
+    async def stream():
+        async with httpx.AsyncClient(timeout=60) as client:
+            async with client.stream("GET", apk_url) as r:
+                async for chunk in r.aiter_bytes(chunk_size=65536):
+                    yield chunk
+    return StreamingResponse(
+        stream(),
+        media_type="application/vnd.android.package-archive",
+        headers={"Content-Disposition": "attachment; filename=hmdm.apk"},
+    )
