@@ -1586,26 +1586,26 @@
     <div id="section-parental" class="section">
       <div class="page-header">
         <h2>Parental Control</h2>
-        <div class="page-sub">Monitor and manage kids&apos; Android devices via Headwind MDM</div>
+        <div class="page-sub">Monitor and manage kids' Android devices via Headwind MDM</div>
       </div>
 
       <!-- Status bar -->
       <div id="parental-status-bar" class="card mb-4" style="display:none">
-        <span id="parental-hmdm-status" class="badge badge-ok">MDM Connected</span>
-        <a id="parental-hmdm-link" href="http://192.168.0.249:8083" target="_blank" class="btn btn-ghost btn-sm ml-2">Open MDM Console</a>
+        <span id="parental-hmdm-status" class="badge badge-green">MDM Connected</span>
+        <a id="parental-hmdm-link" href="http://192.168.0.249:8083" target="_blank" class="btn btn-ghost btn-sm" style="margin-left:8px">Open MDM Console</a>
       </div>
 
       <!-- Enroll a device -->
       <div class="card mb-4">
         <div class="card-title">Enroll New Device</div>
-        <div class="flex gap-2 mb-2">
+        <div class="flex-row gap-2 mb-2">
           <select id="parental-enroll-config" class="input input-sm" style="max-width:220px"></select>
-          <button class="btn btn-sm btn-primary" onclick="parentalShowEnroll()">Generate QR Code</button>
+          <button class="btn btn-sm btn-primary" onclick="parentalShowEnroll()" style="margin-left:8px">Generate QR Code</button>
         </div>
-        <div id="parental-qr-area" style="display:none">
-          <p class="text-sm text-muted mb-2">Scan with the Headwind MDM Launcher app on the child&apos;s device. Enable Device Owner when prompted.</p>
-          <img id="parental-qr-img" src="" alt="Enrollment QR" style="width:200px;height:200px;border:1px solid #ccc;border-radius:8px">
-          <p class="text-sm text-muted mt-2" id="parental-enroll-url"></p>
+        <div id="parental-qr-area" style="display:none;margin-top:12px">
+          <p class="text-sm text-muted mb-2">Scan with the Headwind MDM Launcher app on the child's device. Enable Device Owner when prompted.</p>
+          <img id="parental-qr-img" src="" alt="Enrollment QR" style="width:200px;height:200px;border:1px solid var(--border);border-radius:8px;display:block;margin-top:8px">
+          <p class="text-sm text-muted mt-2" id="parental-enroll-url" style="word-break:break-all;margin-top:6px"></p>
         </div>
       </div>
 
@@ -1629,31 +1629,30 @@
 
         <!-- Location -->
         <div class="mb-3">
-          <div class="label">Last Known Location</div>
+          <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Last Known Location</div>
           <p id="parental-location" class="text-sm text-muted">Not available</p>
         </div>
 
         <!-- Alert -->
         <div class="mb-3">
-          <div class="label">Send Alert to Device</div>
-          <div class="flex gap-2">
-            <input id="parental-alert-msg" class="input input-sm" placeholder="Message to send&hellip;" style="flex:1">
-            <button class="btn btn-sm btn-primary" onclick="parentalSendAlert()">Send</button>
+          <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Send Alert to Device</div>
+          <div class="flex-row gap-2">
+            <input id="parental-alert-msg" class="input input-sm" placeholder="Message to send…" style="flex:1">
+            <button class="btn btn-sm btn-primary" onclick="parentalSendAlert()" style="margin-left:8px">Send</button>
           </div>
         </div>
 
         <!-- App blocking -->
         <div>
-          <div class="label mb-1">Block / Unblock Apps</div>
-          <p class="text-sm text-muted mb-2">Enter package name (e.g. com.instagram.android). Blocked apps are removed from the launcher and cannot be opened.</p>
-          <div class="flex gap-2 mb-2">
+          <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Block / Unblock Apps</div>
+          <p class="text-sm text-muted mb-2">Enter package name (e.g. com.instagram.android). Blocked apps are removed from the launcher.</p>
+          <div class="flex-row gap-2 mb-2">
             <input id="parental-block-pkg" class="input input-sm" placeholder="com.package.name" style="flex:1">
-            <button class="btn btn-sm btn-danger" onclick="parentalBlockApp(0)">Block</button>
-            <button class="btn btn-sm" onclick="parentalBlockApp(1)">Unblock</button>
+            <button class="btn btn-sm btn-danger" onclick="parentalBlockApp(0)" style="margin-left:8px">Block</button>
+            <button class="btn btn-sm btn-ghost" onclick="parentalBlockApp(1)" style="margin-left:4px">Unblock</button>
           </div>
-          <!-- Quick-block common social media -->
-          <div class="flex gap-1 flex-wrap">
-            <span class="text-xs text-muted mr-1">Quick block:</span>
+          <div class="flex-row flex-wrap gap-1" style="margin-top:6px">
+            <span class="text-sm text-muted" style="margin-right:4px">Quick block:</span>
             <button class="btn btn-xs btn-ghost" onclick="parentalQuickBlock('com.instagram.android')">Instagram</button>
             <button class="btn btn-xs btn-ghost" onclick="parentalQuickBlock('com.whatsapp')">WhatsApp</button>
             <button class="btn btn-xs btn-ghost" onclick="parentalQuickBlock('com.zhiliaoapp.musically')">TikTok</button>

@@ -3180,10 +3180,10 @@ async function loadParentalSection() {
     if (bar) bar.style.display = '';
     if (s.hmdm_reachable) {
       badge.textContent = 'MDM Connected';
-      badge.className = 'badge badge-ok';
+      badge.className = 'badge badge-green';
     } else {
       badge.textContent = 'MDM Unreachable';
-      badge.className = 'badge badge-err';
+      badge.className = 'badge badge-red';
     }
   } catch(e) {}
   await loadParentalConfigs();
@@ -3216,17 +3216,17 @@ async function loadParentalDevices() {
     el.innerHTML = devices.map(dev => {
       const ts = dev.lastUpdate ? new Date(dev.lastUpdate).toLocaleString() : 'Never';
       const statusColor = dev.statusCode === 'green' ? '#22c55e' : dev.statusCode === 'red' ? '#ef4444' : '#f59e0b';
-      return `<div class="device-row flex-between py-2 border-b" style="cursor:pointer" onclick="parentalSelectDevice(${JSON.stringify(JSON.stringify(dev))})">
+      return `<div class="flex-between" style="cursor:pointer;padding:8px 0;border-bottom:1px solid var(--border)" onclick="parentalSelectDevice(${JSON.stringify(JSON.stringify(dev))})">
         <div>
           <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColor};margin-right:6px"></span>
           <strong>${esc(dev.description || dev.number)}</strong>
-          <span class="text-muted text-sm ml-2">${esc(dev.number)}</span>
+          <span class="text-muted text-sm" style="margin-left:6px">${esc(dev.number)}</span>
         </div>
         <div class="text-sm text-muted">${esc(ts)}</div>
       </div>`;
     }).join('');
   } catch(e) {
-    el.innerHTML = `<p class="text-err text-sm">Error loading devices: ${esc(e.message)}</p>`;
+    el.innerHTML = `<p class="text-sm" style="color:var(--red)">Error loading devices: ${esc(e.message)}</p>`;
   }
 }
 
