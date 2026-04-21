@@ -5,7 +5,9 @@ Headwind MDM runs internally at http://localhost:8083 (Docker container hmdm_ser
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
+import io
 import logging
 import time
 from typing import Any
@@ -23,6 +25,7 @@ _LOGGER = structlog.get_logger()
 router = APIRouter()
 
 _HMDM_BASE = "http://localhost:8083"
+_HMDM_PUBLIC = "https://mdm.nova-home.co.uk"
 _HMDM_LOGIN = "admin"
 _HMDM_RAW_PW = "linkstar"
 # Headwind expects MD5(password).upper() as the API password
@@ -235,14 +238,22 @@ async def enrollment_info(config_id: int, request: Request):
         cfg_data = await _hmdm("get", f"/rest/private/configurations/{config_id}")
         cfg = cfg_data.get("data", {})
         qr_key = cfg.get("qrCodeKey", "")
-        enroll_url = f"{_HMDM_BASE}/?k={qr_key}"
-        qr_image_url = f"{_HMDM_BASE}/qr?url={enroll_url}"
+        enroll_url = f"{_HMDM_PUBLIC}/?k={qr_key}"
+        # Generate QR code server-side (MDM has no /qr endpoint)
+        import qrcode
+        qr = qrcode.QRCode(box_size=6, border=2)
+        qr.add_data(enroll_url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        qr_data_url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
         return {
             "config_name": cfg.get("name", ""),
             "qr_key": qr_key,
             "enroll_url": enroll_url,
-            "qr_image_url": qr_image_url,
-            "hmdm_url": _HMDM_BASE,
+            "qr_image_url": qr_data_url,
+            "hmdm_url": _HMDM_PUBLIC,
         }
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
