@@ -78,6 +78,13 @@ def _log_announcement(text: str, priority: str, target_areas: list, source: str 
         _LOGGER.warning("announce.log_write_failed", exc=str(exc))
 
 router = APIRouter()
+
+
+def _get_container(request: Request):
+    """Avoid circular import: startup.py → announce.py → bootstrap."""
+    return request.app.state._container
+
+
 _STREAM_TIMEOUT = httpx.Timeout(connect=5.0, read=None, write=5.0, pool=5.0)
 _MOTION_ANNOUNCE_COOLDOWN_S = 600  # 10 minutes per camera for direct /announce/motion calls
 
@@ -103,7 +110,7 @@ class AnnounceResponse(BaseModel):
     dependencies=[Depends(verify_api_key)],
     summary="Trigger a proactive TTS announcement",
 )
-async def announce_handler(body: AnnounceRequest, request: Request):
+async def announce_handler(body: AnnounceRequest, request: Request, container: AppContainer = Depends(_get_container)):
     """
     Speak *body.message* on all configured speakers and update the avatar state.
 
@@ -112,8 +119,6 @@ async def announce_handler(body: AnnounceRequest, request: Request):
     """
     t0 = time.monotonic()
 
-    # Support both direct container injection and internal calls passing request
-    container: AppContainer = request.app.state._container
 
     tts:    TTSService        = container.tts_service
     speaker: SpeakerService   = getattr(container, "speaker_service", None)
@@ -349,8 +354,7 @@ def _parse_image_urls_csv(raw: str | None) -> list[str]:
     dependencies=[Depends(verify_api_key)],
     summary="Send a visual-only event card to connected avatar clients",
 )
-async def visual_event_handler(body: VisualEventRequest, request: Request):
-    container: AppContainer = request.app.state._container
+async def visual_event_handler(body: VisualEventRequest, request: Request, container: AppContainer = Depends(_get_container)):
     ws_mgr: ConnectionManager = container.ws_manager
     event_id = await _broadcast_visual_event(
         container,
@@ -374,7 +378,7 @@ async def visual_event_handler(body: VisualEventRequest, request: Request):
     dependencies=[Depends(verify_api_key)],
     summary="Doorbell alert — capture camera image and announce what Nova sees",
 )
-async def doorbell_announce_handler(body: DoorbellAnnounceRequest, request: Request):
+async def doorbell_announce_handler(body: DoorbellAnnounceRequest, request: Request, container: AppContainer = Depends(_get_container)):
     """
     Called when the doorbell rings. Nova:
       1. Captures a snapshot from the doorbell camera
@@ -384,7 +388,6 @@ async def doorbell_announce_handler(body: DoorbellAnnounceRequest, request: Requ
     Falls back to a generic "Someone is at the door" if the camera is unavailable.
     """
     t0 = time.monotonic()
-    container: AppContainer = request.app.state._container
     ws_mgr: ConnectionManager = container.ws_manager
     camera_events = getattr(container, "camera_event_service", None)
     runtime = load_home_runtime_config()
@@ -468,8 +471,8 @@ async def _close_stream(response: httpx.Response, client: httpx.AsyncClient) -> 
 async def camera_stream_proxy(
     request: Request,
     entity_id: str = Query(..., min_length=1, description="HA camera entity ID"),
+    container: AppContainer = Depends(_get_container),
 ):
-    container: AppContainer = request.app.state._container
     ha = container.ha_proxy
     resolved_entity_id = ha.resolve_camera_entity(entity_id)
     stream_url = f"{ha.ha_url}/api/camera_proxy_stream/{resolved_entity_id}"
@@ -529,7 +532,7 @@ class PackageAnnounceResponse(BaseModel):
     dependencies=[Depends(verify_api_key)],
     summary="Motion alert — capture outdoor camera image and announce what Nova sees",
 )
-async def motion_announce_handler(body: MotionAnnounceRequest, request: Request):
+async def motion_announce_handler(body: MotionAnnounceRequest, request: Request, container: AppContainer = Depends(_get_container)):
     """
     Called when motion is detected on an outdoor camera. Nova:
       1. Captures a snapshot from the specified camera
@@ -542,7 +545,6 @@ async def motion_announce_handler(body: MotionAnnounceRequest, request: Request)
     Falls back to a generic "Motion detected" message if the camera is unavailable.
     """
     t0 = time.monotonic()
-    container: AppContainer = request.app.state._container
     camera_events = getattr(container, "camera_event_service", None)
 
     camera_id = camera_events.resolve_camera_entity(body.camera_entity_id)
@@ -623,8 +625,7 @@ async def motion_announce_handler(body: MotionAnnounceRequest, request: Request)
     dependencies=[Depends(verify_api_key)],
     summary="Package alert — send a shared package camera event to avatar clients",
 )
-async def package_announce_handler(body: PackageAnnounceRequest, request: Request):
-    container: AppContainer = request.app.state._container
+async def package_announce_handler(body: PackageAnnounceRequest, request: Request, container: AppContainer = Depends(_get_container)):
     ws_mgr: ConnectionManager = container.ws_manager
     camera_events = getattr(container, "camera_event_service", None)
     runtime = load_home_runtime_config()
@@ -676,9 +677,8 @@ async def package_announce_handler(body: PackageAnnounceRequest, request: Reques
     include_in_schema=False,
     summary="Serve a one-shot synthesised audio file",
 )
-async def serve_tts_audio(token: str, request: Request):
+async def serve_tts_audio(token: str, request: Request, container: AppContainer = Depends(_get_container)):
     """Serve a pre-synthesised WAV to HA media players then delete it from cache."""
-    container: AppContainer = request.app.state._container
     cache: dict = getattr(container, "audio_cache", {})
     entry = cache.pop(token, None)
     if entry is None:
@@ -694,13 +694,12 @@ async def serve_tts_audio(token: str, request: Request):
     include_in_schema=False,
     summary="Serve Alexa-compatible MP3 for SSML <audio> playback on Echo devices",
 )
-async def serve_tts_audio_mp3(token: str, request: Request):
+async def serve_tts_audio_mp3(token: str, request: Request, container: AppContainer = Depends(_get_container)):
     """Serve an Alexa-compatible MP3.
 
     Unlike the WAV endpoint, this does NOT pop the entry on first read because
     Amazon's servers may retry the fetch.  The entry expires naturally via TTL.
     """
-    container: AppContainer = request.app.state._container
     cache: dict = getattr(container, "audio_cache", {})
     entry = cache.get(f"mp3:{token}")
     if entry is None:
@@ -794,14 +793,13 @@ class MediaFunFactResponse(BaseModel):
     dependencies=[Depends(verify_api_key)],
     summary="Generate and announce a fun fact about currently playing media",
 )
-async def media_fun_fact_handler(body: MediaFunFactRequest, request: Request):
+async def media_fun_fact_handler(body: MediaFunFactRequest, request: Request, container: AppContainer = Depends(_get_container)):
     """
     Called when Plex or Channels DVR starts playing on the living room TV.
     Nova generates an interesting fun fact about the media using the cloud LLM
     and announces it on living room speakers only.
     """
     t0 = time.monotonic()
-    container: AppContainer = request.app.state._container
     llm = getattr(container, "llm_service", None)
     if llm is None:
         raise HTTPException(status_code=503, detail="LLM service unavailable")

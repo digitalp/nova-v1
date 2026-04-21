@@ -24,6 +24,7 @@ import json
 import structlog
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
+from avatar_backend.bootstrap.container import AppContainer, get_container
 from avatar_backend.middleware.auth import verify_api_key_ws
 from avatar_backend.services.action_service import ActionService
 from avatar_backend.services.ws_manager import ConnectionManager
@@ -37,16 +38,17 @@ router = APIRouter()
 async def avatar_state_websocket(
     ws: WebSocket,
     _: None = Depends(verify_api_key_ws),
+    container: AppContainer = Depends(get_container),
 ):
     """
     State-only WebSocket for avatar UI components.
     Joins the broadcast group; state updates arrive automatically
     whenever the voice pipeline changes state.
     """
-    ws_mgr: ConnectionManager = ws.app.state._container.ws_manager
+    ws_mgr: ConnectionManager = container.ws_manager
 
     await ws_mgr.connect(ws)
-    surface_state = await ws.app.state._container.surface_state_service.get_snapshot()
+    surface_state = await container.surface_state_service.get_snapshot()
     await ws.send_text(json.dumps({"type": "avatar_state", "state": surface_state["avatar_state"]}))
     await ws.send_text(json.dumps({"type": "surface_state", **surface_state}))
 
@@ -65,7 +67,7 @@ async def avatar_state_websocket(
                     elif data.get("type") == "surface_action":
                         action = str(data.get("action") or "")
                         event_id = str(data.get("event_id") or "").strip()
-                        action_service = getattr(ws.app.state._container, "action_service", None) or ActionService()
+                        action_service = getattr(container, "action_service", None) or ActionService()
                         ack = await action_service.handle_surface_action(
                             app=ws.app,
                             ws_mgr=ws_mgr,
