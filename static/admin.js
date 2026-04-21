@@ -3188,6 +3188,7 @@ async function loadParentalSection() {
   } catch(e) {}
   await loadParentalConfigs();
   await loadParentalDevices();
+  _renderApkQr();
 }
 
 async function loadParentalConfigs() {
@@ -6373,4 +6374,13 @@ async function sbDeletePenalty(penalty_id) {
     toast('Penalty removed', 'ok');
     loadPenalties();
   } catch(e) { toast('Failed: ' + e.message, 'err'); }
+}
+
+async function _renderApkQr(){
+  const el=document.getElementById("parental-apk-qr");
+  if(!el)return;
+  try{
+    const d=await api("GET","/admin/parental/apk-qr");
+    el.innerHTML='<img src="'+d.qr_image_url+'" width="150" height="150" style="border:1px solid var(--border);border-radius:8px;">';
+  }catch(e){el.innerHTML='<span class="text-sm text-muted">QR unavailable</span>';}
 }

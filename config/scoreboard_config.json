@@ -486,6 +486,11 @@
       "id": "damaging_property",
       "label": "Damaging Property",
       "points": 20
+    },
+    {
+      "id": "bad_behaviour",
+      "label": "Bad Behaviour",
+      "points": 2
     }
   ]
 }

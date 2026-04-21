@@ -62,7 +62,7 @@ async def _hmdm(method: str, path: str, **kwargs) -> Any:
         resp = await getattr(client, method.lower())(
             f"{_HMDM_BASE}{path}", headers=headers, **kwargs
         )
-        if resp.status_code == 401:
+        if resp.status_code in (401, 403):
             # Token expired — force refresh and retry once
             global _jwt_expires
             _jwt_expires = 0
@@ -246,7 +246,7 @@ async def enrollment_info(config_id: int, request: Request):
         # Generate QR code from JSON content
         import qrcode
         qr = qrcode.QRCode(box_size=6, border=2)
-        qr.add_data(qr_content)
+        qr.add_data(enroll_url)
         qr.make(fit=True)
         img = qr.make_image(fill_color="black", back_color="white")
         buf = io.BytesIO()
@@ -294,3 +294,18 @@ async def download_apk():
         media_type="application/vnd.android.package-archive",
         headers={"Content-Disposition": "attachment; filename=hmdm.apk"},
     )
+
+
+@router.get("/parental/apk-qr")
+async def apk_qr():
+    """Return a QR code PNG pointing to the APK download proxy."""
+    import qrcode
+    url = f"{_HMDM_PUBLIC}/files/hmdm-6.14-os.apk"
+    qr = qrcode.QRCode(box_size=6, border=2)
+    qr.add_data(url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    qr_b64 = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    return {"qr_image_url": qr_b64, "download_url": url}

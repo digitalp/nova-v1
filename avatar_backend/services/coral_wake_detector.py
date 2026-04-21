@@ -144,6 +144,11 @@ class CoralWakeDetector:
             interp = Interpreter(model_path=str(_CORAL_MODEL),
                                  experimental_delegates=[delegate])
             interp.allocate_tensors()
+            # Test invoke to catch runtime failures early
+            import numpy as np
+            inp = interp.get_input_details()
+            interp.set_tensor(inp[0]["index"], np.zeros(inp[0]["shape"], dtype=inp[0]["dtype"]))
+            interp.invoke()
             _LOGGER.info("coral_wake.coral_ready", model=str(_CORAL_MODEL))
             return interp
         except Exception as exc:
@@ -165,6 +170,11 @@ class CoralWakeDetector:
             from ai_edge_litert.interpreter import Interpreter
             interp = Interpreter(model_path=str(_CPU_MODEL))
             interp.allocate_tensors()
+            # Test invoke to catch runtime failures early
+            import numpy as np
+            inp = interp.get_input_details()
+            interp.set_tensor(inp[0]["index"], np.zeros(inp[0]["shape"], dtype=inp[0]["dtype"]))
+            interp.invoke()
             _LOGGER.info("coral_wake.cpu_tflite_ready", model=str(_CPU_MODEL))
             return interp
         except Exception as exc:
