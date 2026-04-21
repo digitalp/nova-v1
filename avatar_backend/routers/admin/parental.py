@@ -264,6 +264,57 @@ async def parental_status(request: Request):
 
 # ── APK proxy (bypasses Cloudflare bot challenge on direct MDM URL) ────────────
 
+@router.get("/parental/provisioning-qr")
+async def provisioning_qr(config_id: int = 2):
+    """
+    Return an Android Device Owner provisioning QR.
+    Scanned at the Android setup wizard (6-tap method) to install MDM as Device Owner.
+    Different from the basic enrollment QR — this tells Android to download and
+    install the MDM app itself before the OS is fully set up.
+    """
+    import hashlib, json
+    # Fetch the config QR key
+    cfg_data = await _hmdm("get", f"/rest/private/configurations/{config_id}")
+    cfg = cfg_data.get("data", {})
+    qr_key = cfg.get("qrCodeKey", "")
+
+    # SHA-256 of hmdm-6.14-os.apk as URL-safe base64 (no padding) — required by Android
+    sha256_hex = "4bb12e903a87b902feed865c3a3751a1ddbdffcede083a4a1b04f508fdb9a83e"
+    checksum = base64.urlsafe_b64encode(bytes.fromhex(sha256_hex)).rstrip(b"=").decode()
+
+    provisioning = {
+        "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME":
+            "com.hmdm.launcher/com.hmdm.launcher.AdminReceiver",
+        "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION":
+            f"{_HMDM_PUBLIC}/files/hmdm-6.14-os.apk",
+        "android.app.extra.PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM": checksum,
+        "android.app.extra.PROVISIONING_SKIP_ENCRYPTION": False,
+        "android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE": {
+            "com.hmdm.BASE_URL": _HMDM_PUBLIC,
+            "com.hmdm.SERVER_PROJECT": "",
+            "com.hmdm.QR_CODE_KEY": qr_key,
+        },
+    }
+    content = json.dumps(provisioning, separators=(",", ":"))
+
+    import qrcode as _qrcode
+    qr = _qrcode.QRCode(
+        box_size=6, border=2,
+        error_correction=_qrcode.constants.ERROR_CORRECT_M,
+    )
+    qr.add_data(content)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    qr_data_url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    return {
+        "qr_image_url": qr_data_url,
+        "config_name": cfg.get("name", ""),
+        "qr_key": qr_key,
+    }
+
+
 @router.get("/parental/apk")
 async def download_apk():
     """Stream the Headwind MDM launcher APK via the Nova backend."""

@@ -1608,14 +1608,27 @@
       <!-- Enroll -->
       <div class="card" style="margin-bottom:12px;">
         <div class="card-title">Enroll New Device</div>
-        <p class="text-sm text-muted" style="margin-bottom:10px;">Select a device profile and scan the QR code with the Headwind MDM app on the child's phone.</p>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <div style="margin-bottom:12px;">
           <select id="parental-enroll-config" style="width:220px;"></select>
-          <button class="btn btn-primary" onclick="parentalShowEnroll()" style="font-size:12px;">Generate QR Code</button>
         </div>
-        <div id="parental-qr-area" style="display:none;margin-top:14px;">
-          <img id="parental-qr-img" src="" alt="Enrollment QR" style="display:block;width:200px;height:200px;border:1px solid var(--border);border-radius:8px;">
-          <p class="text-sm text-muted" style="margin-top:6px;word-break:break-all;" id="parental-enroll-url"></p>
+        <div style="display:flex;gap:24px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:220px;">
+            <p class="text-sm" style="margin-bottom:4px;"><strong>Device Owner &mdash; Recommended</strong></p>
+            <p class="text-sm text-muted" style="margin-bottom:8px;">Factory reset &rarr; tap Welcome 6&times; &rarr; scan.<br>MDM is invisible and cannot be removed.</p>
+            <button class="btn btn-primary" onclick="parentalShowProvisioningQr()" style="font-size:12px;">Generate Device Owner QR</button>
+            <div id="parental-provision-qr-area" style="display:none;margin-top:10px;">
+              <img id="parental-provision-qr-img" src="" alt="Provisioning QR" style="display:block;width:200px;height:200px;border:1px solid var(--border);border-radius:8px;">
+            </div>
+          </div>
+          <div style="flex:1;min-width:220px;">
+            <p class="text-sm" style="margin-bottom:4px;"><strong>Basic Enrollment</strong></p>
+            <p class="text-sm text-muted" style="margin-bottom:8px;">Install MDM app first, then scan.<br>App is visible and can be uninstalled.</p>
+            <button class="btn btn-outline" onclick="parentalShowEnroll()" style="font-size:12px;">Generate Basic QR</button>
+            <div id="parental-qr-area" style="display:none;margin-top:10px;">
+              <img id="parental-qr-img" src="" alt="Enrollment QR" style="display:block;width:200px;height:200px;border:1px solid var(--border);border-radius:8px;">
+              <p class="text-sm text-muted" style="margin-top:6px;word-break:break-all;" id="parental-enroll-url"></p>
+            </div>
+          </div>
         </div>
       </div>
 

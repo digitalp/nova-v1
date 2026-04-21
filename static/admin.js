@@ -3305,6 +3305,19 @@ async function parentalShowEnroll() {
   } catch(e) { toast('Failed: ' + e.message, 'err'); }
 }
 
+async function parentalShowProvisioningQr() {
+  const sel = document.getElementById('parental-enroll-config');
+  const configId = sel?.value;
+  if (!configId) { toast('Select a configuration first', 'err'); return; }
+  try {
+    const d = await api('GET', `/admin/parental/provisioning-qr?config_id=${configId}`);
+    const area = document.getElementById('parental-provision-qr-area');
+    const img = document.getElementById('parental-provision-qr-img');
+    img.src = d.qr_image_url;
+    area.style.display = '';
+  } catch(e) { toast('Failed: ' + e.message, 'err'); }
+}
+
 const _origNavigate = window.navigate;
 window.navigate = function(el) {
   _origNavigate(el);
