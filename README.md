@@ -215,6 +215,7 @@ All config lives in `/opt/avatar-server/.env`:
 | `OLLAMA_MODEL` | Local chat model | `qwen2.5:7b` |
 | `OLLAMA_VISION_MODEL` | Vision model for camera descriptions | `llama3.2-vision:11b` |
 | `CLOUD_MODEL` | Cloud model name | `gemini-2.5-flash` |
+| `OLLAMA_BACKGROUND_MODEL` | Local model used by background loops (sensor watch, heating shadow, daily summary) — never routed to cloud | `gemma2:9b` |
 | `TTS_PROVIDER` | `piper` / `afrotts` / `elevenlabs` | `piper` |
 | `AFROTTS_VOICE` | Intron Afro TTS voice ID | `am_adam` |
 | `WHISPER_MODEL` | STT model size | `base` |
@@ -259,7 +260,9 @@ ai_avatar:
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/health` | Component status (ollama, whisper, piper, HA) |
+| `GET` | `/health/live` | Liveness — always 200 once the process is up (no auth) |
+| `GET` | `/health/ready` | Readiness — checks Ollama reachability + HA connection (no auth) |
+| `GET` | `/health` | Full component status — requires `X-API-Key` header |
 | `POST` | `/chat` | Text chat — JSON response |
 | `WS` | `/ws/voice` | Voice pipeline (WAV in → transcript + LLM + TTS audio out) |
 | `WS` | `/ws/avatar` | State broadcast (idle / listening / thinking / speaking) |

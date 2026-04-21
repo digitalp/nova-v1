@@ -45,11 +45,11 @@ _playable_cache: dict[int, bool] = {}
 
 
 # L4 security fix: async subprocess to avoid blocking the event loop
-async def _motion_clip_is_playable(request: Request, clip: dict) -> bool:
+async def _motion_clip_is_playable(request: Request, clip: dict, container: AppContainer | None = None) -> bool:
     clip_id = clip.get("id")
     if clip_id is not None and clip_id in _playable_cache:
         return _playable_cache[clip_id]
-    svc = request.app.state._container.motion_clip_service
+    svc = (container if container is not None else request.app.state._container).motion_clip_service
     path = svc.clip_path_for(clip)
     if not path or not path.exists():
         if clip_id is not None:
@@ -78,9 +78,9 @@ async def _motion_clip_is_playable(request: Request, clip: dict) -> bool:
         return False
 
 
-async def _filter_playable(request: Request, clips: list[dict]) -> list[dict]:
+async def _filter_playable(request: Request, clips: list[dict], container: AppContainer | None = None) -> list[dict]:
     """Run all playability checks concurrently instead of sequentially."""
-    flags = await asyncio.gather(*[_motion_clip_is_playable(request, c) for c in clips])
+    flags = await asyncio.gather(*[_motion_clip_is_playable(request, c, container) for c in clips])
     return [c for c, ok in zip(clips, flags) if ok]
 
 
@@ -179,7 +179,7 @@ async def serve_motion_clip_video(clip_id: int, request: Request, download: int 
     clip = db.get_motion_clip(clip_id)
     if not clip:
         raise HTTPException(status_code=404, detail="Motion clip not found")
-    if not await _motion_clip_is_playable(request, clip):
+    if not await _motion_clip_is_playable(request, clip, container):
         raise HTTPException(status_code=404, detail="Motion clip is not playable")
     path = svc.clip_path_for(clip)
     if not path or not path.exists():

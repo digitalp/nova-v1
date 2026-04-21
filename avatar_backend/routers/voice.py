@@ -65,15 +65,14 @@ async def voice_websocket(
     session_id: str = Query(default="voice_default", max_length=128),
     room: str = Query(default="", max_length=64),
     _: None = Depends(verify_api_key_ws),
+    container: AppContainer = Depends(get_container),
 ):
     """Full-duplex voice pipeline: audio in → transcript → LLM → TTS → audio out."""
-    app = ws.app
-    _c = app.state._container
-    stt: STTService            = _c.stt_service
-    tts: TTSService            = _c.tts_service
-    ws_mgr: ConnectionManager  = _c.ws_manager
-    speaker: SpeakerService    = getattr(_c, "speaker_service", None)
-    voice_service: RealtimeVoiceService = getattr(_c, "realtime_voice_service", None) or RealtimeVoiceService()
+    stt: STTService            = container.stt_service
+    tts: TTSService            = container.tts_service
+    ws_mgr: ConnectionManager  = container.ws_manager
+    speaker: SpeakerService    = getattr(container, "speaker_service", None)
+    voice_service: RealtimeVoiceService = getattr(container, "realtime_voice_service", None) or RealtimeVoiceService()
 
     await ws.accept()
     setattr(ws, "_nova_session_id", session_id)
