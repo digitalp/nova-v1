@@ -18,6 +18,19 @@
   }
   </script>
 
+  <script>
+  /* Force high-performance GPU on devices with integrated+discrete GPUs */
+  (function() {
+    const _orig = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function(type, attrs) {
+      if (type === 'webgl2' || type === 'webgl' || type === 'experimental-webgl') {
+        attrs = Object.assign({ powerPreference: 'high-performance' }, attrs || {});
+      }
+      return _orig.call(this, type, attrs);
+    };
+  })();
+  </script>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
@@ -1373,7 +1386,11 @@ async function initHead() {
       }
     },
   });
-  // Force avatar to look straight at camera
+  // Sharpen rendering on Retina/high-DPI screens
+  head.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  const _ac = document.getElementById('avatar-container');
+  head.renderer.setSize(_ac.clientWidth, _ac.clientHeight);
+    // Force avatar to look straight at camera
   try { head.lookAtCamera(1000); } catch(_) {}
   // Apply skin tone to the loaded Three.js materials (skin meshes only)
   applySkinTone();
