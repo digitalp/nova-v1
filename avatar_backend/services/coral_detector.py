@@ -180,7 +180,9 @@ class CoralMotionDetector:
         labels = _load_labels(label_path)
         detector = cls(interp, labels)
 
-        # Warm up with a dummy frame so the first real inference isn't slow
+        # Warm up with a dummy frame so the first real inference isn't slow.
+        # If warmup fails the delegate can't run inference — fall back to passthrough
+        # so motion events go straight to the vision LLM without repeated errors.
         try:
             import numpy as np
             dummy = np.zeros((1, _INPUT_SIZE[1], _INPUT_SIZE[0], 3), dtype=detector._input_dtype)
@@ -188,7 +190,13 @@ class CoralMotionDetector:
             interp.invoke()
             _LOGGER.info("coral.warmup_complete")
         except Exception as exc:
-            _LOGGER.warning("coral.warmup_failed", exc=str(exc))
+            _LOGGER.warning(
+                "coral.warmup_failed_disabling",
+                exc=str(exc)[:120],
+                detail="Edge TPU delegate loaded but invoke failed — falling back to CPU path. "
+                       "Check libedgetpu/ai-edge-litert version compatibility.",
+            )
+            return _PassthroughDetector()
 
         return detector
 
