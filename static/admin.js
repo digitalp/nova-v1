@@ -5936,6 +5936,7 @@ async function loadScoreboard() {
     _populateSbSelects(_sbConfig);
     _renderSbTasks(_sbConfig);
     _setSbToggleState(_sbConfig.show_widget !== false);
+    loadPenalties();
   } catch (e) { console.error('loadScoreboard', e); }
 }
 
@@ -6002,8 +6003,11 @@ function _populateSbSelects(cfg) {
   if (taskSel) taskSel.innerHTML = (cfg.tasks || []).map(t => `<option value="${t.id}">${t.label} (${t.points}pts)</option>`).join('');
 
   const members = cfg.members || [];
+  const memberOptions = members.map(m => `<option value="${m}">${m.charAt(0).toUpperCase()+m.slice(1)}</option>`).join('');
   const personSel = document.getElementById('sb-award-person');
-  if (personSel) personSel.innerHTML = members.map(m => `<option value="${m}">${m.charAt(0).toUpperCase()+m.slice(1)}</option>`).join('');
+  if (personSel) personSel.innerHTML = memberOptions;
+  const deductPersonSel = document.getElementById('sb-deduct-person');
+  if (deductPersonSel) deductPersonSel.innerHTML = memberOptions;
 
   // Checkboxes for assign-to in add-task form
   const assignDiv = document.getElementById('sb-new-assigned');
