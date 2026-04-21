@@ -278,9 +278,9 @@ async def provisioning_qr(config_id: int = 2):
     cfg = cfg_data.get("data", {})
     qr_key = cfg.get("qrCodeKey", "")
 
-    # SHA-256 of hmdm-6.14-os.apk as URL-safe base64 (no padding) — required by Android
-    sha256_hex = "4bb12e903a87b902feed865c3a3751a1ddbdffcede083a4a1b04f508fdb9a83e"
-    checksum = base64.urlsafe_b64encode(bytes.fromhex(sha256_hex)).rstrip(b"=").decode()
+    # Signing certificate SHA-256 (keytool -printcert -jarfile) as base64url, no padding
+    cert_hex = "095761E0055FE057672406397F352257CD34D71F279E8BD4F4FD3D8F91099757"
+    checksum = base64.urlsafe_b64encode(bytes.fromhex(cert_hex)).rstrip(b"=").decode()
 
     provisioning = {
         "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME":
@@ -288,7 +288,7 @@ async def provisioning_qr(config_id: int = 2):
         "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION":
             f"{_HMDM_PUBLIC}/files/hmdm-6.14-os.apk",
         "android.app.extra.PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM": checksum,
-        "android.app.extra.PROVISIONING_SKIP_ENCRYPTION": False,
+        "android.app.extra.PROVISIONING_SKIP_ENCRYPTION": True,
         "android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE": {
             "com.hmdm.BASE_URL": _HMDM_PUBLIC,
             "com.hmdm.SERVER_PROJECT": "",
