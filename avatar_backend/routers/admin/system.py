@@ -903,11 +903,14 @@ async def get_rooms(request: Request, container: AppContainer = Depends(get_cont
             if sess.get("room_id"):
                 connected_rooms.add(sess["room_id"])
     from avatar_backend.config import get_settings as _gs
-    public_url = (_gs().public_url or "").rstrip("/")
+    _s = _gs()
+    public_url = (_s.public_url or "").rstrip("/")
+    ak = _s.api_key
     return {
         "rooms": [
             {**r, "connected": r.get("id", "") in connected_rooms,
-             "avatar_url": f"{public_url}/static/avatar.html?room={r['id']}" if public_url else f"/static/avatar.html?room={r['id']}",
+             "avatar_url": f"{public_url}/avatar?room={r['id']}&api_key={ak}" if public_url else f"/avatar?room={r['id']}&api_key={ak}",
+             "local_url": f"http://192.168.0.249:8001/avatar?room={r['id']}&api_key={ak}",
              "glb_url": (f"{public_url}/static/avatars/{r['glb']}" if r.get("glb") else None)}
             for r in rooms
         ]

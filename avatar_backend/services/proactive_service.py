@@ -695,6 +695,21 @@ class ProactiveService:
                 _LOGGER.warning("coral.check_failed", camera=self._cam_label(camera_id), exc=str(exc),
                                 detail="falling through to Ollama vision")
         # ─────────────────────────────────────────────────────────────────────
+        # ── CPAI fallback when Coral is disabled ──────────────────────────────
+        if not self._coral.enabled and not _coral_detections:
+            try:
+                _face_svc = getattr(self._camera_event_service, "_face_service", None)
+                if _face_svc and _face_svc.available:
+                    frame = await self._ha.fetch_camera_image(camera_id)
+                    if frame:
+                        yolo_results = await _face_svc.detect_objects(frame)
+                        if yolo_results:
+                            _coral_detections = [f'{d["label"]}({d["confidence"]:.0%})' for d in yolo_results]
+                            _coral_has_plate = any(d["label"] in ("car", "truck", "bus") for d in yolo_results)
+                            _coral_frame = frame
+                            _LOGGER.info("cpai.fallback_detect", camera=self._cam_label(camera_id), detections=_coral_detections)
+            except Exception as exc:
+                _LOGGER.warning("cpai.fallback_failed", camera=self._cam_label(camera_id), exc=str(exc)[:80])
 
         # Start clip capture IMMEDIATELY so the video captures the actual motion
         # event. Vision description runs in parallel — the clip gets a placeholder

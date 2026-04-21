@@ -979,7 +979,7 @@ function applySkinTone() {
 }
 
 // ── VAD config ───────────────────────────────────────────────────────────────
-const VAD_THRESHOLD  = 0.030;  // RMS energy — above = speech (raised from 0.012 to filter ambient noise)
+const VAD_THRESHOLD  = (ROOM === 'living_room') ? 0.012 : 0.030;  // lower threshold for tablet mic
 const VAD_SILENCE_MS = 1800;   // stop after this much post-speech silence
 const VAD_MIN_MS     = 400;    // don't send clips shorter than this
 const VAD_MAX_MS     = 14000;  // hard cap
@@ -1076,9 +1076,12 @@ let wakeVadHealthTimer = null;    // periodically refreshes the wake listener if
 const _faceGreetLastSeen = {};        // name -> timestamp last greeted
 const _FACE_GREET_COOLDOWN_MS = 30 * 60 * 1000; // 30 min between greetings per person
 
+let _lastGreetTime = 0;
 async function _faceGreetTick() {
   // Only greet when idle and connected — never interrupt a conversation
   if (isBusy || recording || !wsReady || !webcamStream) return;
+  // Skip if we greeted recently — the avatar on screen gets misrecognized
+  if (Date.now() - _lastGreetTime < 60000) return;
   const name = await captureAndRecognizeFace();
   if (!name || name.toLowerCase() === 'unknown') return;
   const now = Date.now();
@@ -1101,6 +1104,7 @@ async function _faceGreetTick() {
     // Estimate duration for idle timeout
     const durationMs = Math.max(3000, ((wavBuffer.byteLength - 44) / 24000 / 2 * 1000) + 800);
     handleState('speaking');
+    _lastGreetTime = Date.now();
     lastResponseWasQuestion = true; // auto-arm mic after greeting
     await playWav(wavBuffer);
     setTimeout(() => { if (isBusy) handleState('idle'); }, durationMs);
@@ -1114,7 +1118,25 @@ let lastRecognizedName = null;
 let _faceRecogCooldownUntil = 0;  // avoid spamming face recognition
 let _pendingFaceRecog = null;     // promise from captureAndRecognizeFace()
 
+let _useFullyKiosk = false;
 async function initWebcam() {
+  if (typeof fully !== 'undefined') {
+    console.log('[face] Fully Kiosk detected. Available methods:', Object.getOwnPropertyNames(fully).filter(k => k.toLowerCase().includes('cam') || k.toLowerCase().includes('photo') || k.toLowerCase().includes('screen')));
+    if (typeof fully.getCamshotJpgBase64 === 'function') {
+      _useFullyKiosk = true;
+      webcamStream = true;
+      console.log('[face] Using fully.getCamshotJpgBase64()');
+      return;
+    }
+    // Fallback: try other Fully Kiosk camera methods
+    if (typeof fully.getCamshot === 'function') {
+      _useFullyKiosk = true;
+      webcamStream = true;
+      console.log('[face] Using fully.getCamshot() fallback');
+      return;
+    }
+    console.warn('[face] Fully Kiosk detected but no camera API found');
+  }
   try {
     webcamStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 320, height: 240 }, audio: false });
     webcamVideo = document.createElement('video');
@@ -1123,21 +1145,35 @@ async function initWebcam() {
     webcamVideo.muted = true;
     await webcamVideo.play();
   } catch (_) {
-    // Webcam not available — face recognition silently disabled
     webcamStream = null;
     webcamVideo = null;
   }
 }
 
 async function captureAndRecognizeFace() {
-  if (!webcamVideo || !webcamStream || Date.now() < _faceRecogCooldownUntil) return null;
+  if ((!webcamVideo && !_useFullyKiosk) || !webcamStream || Date.now() < _faceRecogCooldownUntil) return null;
   _faceRecogCooldownUntil = Date.now() + 5000;  // 5s cooldown between recognitions
   try {
-    const canvas = document.createElement('canvas');
-    canvas.width = webcamVideo.videoWidth || 320;
-    canvas.height = webcamVideo.videoHeight || 240;
-    canvas.getContext('2d').drawImage(webcamVideo, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.8));
+    let blob;
+    if (_useFullyKiosk) {
+      let b64;
+      if (typeof fully.getCamshotJpgBase64 === 'function') {
+        b64 = fully.getCamshotJpgBase64();
+      } else if (typeof fully.getCamshot === 'function') {
+        b64 = fully.getCamshot('front', 320, 240);
+      }
+      if (!b64) { console.warn('[face] Fully Kiosk returned empty frame'); return null; }
+      const bin = atob(b64);
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      blob = new Blob([arr], { type: 'image/jpeg' });
+    } else {
+      const canvas = document.createElement('canvas');
+      canvas.width = webcamVideo.videoWidth || 320;
+      canvas.height = webcamVideo.videoHeight || 240;
+      canvas.getContext('2d').drawImage(webcamVideo, 0, 0, canvas.width, canvas.height);
+      blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.8));
+    }
     if (!blob) return null;
     const resp = await fetch(`${SERVER}/face/recognize`, {
       method: 'POST',
@@ -1341,6 +1377,12 @@ async function _tryUnlockAudio(ctx) {
   } catch (_) {}
 
   initWebcam();  // non-blocking — face recognition silently disabled if no camera
+  // Fully Kiosk injects JS interface after page load — retry if missed
+  if (!_useFullyKiosk && !webcamStream) {
+    setTimeout(async () => {
+      if (typeof fully !== 'undefined') { console.log('[face] Fully Kiosk detected on retry'); await initWebcam(); }
+    }, 3000);
+  }
   initHead().catch(e => {
     console.error('[Nova] initHead failed:', e);
     $overlay.classList.remove('show');   // hide loading spinner

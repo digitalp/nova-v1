@@ -1908,7 +1908,8 @@ async function loadRooms() {
         <a href="${_escapeHtml(r.avatar_url)}" target="_blank"
            style="font-size:11px;color:var(--accent);text-decoration:none;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0;"
            title="${_escapeHtml(r.avatar_url)}">${_escapeHtml(r.avatar_url)}</a>
-        <button class="btn btn-outline btn-xs" onclick="copyRoomUrl(${JSON.stringify(r.avatar_url)})" style="flex-shrink:0;">Copy</button>
+        <button class="btn btn-outline btn-xs" onclick='copyRoomUrl(${JSON.stringify(r.avatar_url)})' style="flex-shrink:0;" title="Copy public URL">Public</button>
+        <button class="btn btn-outline btn-xs" onclick='copyRoomUrl(${JSON.stringify(r.local_url||"")})' style="flex-shrink:0;" title="Copy local URL">Local</button>
         <button class="btn btn-outline btn-xs" style="color:var(--danger);flex-shrink:0;" onclick="deleteRoom(${JSON.stringify(r.id)})">Remove</button>
       </div>`
     ).join('');
@@ -1932,7 +1933,8 @@ async function updateRoomGlb(selectEl) {
 }
 
 function copyRoomUrl(url) {
-  navigator.clipboard?.writeText(url).then(() => toast('URL copied')).catch(() => toast('Copy failed', 'err'));
+  if (!url) { toast("No URL", "err"); return; }
+  if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(url).then(() => toast("URL copied")); } else { const t = document.createElement("textarea"); t.value = url; t.style.position = "fixed"; t.style.opacity = "0"; document.body.appendChild(t); t.select(); document.execCommand("copy"); document.body.removeChild(t); toast("URL copied"); }
 }
 
 async function addRoom() {

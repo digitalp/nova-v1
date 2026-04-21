@@ -1,4 +1,11 @@
 {
+  "avatar_rooms": [
+    {
+      "glb": "brunette.glb",
+      "id": "living_room",
+      "label": "living room"
+    }
+  ],
   "blind_check_camera": "camera.reolink_living_room_profile000_mainstream",
   "blind_reminder_names": "Jason, Miya, Joel or Tse",
   "blueiris_camera_map": {
