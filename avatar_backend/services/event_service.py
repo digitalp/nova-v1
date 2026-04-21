@@ -102,7 +102,7 @@ class EventService:
 
 
 def remember_recent_event_context(
-    app,
+    container,
     *,
     event_id: str,
     event_type: str,
@@ -110,10 +110,10 @@ def remember_recent_event_context(
     event_context: dict[str, Any] | None = None,
 ) -> None:
     now = time.time()
-    store: dict[str, tuple[float, dict[str, Any]]] = getattr(app.state._container, "recent_event_contexts", None)
+    store: dict[str, tuple[float, dict[str, Any]]] = getattr(container, "recent_event_contexts", None)
     if store is None:
         store = {}
-        app.state._container.recent_event_contexts = store
+        container.recent_event_contexts = store
     expired = [key for key, (ts, _) in store.items() if now - ts > _RECENT_EVENT_CONTEXT_TTL_S]
     for key in expired:
         store.pop(key, None)
@@ -194,7 +194,7 @@ async def publish_visual_event(
         open_loop_note=open_loop_note,
     )
     remember_recent_event_context(
-        app,
+        app.state._container,
         event_id=event_id,
         event_type=event_record.event_type,
         event_summary=event_record.message or event_record.title,

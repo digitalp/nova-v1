@@ -43,6 +43,7 @@ class VoiceTurnContext:
     tts: TTSService
     speaker: SpeakerService | None
     app: Any
+    container: Any = None
 
 
 @dataclass
@@ -162,12 +163,12 @@ async def _run_default_conversation_turn(
 ) -> Any:
     if event_id:
         recent_events: dict[str, tuple[float, dict[str, Any]]] = getattr(
-            ctx.app.state._container, "recent_event_contexts", {}
+            ctx.container, "recent_event_contexts", {}
         )
         stored = recent_events.get(event_id)
         if stored:
             _, event_context = stored
-            await ctx.app.state._container.conversation_service.set_event_followup_context(
+            await ctx.container.conversation_service.set_event_followup_context(
                 ctx.session_id,
                 PendingEventFollowupContext(
                     event_type=str(event_context.get("event_type", "event")),
@@ -176,7 +177,7 @@ async def _run_default_conversation_turn(
                     followup_prompt=followup_prompt,
                 )
             )
-    return await ctx.app.state._container.conversation_service.handle_voice_turn(
+    return await ctx.container.conversation_service.handle_voice_turn(
         session_id=ctx.session_id,
         user_text=transcript,
         speaker_name=speaker_name,
@@ -474,7 +475,7 @@ class RealtimeVoiceService:
                     fallback_text = LLM_TIMEOUT_MSG
                 elif "400" in err and "bad request" in err.lower():
                     _LOGGER.warning("voice_ws.clearing_corrupt_session", session_id=ctx.session_id)
-                    await ctx.app.state._container.conversation_service.clear_session_state(ctx.session_id)
+                    await ctx.container.conversation_service.clear_session_state(ctx.session_id)
                     try:
                         result = await adapter.run_turn(
                             ctx,
@@ -562,7 +563,7 @@ class RealtimeVoiceService:
                             if public_url:
                                 token = uuid.uuid4().hex
                                 expiry = time.time() + _AUDIO_CACHE_TTL
-                                cache = ctx.app.state._container.audio_cache
+                                cache = ctx.container.audio_cache
                                 expired = [k for k, (_, exp) in cache.items() if time.time() > exp]
                                 for k in expired:
                                     cache.pop(k, None)
@@ -974,6 +975,7 @@ class RealtimeVoiceService:
                 tts=state.tts_service,
                 speaker=getattr(state, "speaker_service", None),
                 app=app,
+                container=getattr(state, "_container", None),
             )
         except AttributeError:
             return None

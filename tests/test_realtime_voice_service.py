@@ -266,6 +266,7 @@ async def test_process_audio_happy_path_emits_expected_messages():
         tts=tts,
         speaker=speaker,
         app=app,
+        container=app.state,
     )
 
     fake_result = SimpleNamespace(
@@ -352,6 +353,7 @@ async def test_start_audio_turn_cancels_prior_turn_before_reply():
         tts=tts,
         speaker=None,
         app=app,
+        container=app.state,
     )
 
     fake_result = SimpleNamespace(
@@ -447,6 +449,7 @@ async def test_turn_context_routes_next_voice_turn_to_event_followup():
         tts=tts,
         speaker=None,
         app=app,
+        container=app.state,
     )
 
     await service.connect_session("voice_test:socket")
@@ -517,6 +520,7 @@ async def test_streaming_input_buffers_binary_frames_until_commit():
         tts=tts,
         speaker=None,
         app=app,
+        container=app.state,
     )
 
     await service.connect_session("voice_test:socket")
@@ -589,6 +593,7 @@ async def test_streaming_input_cancel_discards_buffered_audio():
         tts=tts,
         speaker=None,
         app=app,
+        container=app.state,
     )
 
     await service.connect_session("voice_test:socket")
@@ -659,6 +664,7 @@ async def test_client_output_streaming_sends_chunked_audio_messages():
         tts=tts,
         speaker=None,
         app=app,
+        container=app.state,
     )
 
     await service.connect_session("voice_test:socket")
@@ -731,6 +737,7 @@ async def test_client_output_streaming_starts_with_first_sentence_before_full_re
         tts=tts,
         speaker=None,
         app=app,
+        container=app.state,
     )
 
     session = await service._get_or_create_session("voice_test:socket")
@@ -822,6 +829,7 @@ async def test_realtime_voice_service_uses_custom_app_adapter():
         tts=tts,
         speaker=None,
         app=app,
+        container=app.state,
     )
 
     await service.connect_session("voice_test:socket")

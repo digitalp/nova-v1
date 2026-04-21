@@ -105,7 +105,8 @@ async def voice_websocket(
                         stt=stt,
                         tts=tts,
                         speaker=speaker,
-                        app=app,
+                        app=ws.app,
+                        container=container,
                     ),
                     msg["bytes"],
                 )

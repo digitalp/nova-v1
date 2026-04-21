@@ -53,6 +53,10 @@ class ConversationService:
         self._session_states: dict[str, ConversationSessionState] = {}
         self._state_lock = asyncio.Lock()
 
+    @property
+    def _container(self):
+        return self._app.state._container
+
     async def handle_text_turn(self, turn: ConversationTurnRequest) -> ChatResult:
         user_text = await self._build_user_text(
             session_id=turn.session_id,
@@ -103,7 +107,7 @@ class ConversationService:
     async def clear_session_state(self, session_id: str) -> None:
         async with self._state_lock:
             self._session_states.pop(session_id, None)
-        await self._app.state._container.session_manager.clear(session_id)
+        await self._container.session_manager.clear(session_id)
 
     async def _build_user_text(
         self,
@@ -166,7 +170,7 @@ class ConversationService:
         )
 
     async def _run_turn(self, *, session_id: str, user_text: str) -> ChatResult:
-        c = self._app.state._container
+        c = self._container
         return await run_chat(
             session_id=session_id,
             user_text=user_text,

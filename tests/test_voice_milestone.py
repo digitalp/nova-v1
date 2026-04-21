@@ -24,6 +24,7 @@ from avatar_backend.models.messages import ToolCall
 from avatar_backend.models.tool_result import ToolResult
 from avatar_backend.routers.chat import router as chat_router
 from avatar_backend.routers.voice import router as voice_router
+from avatar_backend.bootstrap.container import get_container
 from avatar_backend.services.conversation_service import ConversationService
 from avatar_backend.services.realtime_voice_service import (
     AnthropicChatRealtimeVoiceAdapter,
@@ -69,6 +70,7 @@ def _build_test_app() -> FastAPI:
         pass
     app.dependency_overrides[verify_api_key] = _noop_http_auth
     app.dependency_overrides[verify_api_key_ws] = _noop_auth
+    app.dependency_overrides[get_container] = lambda: app.state._container
 
     # STT mock
     stt_mock = MagicMock()
