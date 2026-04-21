@@ -5,12 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
-from fastapi import Request
+from starlette.requests import HTTPConnection
 
 
-def get_container(request: Request) -> "AppContainer":
-    """FastAPI Depends() — extract the typed AppContainer from app.state."""
-    return request.app.state._container
+def get_container(connection: HTTPConnection) -> "AppContainer":
+    """FastAPI Depends() — extract the typed AppContainer from app.state.
+
+    Accepts both HTTP requests and websocket connections.
+    """
+    return connection.app.state._container
 
 
 @dataclass
