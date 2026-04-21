@@ -1584,85 +1584,89 @@
 <script src="/static/admin.js"></script>
 
     <div id="section-parental" class="section">
+
       <div class="page-header">
-        <h2>Parental Control</h2>
-        <div class="page-sub">Monitor and manage kids' Android devices via Headwind MDM</div>
+        <div class="page-title">Parental Control</div>
+        <div class="page-sub">Monitor and manage your kids' Android devices</div>
       </div>
 
-      <!-- Status bar -->
-      <div id="parental-status-bar" class="card mb-4" style="display:none">
-        <span id="parental-hmdm-status" class="badge badge-green">MDM Connected</span>
-        <a id="parental-hmdm-link" href="http://192.168.0.249:8083" target="_blank" class="btn btn-ghost btn-sm" style="margin-left:8px">Open MDM Console</a>
-      </div>
-
-      <!-- Enroll a device -->
-      <div class="card mb-4">
-        <div class="card-title">Enroll New Device</div>
-        <div class="flex-row gap-2 mb-2">
-          <select id="parental-enroll-config" class="input input-sm" style="max-width:220px"></select>
-          <button class="btn btn-sm btn-primary" onclick="parentalShowEnroll()" style="margin-left:8px">Generate QR Code</button>
+      <!-- MDM status -->
+      <div id="parental-status-bar" class="card" style="display:none;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span id="parental-hmdm-status" class="badge badge-green">MDM Connected</span>
+          <a id="parental-hmdm-link" href="http://192.168.0.249:8083" target="_blank" class="btn btn-outline" style="font-size:12px;padding:4px 10px;">Open MDM Console</a>
         </div>
-        <div id="parental-qr-area" style="display:none;margin-top:12px">
-          <p class="text-sm text-muted mb-2">Scan with the Headwind MDM Launcher app on the child's device. Enable Device Owner when prompted.</p>
-          <img id="parental-qr-img" src="" alt="Enrollment QR" style="width:200px;height:200px;border:1px solid var(--border);border-radius:8px;display:block;margin-top:8px">
-          <p class="text-sm text-muted mt-2" id="parental-enroll-url" style="word-break:break-all;margin-top:6px"></p>
+      </div>
+
+      <!-- Enroll -->
+      <div class="card" style="margin-bottom:12px;">
+        <div class="card-title">Enroll New Device</div>
+        <p class="text-sm text-muted" style="margin-bottom:10px;">Select a device profile and scan the QR code with the Headwind MDM app on the child's phone.</p>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <select id="parental-enroll-config" style="width:220px;"></select>
+          <button class="btn btn-primary" onclick="parentalShowEnroll()" style="font-size:12px;">Generate QR Code</button>
+        </div>
+        <div id="parental-qr-area" style="display:none;margin-top:14px;">
+          <img id="parental-qr-img" src="" alt="Enrollment QR" style="display:block;width:200px;height:200px;border:1px solid var(--border);border-radius:8px;">
+          <p class="text-sm text-muted" style="margin-top:6px;word-break:break-all;" id="parental-enroll-url"></p>
         </div>
       </div>
 
       <!-- Device list -->
-      <div class="card mb-4">
-        <div class="card-title flex-between">
-          <span>Enrolled Devices</span>
-          <button class="btn btn-ghost btn-sm" onclick="loadParentalDevices()">&#8635; Refresh</button>
+      <div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <div class="card-title" style="margin:0;">Enrolled Devices</div>
+          <button class="btn btn-outline" onclick="loadParentalDevices()" style="font-size:12px;">&#8635; Refresh</button>
         </div>
         <div id="parental-device-list">
-          <p class="text-muted text-sm">Loading&hellip;</p>
+          <p class="text-sm text-muted">Loading&hellip;</p>
         </div>
       </div>
 
       <!-- Device detail panel -->
-      <div id="parental-device-panel" class="card mb-4" style="display:none">
-        <div class="card-title flex-between">
-          <span id="parental-panel-title">Device</span>
-          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('parental-device-panel').style.display='none'">&#x2715;</button>
+      <div id="parental-device-panel" class="card" style="display:none;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <div class="card-title" style="margin:0;" id="parental-panel-title">Device</div>
+          <button class="btn btn-outline" onclick="document.getElementById('parental-device-panel').style.display='none'" style="font-size:12px;">Close</button>
         </div>
 
         <!-- Location -->
-        <div class="mb-3">
-          <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Last Known Location</div>
+        <div style="margin-bottom:14px;">
+          <label style="font-size:12px;display:block;margin-bottom:4px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;">Last Known Location</label>
           <p id="parental-location" class="text-sm text-muted">Not available</p>
         </div>
 
-        <!-- Alert -->
-        <div class="mb-3">
-          <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Send Alert to Device</div>
-          <div class="flex-row gap-2">
-            <input id="parental-alert-msg" class="input input-sm" placeholder="Message to send…" style="flex:1">
-            <button class="btn btn-sm btn-primary" onclick="parentalSendAlert()" style="margin-left:8px">Send</button>
+        <!-- Send alert -->
+        <div style="margin-bottom:14px;">
+          <label style="font-size:12px;display:block;margin-bottom:4px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;">Send Alert to Device</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="parental-alert-msg" placeholder="Message to send…" style="flex:1;">
+            <button class="btn btn-primary" onclick="parentalSendAlert()" style="font-size:12px;">Send</button>
           </div>
         </div>
 
         <!-- App blocking -->
         <div>
-          <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Block / Unblock Apps</div>
-          <p class="text-sm text-muted mb-2">Enter package name (e.g. com.instagram.android). Blocked apps are removed from the launcher.</p>
-          <div class="flex-row gap-2 mb-2">
-            <input id="parental-block-pkg" class="input input-sm" placeholder="com.package.name" style="flex:1">
-            <button class="btn btn-sm btn-danger" onclick="parentalBlockApp(0)" style="margin-left:8px">Block</button>
-            <button class="btn btn-sm btn-ghost" onclick="parentalBlockApp(1)" style="margin-left:4px">Unblock</button>
+          <label style="font-size:12px;display:block;margin-bottom:4px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;">Block / Unblock Apps</label>
+          <p class="text-sm text-muted" style="margin-bottom:8px;">Enter a package name to block or allow an app on this device's profile.</p>
+          <div style="display:flex;gap:8px;margin-bottom:8px;">
+            <input type="text" id="parental-block-pkg" placeholder="com.package.name" style="flex:1;">
+            <button class="btn btn-danger" onclick="parentalBlockApp(0)" style="font-size:12px;">Block</button>
+            <button class="btn btn-outline" onclick="parentalBlockApp(1)" style="font-size:12px;">Unblock</button>
           </div>
-          <div class="flex-row flex-wrap gap-1" style="margin-top:6px">
-            <span class="text-sm text-muted" style="margin-right:4px">Quick block:</span>
-            <button class="btn btn-xs btn-ghost" onclick="parentalQuickBlock('com.instagram.android')">Instagram</button>
-            <button class="btn btn-xs btn-ghost" onclick="parentalQuickBlock('com.whatsapp')">WhatsApp</button>
-            <button class="btn btn-xs btn-ghost" onclick="parentalQuickBlock('com.zhiliaoapp.musically')">TikTok</button>
-            <button class="btn btn-xs btn-ghost" onclick="parentalQuickBlock('com.snapchat.android')">Snapchat</button>
-            <button class="btn btn-xs btn-ghost" onclick="parentalQuickBlock('com.twitter.android')">X/Twitter</button>
-            <button class="btn btn-xs btn-ghost" onclick="parentalQuickBlock('com.facebook.katana')">Facebook</button>
-            <button class="btn btn-xs btn-ghost" onclick="parentalQuickBlock('com.youtube.android')">YouTube</button>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+            <span class="text-sm text-muted">Quick block:</span>
+            <button class="btn btn-xs btn-outline" onclick="parentalQuickBlock('com.instagram.android')">Instagram</button>
+            <button class="btn btn-xs btn-outline" onclick="parentalQuickBlock('com.whatsapp')">WhatsApp</button>
+            <button class="btn btn-xs btn-outline" onclick="parentalQuickBlock('com.zhiliaoapp.musically')">TikTok</button>
+            <button class="btn btn-xs btn-outline" onclick="parentalQuickBlock('com.snapchat.android')">Snapchat</button>
+            <button class="btn btn-xs btn-outline" onclick="parentalQuickBlock('com.twitter.android')">X / Twitter</button>
+            <button class="btn btn-xs btn-outline" onclick="parentalQuickBlock('com.facebook.katana')">Facebook</button>
+            <button class="btn btn-xs btn-outline" onclick="parentalQuickBlock('com.youtube.android')">YouTube</button>
           </div>
         </div>
       </div>
+
     </div>
 
 </body>
