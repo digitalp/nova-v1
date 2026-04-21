@@ -4,7 +4,7 @@
 
 - Nova admin panel: `https://nova.nova-home.co.uk/admin/`
 - MDM console: `https://mdm.nova-home.co.uk` (admin / linkstar)
-- Headwind MDM launcher APK: `https://mdm.nova-home.co.uk/files/hmdm-6.14-os.apk`
+- Headwind MDM launcher APK: `https://nova.nova-home.co.uk/admin/parental/apk`
 
 ---
 
@@ -13,7 +13,7 @@
 Use this for a quick test or if factory reset is not possible.
 
 1. On the child's Android phone, open Chrome and navigate to:
-   `https://mdm.nova-home.co.uk/files/hmdm-6.14-os.apk`
+   `https://nova.nova-home.co.uk/admin/parental/apk`
 2. When prompted, allow installation from unknown sources.
 3. Install and open the **Headwind MDM** app.
 4. The app will ask for a server URL — tap **Scan QR Code**.
