@@ -99,14 +99,6 @@ async def set_app_action(device_number: str, pkg: str, action: int) -> dict:
     cfg["applications"] = apps
     await hmdm("put", "/rest/private/configurations", json=cfg)
 
-    # Push updated config to all devices on this configuration
-    for d in devices:
-        if d.get("configurationId") == config_id:
-            try:
-                await hmdm("get", f"/rest/private/push/{d['id']}")
-            except Exception:
-                pass
-
     return {"ok": True, "pkg": pkg, "action": action, "device_number": device_number}
 
 

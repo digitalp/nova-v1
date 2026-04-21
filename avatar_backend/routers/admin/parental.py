@@ -184,21 +184,7 @@ async def set_app_action(body: AppBlockBody, request: Request):
 
 
 async def _push_config_to_devices(config_id: int):
-    """Push updated configuration to all devices using it."""
-    try:
-        dev_data = await _hmdm(
-            "post", "/rest/private/devices/search",
-            json={"pageSize": 100, "pageNum": 1},
-        )
-        items = dev_data.get("data", {}).get("devices", {}).get("items", [])
-        for device in items:
-            if device.get("configurationId") == config_id:
-                try:
-                    await _hmdm("get", f"/rest/private/push/{device['id']}")
-                except Exception:
-                    pass
-    except Exception as exc:
-        _LOGGER.warning("parental.push_error", exc=str(exc)[:120])
+    pass  # MDM pushes via MQTT automatically on config save
 
 
 # ── Alerts ────────────────────────────────────────────────────────────────────
