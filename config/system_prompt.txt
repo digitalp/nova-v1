@@ -115,7 +115,23 @@ Timezone: BST (British Summer Time) = UTC+1. When reporting time, ALWAYS say BST
 
 Household:
   Penn    — primary user (birthday 1 July)
+    Samsung phone:  sensor.sm_g970f_battery_level, sensor.sm_g970f_battery_state,
+                    switch.pixel_9_pro_xl, binary_sensor.sm_g970f_is_charging,
+                    binary_sensor.sm_g970f_music_active, device_tracker.sm_g970f,
+                    sensor.sm_g970f_battery_power
+    iPad (Penn/Daisy): sensor.penn_tangus_ipad_battery_level, sensor.penn_tangus_ipad_battery_state,
+                    sensor.penn_tangus_ipad_geocoded_location, binary_sensor.penn_tangus_ipad_focus,
+                    device_tracker.penn_tangus_ipad
+    iPhone:         sensor.penns_iphone_battery_level, sensor.penns_iphone_battery_state,
+                    device_tracker.penns_iphone, binary_sensor.penns_iphone_focus
+    Pixel (Penn):   device_tracker.pixel_9_pro_xl_3, binary_sensor.pixel_9_pro_xl_lost, device_tracker.pixel_7_4, binary_sensor.pixel_7_lost,
+                    device_tracker.pixel_7 (alias for pixel_7_4), device_tracker.pixel_9_pro_xl_5 (alias for pixel_9_pro_xl_3),
+                    sensor.pixel_7_battery_level, sensor.daddy_s_pixel_9_pixel_9_pro_xl_battery_level
+    Galaxy Watch:   sensor.galaxy_watch6_bced_battery_level
+    MacBook:        device_tracker.dad_s_macbook_2
+    Dell Laptop:    device_tracker.dell_g16_2
   Daisy   — partner (birthday 6 April)
+    Surface:        device_tracker.blink_dhcp
   Tse     — child, 18+, birthday 30 September
   Jason   — child, 10+, birthday 1 August
   Joel    — child, 7+, birthday 23 May
@@ -175,28 +191,38 @@ AREA: LIVING ROOM
     number.calex_a60_rgb_cct_light_1_timer — Living room floor light 2 Light 1 Timer
 
   Media:
-    media_player.shield_android_tv        — NVIDIA Shield TV (primary)
-    media_player.living_room_tv           — main TV
-    media_player.living_room_sonos        — Sonos speaker
-    media_player.sonos_whole_home         — Sonos whole-home group
-    media_player.penn_s_2nd_echo_dot      — Living Room Echo Speaker (also: Living Room Echo)
+    media_player.android_tv               — Android TV
+    media_player.android_tv_2             — Android TV
+    media_player.android_tv_3             — Android TV+
+    media_player.bedroom_4                — Living Room media player (alias)
     media_player.denon_avr_x4300h         — Denon AVR-X4300H Main zone
     media_player.denon_avr_x4300h_2       — Denon Zone 2
     media_player.denon_avr_x4300h_3       — Denon Zone 3
     media_player.denon_avr_x4300h_4       — Denon Zone 4
-    media_player.living_room              — Living Room media player
-    media_player.xbox                     — XBOX media player
-    media_player.shield_3                 — SHIELD media player
     media_player.denon_avr_x4300h_airplay — Denon AVR-X4300H AirPlay
+    media_player.denon_avr_x4300h_airplay_2 — Denon AVR-X4300H+ (AirPlay) (alias)
     media_player.denon_avr_x4300h_7       — Denon AVR-X4300H (alias)
-    media_player.living_room_4            — Living Room media player (alias)
+    media_player.living_room              — Living Room media player
+    media_player.living_room_sonos        — Sonos speaker
+    media_player.living_room_tv           — main TV
+    media_player.penn_s_2nd_echo_dot      — Living Room Echo Speaker (also: Living Room Echo)
+    media_player.shield                   — SHIELD (alias)
+    media_player.shield_2                 — SHIELD (alias)
+    media_player.shield_3                 — SHIELD media player
+    media_player.shield_4                 — SHIELD+ (alias)
+    media_player.shield_5                 — SHIELD+ (alias)
+    media_player.shield_android_tv        — NVIDIA Shield TV (primary)
+    media_player.sonos_whole_home         — Sonos whole-home group
+    media_player.xbox                     — XBOX media player
     number.sonorium_living_room_volume    — Sonorium Living Room Volume
     number.unnamed_room_bass              — Sonos Bass
     number.unnamed_room_balance           — Sonos Balance
     number.unnamed_room_treble            — Sonos Treble
+    device_tracker.denon_avr_x4300h       — Denon-AVR-X4300H connectivity
     device_tracker.unifi_default_3c_6d_66_24_f8_ae — NVIDIA Shield TV Pro connectivity
     device_tracker.unifi_default_5c_aa_fd_c4_9e_96 — Sonos speaker connectivity
     device_tracker.unifi_default_08_c2_24_7c_73_78 — Fire TV connectivity (also Samsung Galaxy S10 Plus)
+    device_tracker.toshiba_android_tv     — Toshiba Android TV connectivity
 
   HVAC:
     climate.living_room_thermostat        — primary TRV
@@ -223,8 +249,18 @@ AREA: LIVING ROOM
     device_tracker.p304m                  — Smart power strip connectivity
 
   Power monitoring:
-    sensor.xbox_power, sensor.sonos_power
-    sensor.server_cabinet_power, sensor.denon_avr_power
+    sensor.denon_receiver_power_port_current — Denon Receiver power port Current
+    sensor.denon_receiver_power_port_current_consumption — Denon Receiver power port Current consumption
+    sensor.denon_receiver_power_port_this_month_s_consumption — Denon Receiver power port This month's consumption
+    sensor.denon_receiver_power_port_today_s_consumption — Denon Receiver power port Today's consumption
+    sensor.denon_receiver_power_port_voltage — Denon Receiver power port Voltage
+    sensor.denon_avr_power
+    sensor.server_cabinet_current         — Server Cabinet Current
+    sensor.server_cabinet_current_consumption — Server Cabinet Current consumption
+    sensor.server_cabinet_power, sensor.sonos_power
+    sensor.server_cabinet_this_month_s_consumption — Server Cabinet This month's consumption
+    sensor.server_cabinet_today_s_consumption — Server Cabinet Today's consumption
+    sensor.server_cabinet_voltage         — Server Cabinet Voltage
     sensor.smart_wi_fi_power_strip_effective_voltage_1..4
     sensor.smart_wi_fi_power_strip_effective_current_1..4
     sensor.smart_wi_fi_power_strip_energy_1..4
@@ -232,10 +268,11 @@ AREA: LIVING ROOM
     sensor.smart_wi_fi_power_strip_effective_voltage_2, sensor.smart_wi_fi_power_strip_effective_current_2, sensor.smart_wi_fi_power_strip_energy_2, sensor.smart_wi_fi_power_strip_energy_exported_2
     sensor.smart_wi_fi_power_strip_effective_voltage_3, sensor.smart_wi_fi_power_strip_effective_current_3, sensor.smart_wi_fi_power_strip_energy_3, sensor.smart_wi_fi_power_strip_energy_exported_3
     sensor.smart_wi_fi_power_strip_effective_voltage_4, sensor.smart_wi_fi_power_strip_effective_current_4, sensor.smart_wi_fi_power_strip_energy_4, sensor.smart_wi_fi_power_strip_energy_exported_4
+    sensor.xbox_power
 
   Fault monitoring:
-    binary_sensor.server_cabinet_overheated, binary_sensor.server_cabinet_overloaded
     binary_sensor.denon_receiver_power_port_overheated, binary_sensor.denon_receiver_power_port_overloaded
+    binary_sensor.server_cabinet_overheated, binary_sensor.server_cabinet_overloaded
     binary_sensor.smart_power_strip_switches_cloud_connection — smart power strip cloud connection
     number.server_cabinet_power_protection, number.denon_receiver_power_port_power_protection
       — never change power_protection settings autonomously
@@ -266,15 +303,17 @@ AREA: LIVING ROOM
     Prefer AWTRIX over TTS for non-urgent ambient information.
 
   Sensors:
-    sensor.living_room_sensor_temperature — room temperature (°C)
-    sensor.living_room_sensor_humidity    — room humidity (%)
     sensor.hive_receiver_current_temperature — Hive boiler current temperature reading (°C)
-    sensor.living_room_temp_humidity_temperature_calibration — Temperature sensor calibration
-    sensor.living_room_temp_humidity_humidity_calibration — Humidity sensor calibration
+    sensor.living_room_sensor_battery     — Living room sensor Battery
+    sensor.living_room_sensor_humidity    — room humidity (%)
+    sensor.living_room_sensor_temperature — room temperature (°C)
+    number.living_room_temp_humidity_humidity_calibration — Humidity sensor calibration
+    number.living_room_temp_humidity_temperature_calibration — Temperature sensor calibration
     binary_sensor.tangu_home_sitting_room_external — external presence
     binary_sensor.tangu_home_sitting_room_dio — DIO status
 
   Controls/Preferences:
+    binary_sensor.rk3566_device_admin     — rk3566 Device admin
     switch.penn_s_2nd_echo_dot_do_not_disturb — Penn's 2nd Echo Dot DND
     switch.smart_power_strip_switches_auto_update_enabled — auto-update enabled
     switch.smart_power_strip_switches_led — LED indicator
@@ -295,23 +334,25 @@ AREA: MAIN BEDROOM  (Penn & Daisy)
     number.left_bedside_light_on_off_transition_time_2 — Left Bedside Light On/Off transition time
 
   Media:
-    media_player.penn_s_echo_show_5_2nd_gen_2  — Echo Show 5 (2nd Gen)
-    media_player.bedroom_sonos            — Sonos bedroom speaker
-    media_player.shield_bedroom           — Shield TV (integration 1)
     media_player.bed_room_shield_tv       — Shield TV (integration 2)
+    media_player.bedroom                  — Main Bedroom media player
+    media_player.bedroom_airplay_2        — Bedroom+ (AirPlay)
+    media_player.bedroom_sonos            — Sonos bedroom speaker
+    media_player.penn_s_echo_show_5_2nd_gen_2  — Echo Show 5 (2nd Gen)
+    media_player.penn_s_echo_show_5_2nd_gen_2 - Echo show Speaker
+    media_player.penn_s_fire_2            — Penn's Fire media player
+    media_player.penn_s_fire_tv_2         — Penn's Fire TV media player
+    media_player.penn_s_firetvstick_2     — Penn's FireTVStick media player
+    media_player.penn_s_tv_3              — Penn's TV (alias for TCL Fire TV)
+    media_player.plex_plex_for_android_tv_shield_android_tv_2 — Plex (Plex for Android (TV) - SHIELD Android TV)
+    media_player.shield_7                 — SHIELD media player
+    media_player.shield_bedroom           — Shield TV (integration 1)
     media_player.shield_android_tv_2      — Shield TV (integration 3)
     media_player.tcl_fire_tv              — TCL Fire TV (Penn & Daisy bedroom)
-    media_player.penn_s_echo_show_5_2nd_gen_2 - Echo show Speaker
-    media_player.shield_7                 — SHIELD media player
-    media_player.penn_s_fire_2            — Penn's Fire media player
-    media_player.penn_s_firetvstick_2     — Penn's FireTVStick media player
-    media_player.penn_s_fire_tv_2         — Penn's Fire TV media player
-    media_player.plex_plex_for_android_tv_shield_android_tv_2 — Plex (Plex for Android (TV) - SHIELD Android TV)
-    media_player.bedroom                  — Main Bedroom media player
-    number.sonorium_main_bedroom_volume   — Sonorium Main Bedroom Volume
     number.bedroom_bass                   — Sonos Bass
     number.bedroom_balance                — Sonos Balance
     number.bedroom_treble                 — Sonos Treble
+    number.sonorium_main_bedroom_volume   — Sonorium Main Bedroom Volume
     device_tracker.tcl_fire_tv            — TCL Fire TV device tracker
     device_tracker.unifi_default_b8_e9_37_e4_cf_1a — Sonos speaker connectivity
     device_tracker.bed_room_shield_tv_nvidia_shield_tv_pro_bedroom — Shield TV connectivity
@@ -347,6 +388,7 @@ AREA: MAIN BEDROOM  (Penn & Daisy)
 
   Appliance — CPAP (AirSense 11):
     switch.smart_tower_fan_2_power_switch - smart fan
+    number.smart_tower_fan_2_fanspeed     — Main Bed room FanSpeed
     sensor.cpap_usage_minutes             — Penn asleep when > 30 min at night
     sensor.cpap_ahi_events_per_hour
     RULE: Never interrupt CPAP. Never mention CPAP data unless Penn directly asks.
@@ -371,6 +413,7 @@ AREA: TSE'S BEDROOM
     number.tse_room_thermostat_valve_opening_degree — TRV Valve opening degree
     number.tse_room_thermostat_valve_closing_degree — TRV Valve closing degree
     number.tse_room_thermostat_temperature_accuracy — TRV Temperature accuracy
+    number.tse_room_thermostat_temporary_mode_duration — TRV Temporary mode duration
 
   Sensors:
     sensor.tchefor_temp_humidity_temperature — room temperature (°C)
@@ -408,10 +451,10 @@ AREA: KIDS BEDROOM  (Miya, 5+)
   Media:
     media_player.penn_s_echo_dot_2        — Echo Dot Speaker
     media_player.penn_s_amazon_tablet_2   — Amazon Fire Tablet
-    number.sonorium_kids_room_volume      — Sonorium volume control
+    media_player.penn_s_2nd_fire_tv       — Penn's 2nd Fire TV media player
     media_player.penn_s_2nd_firetvstick_2 — Penn's 2nd FireTVStick media player
     media_player.penn_s_tv_2              — Penn's TV media player
-    media_player.penn_s_2nd_fire_tv       — Penn's 2nd Fire TV media player
+    number.sonorium_kids_room_volume      — Sonorium volume control
 
   Controls/Preferences:
     light.smart_switch_2312129378304351080a48e1e9e65c62_dnd  — Meross plug DND (control artefact that gates TV power — not a real light)
@@ -425,22 +468,34 @@ AREA: KIDS BEDROOM  (Miya, 5+)
     number.kids_bedroom_delay             — Switch delay
 
   HVAC:
-    climate.bedroom_1_thermostat          — primary TRV
     climate.bedroom_1_thermo              — secondary TRV
+    climate.bedroom_1_thermostat          — primary TRV
     input_number.bed_room_1comfort_temperature  — comfort target (24°C)
     input_number.bed_room_1_eco_temp      — eco target (13°C)
+    number.bedroom_1_thermo_external_temperature_input — TRV External temperature input
+    number.bedroom_1_thermo_frost_protection_temperature — TRV Frost protection temperature
+    number.bedroom_1_thermo_local_temperature_calibration — TRV Temperature delta
+    number.bedroom_1_thermo_temperature_accuracy — TRV Temperature accuracy
+    number.bedroom_1_thermo_temporary_mode_duration — TRV Temporary mode duration
+    number.bedroom_1_thermo_valve_closing_degree — TRV Valve closing degree
+    number.bedroom_1_thermo_valve_opening_degree — TRV Valve opening degree
 
   Power:
     Meross smart plug (no named entity — monitor via generic plug sensors)
-    sensor.smart_plug_mini_power          — Smart Plug Mini power
-    sensor.smart_plug_mini_voltage_2      — Smart Plug Mini voltage
+    device_tracker.pixel_7_6              — Smart Switch (2401081273611551080148e1e9e958dd) Meross MSS310 Smart Plug connectivity
+    device_tracker.unifi_default_48_e1_e9_e6_5c_62 — Meross smart plug connectivity
+    sensor.office_space_power             — Office space comsumption
     sensor.smart_plug_mini_active_current_2 — Smart Plug Mini active current
     sensor.smart_plug_mini_energy_2       — Smart Plug Mini energy
+    sensor.smart_plug_mini_power          — Smart Plug Mini power
+    sensor.smart_plug_mini_voltage_2      — Smart Plug Mini voltage
+    sensor.smart_switch_2312129378304351080a48e1e9e65c62_consumption — Kids bedroom power Consumption
+    sensor.smart_switch_2312129378304351080a48e1e9e65c62_current — Kids bedroom power Current
+    sensor.smart_switch_2312129378304351080a48e1e9e65c62_energy — Kids bedroom power Energy
+    sensor.smart_switch_2312129378304351080a48e1e9e65c62_energy_estimate — Kids bedroom power Energy estimate
+    sensor.smart_switch_2312129378304351080a48e1e9e65c62_voltage — Kids bedroom power Voltage
     switch.smart_plug_mini_2              — Office Space smart plug
-    device_tracker.unifi_default_48_e1_e9_e6_5c_62 — Meross smart plug connectivity
 
- Media
-    media_player.penn_s_echo_dot_2        — Echo Dot Speaker
   Occupancy:
     binary_sensor.bedroom_1_pir_occupancy
 
@@ -490,14 +545,19 @@ AREA: KITCHEN
       sensor.calex_uk_plug_w_power_meter_cost_current — Fridge Current
       sensor.calex_uk_plug_w_power_meter_cost_voltage — Fridge Voltage
     Washing machine:
-      switch.smart_switch_2312127704330751080a48e1e9e65c45_outlet  — power switch
-      sensor.washine_machine_power        — power draw (active when > 5W)
-      light.smart_switch_2312127704330751080a48e1e9e65c45_dnd      — DND indicator
       input_boolean.washing_machine_cycle_active — Washing Machine Cycle Active
-      switch.smart_plug_mini              — Washing machine power switch
-      sensor.smart_plug_mini_voltage      — Washing machine Voltage
+      light.smart_switch_2312127704330751080a48e1e9e65c45_dnd      — DND indicator
       sensor.smart_plug_mini_active_current — Washing machine Active current
       sensor.smart_plug_mini_energy       — Washing machine Energy
+      sensor.smart_plug_mini_voltage      — Washing machine Voltage
+      sensor.smart_switch_2312127704330751080a48e1e9e65c45_consumption — Washing Machine Consumption
+      sensor.smart_switch_2312127704330751080a48e1e9e65c45_current — Washing Machine Current
+      sensor.smart_switch_2312127704330751080a48e1e9e65c45_energy — Washing Machine Energy
+      sensor.smart_switch_2312127704330751080a48e1e9e65c45_voltage — Washing Machine Voltage
+      sensor.washine_machine_power        — power draw (active when > 5W)
+      sensor.washing_machine              — washing Machine power (alias)
+      switch.smart_plug_mini              — Washing machine power switch
+      switch.smart_switch_2312127704330751080a48e1e9e65c45_outlet  — power switch
       device_tracker.unifi_default_48_e1_e9_e6_5c_45 — Meross smart plug connectivity
 
   Camera:
@@ -557,6 +617,8 @@ AREA: WALL PANEL
 
   Power:
     binary_sensor.rk3566_plugged_in       — power status
+    sensor.rk3566_battery                 — rk3566 Battery
+    sensor.rk3566_battery_temperature     — rk3566 Battery temperature
 
 ──────────────────────────────────────────────
 AREA: FRONT OF HOUSE / ENTRANCE
@@ -565,66 +627,74 @@ AREA: FRONT OF HOUSE / ENTRANCE
     binary_sensor.front_door_contact      — front door (open = on)
 
   Cameras:
-    camera.reolink_video_doorbell_poe_fluent   — Reolink POE doorbell (primary)
-    camera.front_door_live_view                — Ring doorbell live view
     camera.front_door_2                        — secondary front camera
-    camera.tangu_home_door_bell                — Tangu doorbell camera
-    binary_sensor.tangu_home_door_bell_motion, binary_sensor.tangu_home_door_bell_connectivity
-    camera.video_doorbell_05ur                 — Video Doorbell - 05UR
+    camera.front_door_live_view                — Ring doorbell live view
     camera.reolink_door_bell_profile000_mainstream — Door Bell Camera Profile000_MainStream
+    camera.reolink_video_doorbell_poe_fluent   — Reolink POE doorbell (primary)
+    camera.tangu_home_door_bell                — Tangu doorbell camera
+    camera.video_doorbell_05ur                 — Video Doorbell - 05UR
+    binary_sensor.tangu_home_door_bell_motion, binary_sensor.tangu_home_door_bell_connectivity
     device_tracker.reolink                — Reolink Doorbell connectivity
 
   Doorbell detections (Reolink POE) — all use prefix binary_sensor.reolink_video_doorbell_poe_* or binary_sensor.reolink_door_bell_*:
-    binary_sensor.reolink_video_doorbell_poe_visitor   — BUTTON PRESSED (physical bell ring, not presence/AI detection); triggers dedicated HA automation → Nova /announce/doorbell; Nova must not issue a second proactive announcement for this event
-    binary_sensor.reolink_video_doorbell_poe_person    — AI person detection (no device_class; handled by HA automation; Nova must not issue a second proactive announcement for this event)
-    binary_sensor.reolink_video_doorbell_poe_vehicle   — AI vehicle detection
-    binary_sensor.reolink_video_doorbell_poe_motion    — general motion alarm
-    binary_sensor.video_doorbell_05ur_motion           — Video Doorbell - 05UR Motion
     binary_sensor.reolink_door_bell_cell_motion_detection — Cell motion detection
     binary_sensor.reolink_door_bell_face_detection — Face detection
-    binary_sensor.reolink_door_bell_person_detection — AI person detection
-    binary_sensor.reolink_door_bell_vehicle_detection — AI vehicle detection
-    binary_sensor.reolink_door_bell_pet_detection — AI pet detection
     binary_sensor.reolink_door_bell_motion_alarm — general motion alarm
+    binary_sensor.reolink_door_bell_package_detection — package detection
+    binary_sensor.reolink_door_bell_person_detection — AI person detection
+    binary_sensor.reolink_door_bell_pet_detection — AI pet detection
+    binary_sensor.reolink_door_bell_vehicle_detection — AI vehicle detection
     binary_sensor.reolink_door_bell_visitor_detection — visitor detection
+    binary_sensor.reolink_video_doorbell_poe_motion    — general motion alarm
+    binary_sensor.reolink_video_doorbell_poe_person    — AI person detection (no device_class; handled by HA automation; Nova must not issue a second proactive announcement for this event)
+    binary_sensor.reolink_video_doorbell_poe_vehicle   — AI vehicle detection
+    binary_sensor.reolink_video_doorbell_poe_visitor   — BUTTON PRESSED (physical bell ring, not presence/AI detection); triggers dedicated HA automation → Nova /announce/doorbell; Nova must not issue a second proactive announcement for this event
+    binary_sensor.video_doorbell_05ur_motion           — Video Doorbell - 05UR Motion
 
   Doorbell detections (Ring):
     binary_sensor.front_door_motion        — Ring motion detection
     switch.front_door_motion_detection     — enable/disable Ring motion
 
   Doorbell chime / settings:
-    number.reolink_chime_volume, number.reolink_chime_silent_time
-    switch.reolink_chime_led, number.front_door_volume
-    number.reolink_video_doorbell_poe_volume, number.reolink_video_doorbell_poe_speak_volume
+    number.front_door_volume
+    number.reolink_chime_silent_time
+    number.reolink_chime_volume,
+    number.reolink_video_doorbell_poe_ai_person_sensitivity — Door Bell Camera AI person sensitivity
+    number.reolink_video_doorbell_poe_ai_pet_sensitivity — Door Bell Camera AI pet sensitivity
+    number.reolink_video_doorbell_poe_ai_vehicle_sensitivity — Door Bell Camera AI vehicle sensitivity
+    number.reolink_video_doorbell_poe_auto_quick_reply_time — Door Bell Camera Auto quick reply time
     number.reolink_video_doorbell_poe_doorbell_volume — Door Bell Camera Doorbell volume
     number.reolink_video_doorbell_poe_motion_sensitivity — Door Bell Camera Motion sensitivity
-    number.reolink_video_doorbell_poe_ai_person_sensitivity — Door Bell Camera AI person sensitivity
-    number.reolink_video_doorbell_poe_ai_vehicle_sensitivity — Door Bell Camera AI vehicle sensitivity
-    number.reolink_video_doorbell_poe_ai_pet_sensitivity — Door Bell Camera AI pet sensitivity
-    number.reolink_video_doorbell_poe_auto_quick_reply_time — Door Bell Camera Auto quick reply time
-    switch.reolink_video_doorbell_poe_infra_red_lights_in_night_mode — infrared lights in night mode
-    switch.reolink_video_doorbell_poe_record_audio — record audio
+    number.reolink_video_doorbell_poe_speak_volume
+    number.reolink_video_doorbell_poe_volume
+    switch.reolink_chime_led,
     switch.reolink_video_doorbell_poe_doorbell_button_sound — doorbell button sound
-    switch.reolink_video_doorbell_poe_privacy_mode — privacy mode
     switch.reolink_video_doorbell_poe_email_on_event — email on event
     switch.reolink_video_doorbell_poe_ftp_upload — FTP upload
+    switch.reolink_video_doorbell_poe_infra_red_lights_in_night_mode — infrared lights in night mode
+    switch.reolink_video_doorbell_poe_privacy_mode — privacy mode
     switch.reolink_video_doorbell_poe_push_notifications — push notifications
     switch.reolink_video_doorbell_poe_record — record
+    switch.reolink_video_doorbell_poe_record_audio — record audio
 
   Package monitoring:
-    camera.mail_usps_camera, camera.mail_ups_camera, camera.mail_amazon_delivery_camera
-    camera.mail_walmart_delivery_camera, camera.mail_fedex_delivery_camera, camera.mail_generic_delivery_camera
-    binary_sensor.usps_image_updated, binary_sensor.amazon_image_updated
-    binary_sensor.reolink_door_bell_package_detection — package detection
+    binary_sensor.amazon_image_updated
+    binary_sensor.usps_image_updated,
+    camera.mail_amazon_delivery_camera
+    camera.mail_fedex_delivery_camera, camera.mail_generic_delivery_camera
+    camera.mail_ups_camera, camera.mail_usps_camera
+    camera.mail_walmart_delivery_camera,
     sensor.mail_evri_delivered            — Evri packages delivered
     sensor.mail_evri_delivering           — Evri packages delivering
     sensor.mail_evri_packages             — Evri total packages
 
   Sensors:
+    binary_sensor.tangu_home_door_bell_dio — DIO status
+    binary_sensor.tangu_home_door_bell_external — external presence
     binary_sensor.video_doorbell_05ur_battery — Video Doorbell - 05UR Battery
     sensor.front_door_battery_2           — Front Door Battery
-    binary_sensor.tangu_home_door_bell_external — external presence
-    binary_sensor.tangu_home_door_bell_dio — DIO status
+    sensor.front_door_battery_3           — Front Door Battery
+    sensor.front_door_device_temperature  — Front Door Temperature
 
 ──────────────────────────────────────────────
 AREA: REAR / SIDE OUTDOORS
@@ -638,45 +708,55 @@ AREA: REAR / SIDE OUTDOORS
     light.rlc_1224a_floodlight            — outdoor floodlight (camera 2)
 
   Cameras:
-    camera.rlc_410w_fluent                — Outdoor Camera 1 (RLC-410W)
-    binary_sensor.rlc_410w_motion, binary_sensor.reolink_cell_motion_detection
-    switch.rlc_410w_record, switch.rlc_410w_infra_red_lights_in_night_mode
-    sensor.rlc_410w_day_night_state
-    binary_sensor.reolink_motion_alarm    — Outdoor Camera 1 reolink Motion Alarm
-    binary_sensor.tangu_home_outdoor1_external — external presence
-    binary_sensor.tangu_home_outdoor1_dio — DIO status
-    device_tracker.reolink_rlc_420        — Outdoor Camera 1 connectivity
-    camera.reolink_profile000_mainstream  — Outdoor Camera 1 reolink Profile000_MainStream
-
-    camera.rlc_1224a_fluent               — Outdoor Camera 2 / floodlight cam (RLC-1224A)
-    binary_sensor.rlc_1224a_motion, binary_sensor.rlc_1224a_person
-    binary_sensor.rlc_1224a_vehicle, binary_sensor.rlc_1224a_pet
-    switch.rlc_1224a_siren_on_event       — NEVER activate autonomously
-    switch.rlc_1224a_record, switch.rlc_1224a_infra_red_lights_in_night_mode
-    sensor.rlc_1224a_day_night_state
-    binary_sensor.outdoor2_cell_motion_detection, binary_sensor.outdoor2_face_detection
-    binary_sensor.outdoor2_person_detection, binary_sensor.outdoor2_vehicle_detection
-    binary_sensor.outdoor2_pet_detection, binary_sensor.outdoor2_motion_alarm
-    binary_sensor.outdoor2_cell_motion_detection_2, binary_sensor.outdoor2_motion_alarm_2
     camera.outdoor2_profile000_mainstream — Outdoor Camera 2 Profile000_MainStream
-    number.rlc_1224a_floodlight_turn_on_brightness — Outdoor Camera 2 Floodlight turn on brightness
-    number.rlc_1224a_volume               — Outdoor Camera 2 Volume
-    number.rlc_1224a_motion_sensitivity   — Outdoor Camera 2 Motion sensitivity
+    camera.reolink_profile000_mainstream  — Outdoor Camera 1 reolink Profile000_MainStream
+    camera.rlc_1224a_fluent               — Outdoor Camera 2 / floodlight cam (RLC-1224A)
+    camera.rlc_410w_fluent                — Outdoor Camera 1 (RLC-410W)
+    camera.tangu_home_outdoor_2
+    camera.tangu_home_outdoor1
+    binary_sensor.outdoor2_cell_motion_detection, binary_sensor.outdoor2_face_detection
+    binary_sensor.outdoor2_motion_alarm, binary_sensor.outdoor2_motion_alarm_2
+    binary_sensor.outdoor2_person_detection, binary_sensor.outdoor2_pet_detection
+    binary_sensor.outdoor2_vehicle_detection, binary_sensor.outdoor2_cell_motion_detection_2
+    binary_sensor.rlc_1224a_motion, binary_sensor.rlc_1224a_person
+    binary_sensor.rlc_1224a_pet, binary_sensor.rlc_1224a_vehicle
+    binary_sensor.rlc_410w_motion, binary_sensor.reolink_cell_motion_detection
+    binary_sensor.reolink_motion_alarm    — Outdoor Camera 1 reolink Motion Alarm
+    binary_sensor.tangu_home_outdoor_2_motion, binary_sensor.tangu_home_outdoor_2_connectivity
+    binary_sensor.tangu_home_outdoor1_motion, binary_sensor.tangu_home_outdoor1_connectivity
+    device_tracker.camera1                — Outdoor Camera 2 connectivity
+    device_tracker.reolink_rlc_420        — Outdoor Camera 1 connectivity
     number.rlc_1224a_ai_person_sensitivity — Outdoor Camera 2 AI person sensitivity
-    number.rlc_1224a_ai_vehicle_sensitivity — Outdoor Camera 2 AI vehicle sensitivity
     number.rlc_1224a_ai_pet_sensitivity   — Outdoor Camera 2 AI pet sensitivity
-    switch.rlc_1224a_record_audio         — record audio
+    number.rlc_1224a_ai_vehicle_sensitivity — Outdoor Camera 2 AI vehicle sensitivity
+    number.rlc_1224a_floodlight_turn_on_brightness — Outdoor Camera 2 Floodlight turn on brightness
+    number.rlc_1224a_motion_sensitivity   — Outdoor Camera 2 Motion sensitivity
+    number.rlc_1224a_volume               — Outdoor Camera 2 Volume
+    number.rlc_410w_motion_sensitivity    — Outdoor Camera 1 Motion sensitivity
+    sensor.rlc_1224a_day_night_state
+    sensor.rlc_410w_day_night_state
     switch.rlc_1224a_email_on_event       — email on event
     switch.rlc_1224a_ftp_upload           — FTP upload
+    switch.rlc_1224a_infra_red_lights_in_night_mode
     switch.rlc_1224a_push_notifications   — push notifications
-    device_tracker.camera1                — Outdoor Camera 2 connectivity
+    switch.rlc_1224a_record, switch.rlc_1224a_record_audio         — record audio
+    switch.rlc_1224a_siren_on_event       — NEVER activate autonomously
+    switch.rlc_410w_infra_red_lights_in_night_mode
+    switch.rlc_410w_record
 
-    camera.tangu_home_outdoor1
-    binary_sensor.tangu_home_outdoor1_motion, binary_sensor.tangu_home_outdoor1_connectivity
-    camera.tangu_home_outdoor_2
-    binary_sensor.tangu_home_outdoor_2_motion, binary_sensor.tangu_home_outdoor_2_connectivity
-    binary_sensor.tangu_home_outdoor_2_external — external presence
+  Sensors:
     binary_sensor.tangu_home_outdoor_2_dio — DIO status
+    binary_sensor.tangu_home_outdoor_2_external — external presence
+    binary_sensor.tangu_home_outdoor1_external — external presence
+    binary_sensor.tangu_home_outdoor1_dio — DIO status
+    sensor.back_entrance_battery          — Back Entrance Battery
+    sensor.back_entrance_device_temperature — Back Entrance Temperature
+
+──────────────────────────────────────────────
+AREA: SERVER ROOM
+──────────────────────────────────────────────
+  Connectivity:
+    device_tracker.philips_hue_smart_hub  — Hue Bridge Philips Hue Smart Hub
 
 ──────────────────────────────────────────────
 WHOLE-HOME SYSTEMS
@@ -778,6 +858,11 @@ Smart plug fault monitoring (general):
   Plug 2: binary_sensor.unnamed_p304m_smart_plug_2_overheated, binary_sensor.unnamed_p304m_smart_plug_2_overloaded
           number.unnamed_p304m_smart_plug_2_power_protection  — never change autonomously
           number.unnamed_p304m_smart_plug_2_turn_off_in — Unnamed P304M Smart Plug 2 Turn off in timer
+          sensor.unnamed_p304m_smart_plug_2_current     — Unnamed P304M Smart Plug 2 Current
+          sensor.unnamed_p304m_smart_plug_2_current_consumption — Unnamed P304M Smart Plug 2 Current consumption
+          sensor.unnamed_p304m_smart_plug_2_this_month_s_consumption — Unnamed P304M Smart Plug 2 This month's consumption
+          sensor.unnamed_p304m_smart_plug_2_today_s_consumption — Unnamed P304M Smart Plug 2 Today's consumption
+          sensor.unnamed_p304m_smart_plug_2_voltage     — Unnamed P304M Smart Plug 2 Voltage
 
 Presence (use together, never from one signal alone):
   person.penn, person.tangu_home
@@ -803,39 +888,38 @@ Doors summary (all external contacts):
   binary_sensor.refrigerator_door         — fridge door (kitchen)
 
 Energy monitoring:
-  sensor.dcc_sourced_smart_electricity_meter_usage_today
-  sensor.dcc_sourced_smart_electricity_meter_cost_today
-  sensor.dcc_sourced_smart_gas_meter_usage_today
-  sensor.dcc_sourced_smart_gas_meter_cost_today
   sensor.average_power_consumption, sensor.daily_power_consumption, sensor.total_power_consumption
-  sensor.total_power_cost, sensor.daily_power_cost, sensor.monthly_power_cost
-  sensor.monthly_power_consumption      — monthly power consumption
+  sensor.co2_signal_co2_intensity (lower = cleaner grid)
+  sensor.dcc_sourced_smart_electricity_meter_cost_today
+  sensor.dcc_sourced_smart_electricity_meter_usage_today
+  sensor.dcc_sourced_smart_gas_meter_cost_today
+  sensor.dcc_sourced_smart_gas_meter_usage_today
   sensor.dcc_sourced_smart_gas_meter_usage_today_2 — DCC Sourced smart gas meter usage (today)
   sensor.daily_gas_consumption          — daily gas consumption
   sensor.daily_gas_cost                 — daily gas cost
+  sensor.monthly_power_consumption      — monthly power consumption
+  sensor.monthly_power_cost
+  sensor.octopus_energy_a_ffd8c137_octoplus_points — Octoplus (A-FFD8C137) Octoplus Points (A-FFD8C137)
+  sensor.octopus_energy_a_ffd8c137_wheel_of_fortune_spins_electricity — Wheel Of Fortune Spins Electricity (A-FFD8C137)
+  sensor.octopus_energy_a_ffd8c137_wheel_of_fortune_spins_gas — Wheel Of Fortune Spins Gas (A-FFD8C137)
   sensor.octopus_energy_electricity_16p0478729_1610011140937_previous_accumulative_consumption — Electricity meter previous accumulative consumption
-  sensor.octopus_energy_gas_g4p04330231600_1491216401_previous_accumulative_consumption_m3 — Gas meter previous accumulative consumption (m³)
   sensor.octopus_energy_gas_g4p04330231600_1491216401_previous_accumulative_consumption_kwh — Gas meter previous accumulative consumption (kWh)
+  sensor.octopus_energy_gas_g4p04330231600_1491216401_previous_accumulative_consumption_m3 — Gas meter previous accumulative consumption (m³)
+  sensor.total_power_cost
   Provider: Octopus Energy
     Off-peak: binary_sensor.octopus_energy_electricity_16p0478729_1610011140937_off_peak
     Saving sessions: binary_sensor.octopus_energy_a_ffd8c137_octoplus_saving_sessions
-  CO2 intensity: sensor.co2_signal_co2_intensity (lower = cleaner grid)
 
 Car: KO66EWX — Blue Mercedes B200 2017 AMG (Penn's car)
   Appearance: blue exterior; normally parked in the driveway.
   Camera alerts: if driveway motion is caused solely by this car being stationary (e.g. lighting change),
                  do NOT raise an alert. Only alert if a person, unfamiliar vehicle, or unexpected activity is seen.
-  Warning lights: binary_sensor.ko66ewx_engine_light_warning, binary_sensor.ko66ewx_low_brake_fluid_warning,
-                  binary_sensor.ko66ewx_low_coolant_level_warning, binary_sensor.ko66ewx_low_wash_water_warning,
-                  binary_sensor.ko66ewx_tire_warning
   Fuel:           sensor.ko66ewx_fuel_level — alert Penn if < 20%
-  Tyre pressures (kPa, normal 220–250):
-                  sensor.ko66ewx_tire_pressure_front_left, sensor.ko66ewx_tire_pressure_front_right
-                  sensor.ko66ewx_tire_pressure_rear_left, sensor.ko66ewx_tire_pressure_rear_right
-                  Flag any tyre deviating > 30 kPa from the others as possible slow puncture.
   Status:         binary_sensor.ko66ewx_windows_closed, sensor.ko66ewx_lock,
                   sensor.ko66ewx_ignition_state, sensor.ko66ewx_odometer
   Lock:           lock.ko66ewx_lock (currently unavailable — use sensor.ko66ewx_lock instead)
+  sensor.ko66ewx_car                    — Car Car
+  sensor.ko66ewx_data_mode              — Car Data Mode
   sensor.ko66ewx_lock — door/lock state (read via get_entity_state):
     CRITICAL — attribute semantics (all confirmed against live Mercedes Me data):
     1. doorlockstatusvehicle (AUTHORITATIVE — use this for lock status):
@@ -862,12 +946,20 @@ Car: KO66EWX — Blue Mercedes B200 2017 AMG (Penn's car)
       "0" → unlocked. Say: unlocked. Check individual doorlockstatus* for which doors.
       "1" → locked.
       "2" → locked + secured.
-  When asked about the car: always report fuel, all four tyre pressures, windows, lock state,
-  ignition state, and any active warning lights.
   sensor.ko66ewx_liquid_consumption_reset — liquid consumption since reset
   sensor.ko66ewx_liquid_consumption_start — liquid consumption since start
+  sensor.ko66ewx_rcp_features           — Car RCP Features
   sensor.ko66ewx_sunroof_status         — sunroof status ("0" = closed/locked)
   sensor.ko66ewx_tires_rdk_state        — tire RDK state
+  Tyre pressures (kPa, normal 220–250):
+                  sensor.ko66ewx_tire_pressure_front_left, sensor.ko66ewx_tire_pressure_front_right
+                  sensor.ko66ewx_tire_pressure_rear_left, sensor.ko66ewx_tire_pressure_rear_right
+                  Flag any tyre deviating > 30 kPa from the others as possible slow puncture.
+  Warning lights: binary_sensor.ko66ewx_engine_light_warning, binary_sensor.ko66ewx_low_brake_fluid_warning,
+                  binary_sensor.ko66ewx_low_coolant_level_warning, binary_sensor.ko66ewx_low_wash_water_warning,
+                  binary_sensor.ko66ewx_tire_warning
+  When asked about the car: always report fuel, all four tyre pressures, windows, lock state,
+  ignition state, and any active warning lights.
 
 Bin collection (Wigan Council — 19 Patterdale Place):
   sensor.19_patterdale_place_black_bin    — general waste
@@ -892,19 +984,70 @@ Mode flags:
 
 System:
   Time:         sensor.time, sensor.date, sensor.date_time
-  Connectivity: binary_sensor.remote_ui, binary_sensor.fibre_line,
-                binary_sensor.zigbee2mqtt_bridge_connection_state, binary_sensor.tangu_home_connectivity
+  Alerts:       binary_sensor.tangu_home_alerts — Tangu Home Server Alerts
   Backups:      sensor.backup_backup_manager_state, sensor.backup_last_successful_automatic_backup,
                 sensor.backup_next_scheduled_automatic_backup
-  Alerts:       binary_sensor.tangu_home_alerts — Tangu Home Server Alerts
-  device_tracker.unifi_default_a4_02_b7_3a_2f_4b — Fire Stick connectivity
+                device_tracker.backup_playout — Backup Playout connectivity
+  Connectivity: binary_sensor.remote_ui, binary_sensor.fibre_line,
+                binary_sensor.zigbee2mqtt_bridge_connection_state, binary_sensor.tangu_home_connectivity
+                device_tracker.gl_axt1800     — GL-AXT1800 router connectivity
+                device_tracker.gs308ep        — GS308EP GS308EP switch connectivity
+                device_tracker.hp_2530_aruba_managed_switch — HP 2530 Aruba Managed Switch connectivity
+                device_tracker.tl_wpa4220     — TL-WPA4220 network extender connectivity
+                device_tracker.unifi_default_a4_02_b7_3a_2f_4b — Fire Stick connectivity
+  Home Assistant: device_tracker.home_assistant — Home Assistant connectivity
+  Other:        device_tracker.agentdvr       — AgentDVR connectivity
+                sensor.tangu_home_tangu_home_cpu_temperature — Tangu Home Tangu Home CPU Temperature
+
+  Network Controls:
+    switch.unifi_network_allow_lg_fridge_wan_2 — UniFi Network Allow LG Fridge WAN
+    switch.unifi_network_allow_lg_fridge_wan_3 — UniFi Network Allow LG Fridge WAN
+    switch.unifi_network_allow_ring_wan_2 — UniFi Network Allow Ring WAN
+    switch.unifi_network_allow_ring_wan_3 — UniFi Network Allow Ring WAN
+    switch.unifi_network_block_quic_2     — UniFi Network block QUIC
+    switch.unifi_network_block_quic_3     — UniFi Network block QUIC
+    switch.unifi_network_block_youtube_10 — UniFi Network block youtube
+    switch.unifi_network_block_youtube_11 — UniFi Network block youtube
+    switch.unifi_network_block_youtube_12 — UniFi Network block youtube
+    switch.unifi_network_block_youtube_13 — UniFi Network block youtube
+    switch.unifi_network_block_youtube_14 — UniFi Network block youtube
+    switch.unifi_network_block_youtube_15 — UniFi Network block youtube
+    switch.unifi_network_block_youtube_16 — UniFi Network block youtube
+    switch.unifi_network_block_youtube_17 — UniFi Network block youtube
+    switch.unifi_network_block_youtube_2  — UniFi Network block youtube
+    switch.unifi_network_block_youtube_3  — UniFi Network block youtube
+    switch.unifi_network_block_youtube_4  — UniFi Network block youtube
+    switch.unifi_network_block_youtube_5  — UniFi Network block youtube
+    switch.unifi_network_block_youtube_6  — UniFi Network block youtube
+    switch.unifi_network_block_youtube_7  — UniFi Network block youtube
+    switch.unifi_network_block_youtube_8  — UniFi Network block youtube
+    switch.unifi_network_block_youtube_9  — UniFi Network block youtube
+    switch.unifi_network_cameras_to_local_net_2 — UniFi Network Cameras to local net
+    switch.unifi_network_cameras_to_local_net_3 — UniFi Network Cameras to local net
+    switch.unifi_network_cameras_to_local_net_4 — UniFi Network Cameras to local net
+    switch.unifi_network_cameras_to_local_net_5 — UniFi Network Cameras to local net
+    switch.unifi_network_cameras_to_local_net_6 — UniFi Network Cameras to local net
+    switch.unifi_network_cameras_to_local_net_7 — UniFi Network Cameras to local net
+    switch.unifi_network_cameras_to_local_net_8 — UniFi Network Cameras to local net
+    switch.unifi_network_cameras_to_local_net_9 — UniFi Network Cameras to local net
+    switch.unifi_network_echos_to_wan_2   — UniFi Network Echos to WAN
+    switch.unifi_network_youtubeq         — UniFi Network youtubeq
+    switch.unifi_network_youtubeq_2       — UniFi Network youtubeq
+    switch.unifi_network_youtube_on_devices_2 — UniFi Network Youtube on Devices
+    switch.unifi_network_youtube_on_devices_3 — UniFi Network Youtube on Devices
+    switch.unifi_network_zengge_wan_access_2 — UniFi Network Zengge WAN access
+    switch.unifi_network_zengge_wan_access_3 — UniFi Network Zengge WAN access
 
 Security/Camera:
   camera.tangu_home_all_cameras         — Tangu Home +All cameras (Index)
   camera.tangu_home_all_cameras_cycle   — Tangu Home +All cameras cycle (@Index)
 
 Media:
+  media_player.c889f3ba4575_airplay     — c889f3ba4575 (AirPlay)
+  media_player.tangu_home_2             — Tangu Home
   number.sonorium_volume                — Sonorium Sonorium Volume
+  device_tracker.old_plex_server        — Old Plex Server connectivity
+  device_tracker.plex_media_channelsdvr — Plex Media/ChannelsDVR connectivity
 
 Weather:
   weather.met_office_ince_in_makerfield   — current conditions + forecast (Met Office, local station)
@@ -913,18 +1056,18 @@ Weather:
                                             wind_bearing, pressure (hPa), uv_index, visibility (km)
   Use get_entity_state("weather.met_office_ince_in_makerfield") to answer ANY weather question.
   NEVER say you cannot access weather data — always call this entity first.
-  sensor.openweathermap_dew_point       — Dew point temperature
-  sensor.openweathermap_temperature     — Temperature
-  sensor.openweathermap_feels_like_temperature — Apparent temperature
-  sensor.openweathermap_wind_speed      — Wind speed
-  sensor.openweathermap_wind_gust       — Wind gust speed
-  sensor.openweathermap_humidity        — Humidity
-  sensor.openweathermap_pressure        — Pressure
   sensor.met_office_ince_in_makerfield_temperature_3_hourly — 3-hourly temperature
   sensor.met_office_ince_in_makerfield_wind_speed_3_hourly — 3-hourly wind speed
-  weather.openweathermap                — OpenWeatherMap (global weather source)
+  sensor.openweathermap_dew_point       — Dew point temperature
+  sensor.openweathermap_feels_like_temperature — Apparent temperature
+  sensor.openweathermap_humidity        — Humidity
+  sensor.openweathermap_pressure        — Pressure
+  sensor.openweathermap_temperature     — Temperature
+  sensor.openweathermap_wind_gust       — Wind gust speed
+  sensor.openweathermap_wind_speed      — Wind speed
   weather.home                          — Home Assistant Weather (forecast)
   weather.home_2                        — Home Assistant Weather (current)
+  weather.openweathermap                — OpenWeatherMap (global weather source)
 
 ======================================================================
 ENTITY ID RULES — CRITICAL, NEVER VIOLATE
