@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="/static/admin.css">
 <!-- CSS extracted to admin.css -->
 </head>
@@ -1632,14 +1633,54 @@
         </div>
       </div>
 
+      <div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <div>
+            <div class="card-title" style="margin:0;">Device Map</div>
+            <div id="parental-map-status" class="text-sm text-muted" style="margin-top:4px;">Loading locations…</div>
+          </div>
+          <button class="btn btn-outline" onclick="parentalRefreshDeviceLocations()" style="font-size:12px;">Refresh Map</button>
+        </div>
+        <div id="parental-device-map-empty" class="text-sm text-muted" style="display:none;margin-bottom:10px;">No device locations are available yet.</div>
+        <div id="parental-device-map" style="height:320px;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:linear-gradient(180deg, rgba(56,189,248,0.08), rgba(59,130,246,0.04));"></div>
+      </div>
+
       <!-- Device list -->
       <div class="card" style="margin-bottom:12px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-          <div class="card-title" style="margin:0;">Enrolled Devices</div>
-          <button class="btn btn-outline" onclick="loadParentalDevices()" style="font-size:12px;">&#8635; Refresh</button>
+          <div>
+            <div class="card-title" style="margin:0;">Enrolled Devices</div>
+            <div id="parental-selected-summary" class="text-sm text-muted" style="margin-top:4px;">0 selected</div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-outline" onclick="parentalSelectAllDevices()" style="font-size:12px;">Select All</button>
+            <button class="btn btn-outline" onclick="parentalClearDeviceSelection()" style="font-size:12px;">Clear</button>
+            <button class="btn btn-outline" onclick="loadParentalDevices()" style="font-size:12px;">&#8635; Refresh</button>
+          </div>
         </div>
         <div id="parental-device-list">
           <p class="text-sm text-muted">Loading&hellip;</p>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:12px;">
+        <div class="card-title">Deploy / Block Apps</div>
+        <p class="text-sm text-muted" style="margin-bottom:10px;">Select one or more devices, choose a package from the catalog, then deploy, block, or unblock it.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+          <input type="text" id="parental-app-search" placeholder="Search packages or app names" style="flex:1;min-width:240px;" onkeydown="if(event.key==='Enter') parentalSearchApps()">
+          <button class="btn btn-outline" onclick="parentalSearchApps()" style="font-size:12px;">Search</button>
+          <button class="btn btn-outline" onclick="parentalLoadAppCatalog()" style="font-size:12px;">Show All</button>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+          <input type="text" id="parental-selected-pkg" placeholder="Selected package" style="flex:1;min-width:240px;" readonly>
+          <button class="btn btn-primary" onclick="parentalApplyToSelectedDevices(2)" style="font-size:12px;">Deploy</button>
+          <button class="btn btn-danger" onclick="parentalApplyToSelectedDevices(0)" style="font-size:12px;">Block</button>
+          <button class="btn btn-outline" onclick="parentalApplyToSelectedDevices(1)" style="font-size:12px;">Unblock</button>
+        </div>
+        <div id="parental-selected-app-display" class="text-sm text-muted" style="margin-bottom:8px;">No app selected.</div>
+        <div id="parental-selected-app-note" class="text-sm text-muted" style="margin-bottom:10px;">Apps marked “Allow only” cannot be silently installed by Headwind; Deploy will just allow them on the selected configuration.</div>
+        <div id="parental-app-results" style="max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:8px;background:var(--surface2);">
+          <p class="text-sm text-muted">Loading available packages&hellip;</p>
         </div>
       </div>
 
@@ -1668,9 +1709,10 @@
         <!-- App blocking -->
         <div>
           <label style="font-size:12px;display:block;margin-bottom:4px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;">Block / Unblock Apps</label>
-          <p class="text-sm text-muted" style="margin-bottom:8px;">Enter a package name to block or allow an app on this device's profile.</p>
+          <p class="text-sm text-muted" style="margin-bottom:8px;">Pick a package from the catalog above or enter one manually for this device only.</p>
           <div style="display:flex;gap:8px;margin-bottom:8px;">
             <input type="text" id="parental-block-pkg" placeholder="com.package.name" style="flex:1;">
+            <button class="btn btn-primary" onclick="parentalBlockApp(2)" style="font-size:12px;">Deploy</button>
             <button class="btn btn-danger" onclick="parentalBlockApp(0)" style="font-size:12px;">Block</button>
             <button class="btn btn-outline" onclick="parentalBlockApp(1)" style="font-size:12px;">Unblock</button>
           </div>
@@ -1682,7 +1724,7 @@
             <button class="btn btn-xs btn-outline" onclick="parentalQuickBlock('com.snapchat.android')">Snapchat</button>
             <button class="btn btn-xs btn-outline" onclick="parentalQuickBlock('com.twitter.android')">X / Twitter</button>
             <button class="btn btn-xs btn-outline" onclick="parentalQuickBlock('com.facebook.katana')">Facebook</button>
-            <button class="btn btn-xs btn-outline" onclick="parentalQuickBlock('com.youtube.android')">YouTube</button>
+            <button class="btn btn-xs btn-outline" onclick="parentalQuickBlock('com.google.android.youtube')">YouTube</button>
           </div>
         </div>
       </div>
@@ -1693,7 +1735,8 @@
 </div><!-- /main -->
 
 
-<script src="/static/admin.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/static/admin.js?v=20260422l"></script>
 
     
 
