@@ -73,215 +73,24 @@ const TITLES = {
   costs:'LLM Cost', metrics:'System Metrics', pylog:'Server Logs',
 };
 
-const SKIN_LABELS = ['Porcelain','Light','Medium','Dark','Deep'];
-let _currentSkinTone = -1;
+const _sectionControllers = new Map();
+let _activeSection = document.querySelector('.nav-item.active')?.dataset.section || 'dashboard';
 
-function selectSkin(index) {
-  _currentSkinTone = index;
-  document.querySelectorAll('#skin-swatches .skin-swatch').forEach(s => s.classList.remove('selected'));
-  const el = document.querySelector(`#skin-swatches .skin-swatch[data-index="${index}"]`);
-  if (el) el.classList.add('selected');
-  document.getElementById('skin-label').textContent = index < 0 ? 'GLB Default' : (SKIN_LABELS[index] || '—');
+function registerAdminSection(section, controller) {
+  if (!section || !controller) return;
+  _sectionControllers.set(section, controller);
 }
 
-let _activeAvatarUrl = '';
-
-async function loadAvatarSettings() {
-  // Also load background settings after main settings
-  try {
-    const d = await api('GET', '/admin/avatar-settings');
-    selectSkin(d.skin_tone ?? -1);
-    selectHair(d.hair_color ?? -1);
-    _activeAvatarUrl = d.avatar_url || '';
-    document.getElementById('avatar-url').value = _activeAvatarUrl.startsWith('/static/') ? '' : _activeAvatarUrl;
-    // Restore background settings into the form
-    if (d.bg_type) {
-      const radio = document.querySelector('input[name="bg-type"][value="' + d.bg_type + '"]');
-      if (radio) { radio.checked = true; if (typeof onBgTypeChange === 'function') onBgTypeChange(); }
-    }
-    if (d.bg_color) {
-      const ci = document.getElementById('bg-color-input');
-      const cp = document.getElementById('bg-color-picker');
-      if (ci) ci.value = d.bg_color;
-      if (cp) cp.value = d.bg_color;
-    }
-    if (d.bg_image_url) {
-      const ii = document.getElementById('bg-image-input');
-      if (ii) ii.value = d.bg_image_url;
-      if (typeof updateBgImagePreview === 'function') updateBgImagePreview();
-    }
-  } catch(e) { selectSkin(0); }
-  await loadAvatarLibrary();
+function _runSectionHook(section, hook, payload) {
+  const controller = _sectionControllers.get(section);
+  const fn = controller?.[hook];
+  if (typeof fn === 'function') return fn(payload);
+  return undefined;
 }
 
-async function loadAvatarLibrary() {
-  const grid = document.getElementById('avatar-grid');
-  if (!grid) return;
-  try {
-    const [settings, lib] = await Promise.all([
-      api('GET', '/admin/avatar-settings'),
-      api('GET', '/admin/avatars'),
-    ]);
-    _activeAvatarUrl = settings.avatar_url || '';
-    grid.innerHTML = '';
-    if (!lib.avatars.length) {
-      grid.innerHTML = '<div class="text-md text-muted">No avatars found in static/avatars/</div>';
-      return;
-    }
-    for (const filename of lib.avatars) {
-      const url = '/static/avatars/' + filename;
-      const isDefault = filename === 'brunette.glb';
-      const isActive = _activeAvatarUrl === url || (!_activeAvatarUrl && isDefault);
-      const label = filename.replace(/\.glb$/i,'').replace(/[-_]/g,' ')
-                            .replace(/\b\w/g, c => c.toUpperCase());
-      const card = document.createElement('div');
-      card.className = 'avatar-card' + (isActive ? ' active' : '');
-      card.title = filename;
-      card.onclick = () => selectAvatarFile(url);
-      card.innerHTML =
-        '<div class="avatar-card-icon">' +
-        '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-muted">' +
-        '<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg></div>' +
-        '<div class="avatar-card-name">' + _escapeHtml(label) + '</div>' +
-        (isActive ? '<div class="avatar-card-badge">Active</div>' : '') +
-        (!isDefault ? '<button class="avatar-card-del" title="Delete" onclick="event.stopPropagation();deleteAvatar(\'' + _escapeHtml(filename) + '\')">×</button>' : '');
-      grid.appendChild(card);
-    }
-  } catch(e) {
-    grid.innerHTML = '<div class="text-md text-muted">Failed to load library.</div>';
-  }
-}
+window.registerAdminSection = registerAdminSection;
 
-async function selectAvatarFile(url) {
-  _activeAvatarUrl = url;
-  const _bgT = document.querySelector('input[name="bg-type"]:checked')?.value || 'color';
-  const _bgC = document.getElementById('bg-color-input')?.value || '';
-  const _bgI = document.getElementById('bg-image-input')?.value || '';
-  await api('POST', '/admin/avatar-settings', { skin_tone: _currentSkinTone, avatar_url: url, bg_type: _bgT, bg_color: _bgC, bg_image_url: _bgI });
-  document.getElementById('avatar-url').value = '';
-  await loadAvatarLibrary();
-  toast('Avatar selected — reload the avatar page to apply');
-}
-
-async function saveSkinTone() {
-  const bgType = document.querySelector('input[name="bg-type"]:checked')?.value || 'color';
-  const bgColor = document.getElementById('bg-color-input')?.value || '';
-  const bgImageUrl = document.getElementById('bg-image-input')?.value || '';
-  await api('POST', '/admin/avatar-settings', { skin_tone: _currentSkinTone, avatar_url: _activeAvatarUrl, bg_type: bgType, bg_color: bgColor, bg_image_url: bgImageUrl });
-  toast('Skin tone saved');
-}
-
-let _currentHairColor = -1;
-const HAIR_LABELS = ['Black','Dark Brown','Brown','Auburn','Red','Ginger','Blonde','Platinum','Grey','White'];
-
-function selectHair(index) {
-  _currentHairColor = index;
-  document.querySelectorAll('#hair-swatches .skin-swatch').forEach(el => {
-    el.classList.toggle('active', parseInt(el.dataset.hair) === index);
-  });
-  document.getElementById('hair-label').textContent = index < 0 ? 'GLB Default' : (HAIR_LABELS[index] || '—');
-}
-
-async function saveHairColor() {
-  const bgType = document.querySelector('input[name="bg-type"]:checked')?.value || 'color';
-  const bgColor = document.getElementById('bg-color-input')?.value || '';
-  const bgImageUrl = document.getElementById('bg-image-input')?.value || '';
-  await api('POST', '/admin/avatar-settings', { skin_tone: _currentSkinTone, hair_color: _currentHairColor, avatar_url: _activeAvatarUrl, bg_type: bgType, bg_color: bgColor, bg_image_url: bgImageUrl });
-  toast('Hair colour saved');
-}
-
-async function saveExternalUrl() {
-  const url = document.getElementById('avatar-url').value.trim();
-  if (!url) return toast('Enter a URL first');
-  _activeAvatarUrl = url;
-  await api('POST', '/admin/avatar-settings', { skin_tone: _currentSkinTone, avatar_url: url });
-  await loadAvatarLibrary();
-  toast('External URL saved — reload the avatar page to apply');
-}
-
-async function clearExternalUrl() {
-  document.getElementById('avatar-url').value = '';
-  const defaultUrl = '/static/avatars/brunette.glb';
-  _activeAvatarUrl = defaultUrl;
-  const ___bgT = document.querySelector('input[name="bg-type"]:checked')?.value || 'color';
-  const ___bgC = document.getElementById('bg-color-input')?.value || '';
-  const ___bgI = document.getElementById('bg-image-input')?.value || '';
-  await api('POST', '/admin/avatar-settings', { skin_tone: _currentSkinTone, avatar_url: defaultUrl, bg_type: ___bgT, bg_color: ___bgC, bg_image_url: ___bgI });
-  await loadAvatarLibrary();
-  toast('Reverted to library selection');
-}
-
-async function uploadAvatar(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const status = document.getElementById('avatar-upload-status');
-  const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-  status.style.color = '';
-  status.textContent = `Uploading ${file.name} (${sizeMB} MB)… 0%`;
-  const fd = new FormData();
-  fd.append('file', file);
-  try {
-    // Use XHR for upload progress
-    const d = await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/admin/avatars/upload');
-      xhr.withCredentials = true;
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          const pct = Math.round(e.loaded / e.total * 100);
-          status.textContent = pct < 100
-            ? `⬆ Uploading ${sizeMB} MB… ${pct}%`
-            : '🔧 Optimizing avatar — fixing skeleton, transferring blendshapes, compressing textures…';
-        }
-      };
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(JSON.parse(xhr.responseText));
-        } else {
-          reject(new Error(xhr.responseText || xhr.statusText));
-        }
-      };
-      xhr.onerror = () => reject(new Error('Network error'));
-      xhr.send(fd);
-    });
-    input.value = '';
-    const fix = d.fix || {};
-    if (fix.actions && fix.actions.length) {
-      status.style.color = 'var(--green, #10b981)';
-      status.innerHTML = '✅ Avatar optimized:<br>' + fix.actions.map(a => '  • ' + a).join('<br>');
-      toast('Avatar optimized: ' + fix.actions.length + ' fixes applied');
-    } else if (fix.error) {
-      status.style.color = 'var(--warning, #f59e0b)';
-      status.textContent = '⚠ Uploaded but fix failed: ' + fix.error;
-    } else {
-      status.textContent = '✅ Uploaded — no fixes needed';
-      toast('Uploaded: ' + d.uploaded);
-    }
-    await loadAvatarLibrary();
-  } catch(e) {
-    status.style.color = 'var(--danger, #ef4444)';
-    status.textContent = '❌ Upload failed: ' + e.message;
-  }
-}
-
-async function deleteAvatar(filename) {
-  if (!confirm('Delete ' + filename + '?')) return;
-  try {
-    await api('DELETE', '/admin/avatars/' + filename);
-    if (_activeAvatarUrl === '/static/avatars/' + filename) {
-      _activeAvatarUrl = '/static/avatars/brunette.glb';
-      const __bgT = document.querySelector('input[name="bg-type"]:checked')?.value || 'color';
-  const __bgC = document.getElementById('bg-color-input')?.value || '';
-  const __bgI = document.getElementById('bg-image-input')?.value || '';
-  await api('POST', '/admin/avatar-settings', { skin_tone: _currentSkinTone, avatar_url: _activeAvatarUrl, bg_type: __bgT, bg_color: __bgC, bg_image_url: __bgI });
-    }
-    toast('Deleted ' + filename);
-    await loadAvatarLibrary();
-  } catch(e) { toast('Delete failed: ' + e.message); }
-}
-
-async function saveAvatarSettings() { await saveSkinTone(); }
-async function resetAvatarSettings() { await clearExternalUrl(); }
+// ── Avatar section moved to static/admin-avatar.js ──────────────────────────
 
 function toggleSidebar() {
   const open = document.getElementById('sidebar').classList.toggle('open');
@@ -316,17 +125,18 @@ async function toggleIntronTTS() {
 
 function navigate(el) {
   closeSidebar();
+  const previousSection = _activeSection;
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   el.classList.add('active');
   const sec = el.dataset.section;
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.getElementById('section-' + sec).classList.add('active');
   document.getElementById('section-title').textContent = TITLES[sec] || sec;
-  if (sec === 'config')    { loadConfig(); loadGeminiPool(); loadVisionCameras(); loadRooms(); }
+  if (previousSection && previousSection !== sec) _runSectionHook(previousSection, 'onLeave', { from: previousSection, to: sec });
+  _activeSection = sec;
   if (sec === 'prompt')    loadPrompt();
   if (sec === 'prompts-tuning') loadPromptsTuning();
   if (sec === 'acl')       loadAcl();
-  if (sec === 'avatar')    loadAvatarSettings();
   if (sec === 'sessions')  loadSessions();
   if (sec === 'memory')    loadMemory();
   if (sec === 'dashboard') loadDashboard();
@@ -337,10 +147,9 @@ function navigate(el) {
   if (sec !== 'energy' && window._energyInterval) { clearInterval(window._energyInterval); window._energyInterval = null; }
   if (sec === 'pylog')     initPylog();
   if (sec === 'motion')    faInit();
-  if (sec === 'tools')   { loadWakeStatus(); loadAnnouncementLog(); loadHeatingShadow(); }
   if (sec === 'selfheal') loadSelfHeal();
   if (sec === 'faces')    loadFaces();
-  if (sec === 'scoreboard') loadScoreboard();
+  _runSectionHook(sec, 'onEnter', { from: previousSection, to: sec });
 }
 
 function refreshSection() {
@@ -370,6 +179,76 @@ async function api(method, path, body) {
   if (!r.ok) { const t = await r.text(); throw new Error(t || r.statusText); }
   return r.json();
 }
+
+const adminApi = {
+  config: {
+    getConfig: () => api('GET', '/admin/config'),
+    saveConfig: (payload) => api('POST', '/admin/config', payload),
+    getGeminiPool: () => api('GET', '/admin/gemini-pool'),
+    addGeminiKey: (payload) => api('POST', '/admin/gemini-pool/add', payload),
+    removeGeminiKey: (index) => api('DELETE', '/admin/gemini-pool/' + encodeURIComponent(index)),
+    getVisionCameras: () => api('GET', '/admin/vision-cameras'),
+    saveVisionCameras: (payload) => api('POST', '/admin/vision-cameras', payload),
+    getRooms: () => api('GET', '/admin/rooms'),
+    createRoom: (payload) => api('POST', '/admin/rooms', payload),
+    deleteRoom: (roomId) => api('DELETE', '/admin/rooms/' + encodeURIComponent(roomId)),
+    patchRoom: (roomId, payload) => api('PATCH', '/admin/rooms/' + encodeURIComponent(roomId), payload),
+    getAvatars: () => api('GET', '/admin/avatars'),
+  },
+  avatar: {
+    getSettings: () => api('GET', '/admin/avatar-settings'),
+    saveSettings: (payload) => api('POST', '/admin/avatar-settings', payload),
+    getLibrary: () => api('GET', '/admin/avatars'),
+    deleteAvatar: (filename) => api('DELETE', '/admin/avatars/' + filename),
+  },
+  parental: {
+    getStatus: () => api('GET', '/admin/parental/status'),
+    getConfigurations: () => api('GET', '/admin/parental/configurations'),
+    getDevices: () => api('GET', '/admin/parental/devices'),
+    getDeviceInfo: (number) => api('GET', `/admin/parental/devices/${encodeURIComponent(number)}/info`),
+    getApps: (query='') => {
+      const q = String(query || '').trim();
+      const endpoint = q ? `/admin/parental/apps?query=${encodeURIComponent(q)}` : '/admin/parental/apps';
+      return api('GET', endpoint);
+    },
+    sendAlert: (payload) => api('POST', '/admin/parental/alert', payload),
+    blockApp: (payload) => api('POST', '/admin/parental/apps/block', payload),
+    deployApp: (payload) => api('POST', '/admin/parental/apps/deploy', payload),
+    getEnrollQr: (configId) => api('GET', `/admin/parental/enroll/${encodeURIComponent(configId)}`),
+    getProvisioningQr: (configId) => api('GET', `/admin/parental/provisioning-qr?config_id=${encodeURIComponent(configId)}`),
+  },
+  scoreboard: {
+    getOverview: () => api('GET', '/admin/scoreboard'),
+    setWidgetVisibility: (showWidget) => api('POST', '/admin/scoreboard/widget-visibility', { show_widget: showWidget }),
+    patchTaskAssignment: (taskId, assignedTo) => api('PATCH', '/admin/scoreboard/tasks/' + encodeURIComponent(taskId), { assigned_to: assignedTo }),
+    deleteTask: (taskId) => api('DELETE', '/admin/scoreboard/tasks/' + encodeURIComponent(taskId)),
+    createTask: (payload) => api('POST', '/admin/scoreboard/tasks', payload),
+    deleteLog: (id) => api('DELETE', '/admin/scoreboard/logs/' + encodeURIComponent(id)),
+    awardTask: (person, taskId) => api('POST', '/admin/scoreboard/log', { person, task_id: taskId }),
+    getLogs: (days) => api('GET', '/admin/scoreboard/logs?days=' + encodeURIComponent(days)),
+    getNotifications: () => api('GET', '/admin/scoreboard/notifications'),
+    saveNotifications: (names) => api('PATCH', '/admin/scoreboard/notifications', { blind_reminder_names: names }),
+    getPenalties: () => api('GET', '/admin/scoreboard/penalties'),
+    issuePenalty: (person, penaltyId) => api('POST', '/admin/scoreboard/penalty', { person, penalty_id: penaltyId }),
+    createPenalty: (payload) => api('POST', '/admin/scoreboard/penalties', payload),
+    deletePenalty: (penaltyId) => api('DELETE', '/admin/scoreboard/penalties/' + encodeURIComponent(penaltyId)),
+  },
+  tools: {
+    sendAnnouncementTest: (payload) => api('POST', '/admin/announce/test', payload),
+    getAnnouncements: (limit=200) => api('GET', '/admin/announcements?limit=' + encodeURIComponent(limit)),
+    clearAnnouncements: () => api('DELETE', '/admin/announcements'),
+    getHeatingShadowHistory: (limit=80) => api('GET', '/admin/heating-shadow/history?limit=' + encodeURIComponent(limit)),
+    forceHeatingShadow: (scenario) => api('POST', `/admin/heating-shadow/force?scenario=${encodeURIComponent(scenario)}`),
+    getConversationAudit: (sessionId='') => {
+      const sid = String(sessionId || '').trim();
+      return api('GET', sid ? `/admin/conversations/${encodeURIComponent(sid)}` : '/admin/conversations?limit=100');
+    },
+    getWakeStatus: () => api('GET', '/admin/coral/wake-status'),
+    installEdgeTpuCompiler: () => api('POST', '/admin/coral/install-edgetpu-compiler'),
+  },
+};
+
+window.adminApi = adminApi;
 
 // ── Motion archive / Find Anything ───────────────────────────────────────────
 
@@ -1844,346 +1723,7 @@ function _updateCloudModelDropdown(provider, currentVal) {
 
 // ── Vision Camera Selection ─────────────────────────────────────────────────
 
-async function loadVisionCameras() {
-  const el = document.getElementById('vision-cameras-list');
-  if (!el) return;
-  try {
-    const d = await api('GET', '/admin/vision-cameras');
-    el.innerHTML = (d.cameras || []).map(c =>
-      `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface2);border-radius:8px;cursor:pointer;">
-        <input type="checkbox" class="vision-cam-check" value="${_escapeHtml(c.entity_id)}" ${c.vision_enabled ? 'checked' : ''}>
-        <span style="font-size:13px;">${_escapeHtml(c.label)}</span>
-        <span class="text-sm text-muted" style="margin-left:auto;">${_escapeHtml(c.entity_id)}</span>
-      </label>`
-    ).join('');
-  } catch (e) {
-    el.innerHTML = '<div class="text-sm" style="color:var(--danger);">Failed to load cameras: ' + (e.message || e) + '</div>';
-  }
-}
-
-async function saveVisionCameras() {
-  const checks = document.querySelectorAll('.vision-cam-check:checked');
-  const enabled = Array.from(checks).map(c => c.value);
-  try {
-    await api('POST', '/admin/vision-cameras', { enabled });
-    toast(`Vision enabled for ${enabled.length} cameras. Restart to apply.`);
-  } catch (e) { toast('Failed: ' + e.message, 'err'); }
-}
-
-async function loadRooms() {
-  const el = document.getElementById('rooms-list');
-  if (!el) return;
-  try {
-    const [rd, ad] = await Promise.all([api('GET', '/admin/rooms'), api('GET', '/admin/avatars').catch(() => ({avatars:[]}))]);
-    const rooms = rd.rooms || [];
-    const avatars = ad.avatars || [];
-    const avatarOptions = ['<option value="">Default (global setting)</option>',
-      ...avatars.map(a => `<option value="${_escapeHtml(a)}">${_escapeHtml(a)}</option>`)
-    ].join('');
-    // Populate the add-form GLB dropdown regardless of room count
-    const newGlbSelEarly = document.getElementById('room-new-glb');
-    if (newGlbSelEarly && avatars.length) {
-      const cur = newGlbSelEarly.value;
-      newGlbSelEarly.innerHTML = '<option value="">Default</option>' +
-        avatars.map(a => `<option value="${_escapeHtml(a)}">${_escapeHtml(a)}</option>`).join('');
-      if (cur) newGlbSelEarly.value = cur;
-    }
-    if (!rooms.length) {
-      el.innerHTML = '<div class="text-sm text-muted">No rooms configured yet. Add one below.</div>';
-      return;
-    }
-    el.innerHTML = rooms.map(r => `
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--surface2);border-radius:10px;flex-wrap:wrap;">
-        <span style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${r.connected ? '#10b981' : 'var(--text3)'};"
-              title="${r.connected ? 'Connected' : 'Offline'}"></span>
-        <div style="flex:1;min-width:120px;">
-          <div style="font-weight:600;font-size:13px;">${_escapeHtml(r.label)}</div>
-          <div style="font-size:11px;color:var(--text3);font-family:monospace;">${_escapeHtml(r.id)}</div>
-        </div>
-        <select class="room-glb-select" data-room-id="${_escapeHtml(r.id)}"
-          style="padding:4px 8px;font-size:12px;background:var(--surface3);border:1px solid var(--border);border-radius:6px;color:var(--text1);max-width:180px;"
-          onchange="updateRoomGlb(this)">
-          ${avatarOptions}
-        </select>
-        <a href="${_escapeHtml(r.avatar_url)}" target="_blank"
-           style="font-size:11px;color:var(--accent);text-decoration:none;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0;"
-           title="${_escapeHtml(r.avatar_url)}">${_escapeHtml(r.avatar_url)}</a>
-        <button class="btn btn-outline btn-xs" onclick='copyRoomUrl(${JSON.stringify(r.avatar_url)})' style="flex-shrink:0;" title="Copy public URL">Public</button>
-        <button class="btn btn-outline btn-xs" onclick='copyRoomUrl(${JSON.stringify(r.local_url||"")})' style="flex-shrink:0;" title="Copy local URL">Local</button>
-        <button class="btn btn-outline btn-xs" style="color:var(--danger);flex-shrink:0;" onclick="deleteRoom(${JSON.stringify(r.id)})">Remove</button>
-      </div>`
-    ).join('');
-    // Set current GLB selections after rendering
-    rooms.forEach(r => {
-      const sel = el.querySelector(`.room-glb-select[data-room-id="${CSS.escape(r.id)}"]`);
-      if (sel && r.glb) sel.value = r.glb;
-    });
-  } catch (e) {
-    el.innerHTML = '<div class="text-sm" style="color:var(--danger);">Failed to load rooms: ' + (e.message || e) + '</div>';
-  }
-}
-
-async function updateRoomGlb(selectEl) {
-  const roomId = selectEl.dataset.roomId;
-  const glb = selectEl.value;
-  try {
-    await api('PATCH', '/admin/rooms/' + encodeURIComponent(roomId), { glb: glb || null });
-    toast(glb ? `Avatar set to ${glb}` : 'Using default avatar');
-  } catch (e) { toast('Failed: ' + e.message, 'err'); }
-}
-
-function copyRoomUrl(url) {
-  if (!url) { toast("No URL", "err"); return; }
-  if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(url).then(() => toast("URL copied")); } else { const t = document.createElement("textarea"); t.value = url; t.style.position = "fixed"; t.style.opacity = "0"; document.body.appendChild(t); t.select(); document.execCommand("copy"); document.body.removeChild(t); toast("URL copied"); }
-}
-
-async function addRoom() {
-  const label = document.getElementById('room-new-label')?.value.trim();
-  const id = document.getElementById('room-new-id')?.value.trim().toLowerCase().replace(/\s+/g,'_');
-  const glb = document.getElementById('room-new-glb')?.value.trim() || null;
-  if (!label || !id) { toast('Enter room name and slug', 'err'); return; }
-  try {
-    await api('POST', '/admin/rooms', { label, id, ...(glb ? { glb } : {}) });
-    document.getElementById('room-new-label').value = '';
-    document.getElementById('room-new-id').value = '';
-    if (document.getElementById('room-new-glb')) document.getElementById('room-new-glb').value = '';
-    await loadRooms();
-    toast('Room added');
-  } catch (e) { toast('Failed: ' + e.message, 'err'); }
-}
-
-async function deleteRoom(roomId) {
-  if (!confirm(`Remove room "${roomId}"?`)) return;
-  try {
-    await api('DELETE', '/admin/rooms/' + encodeURIComponent(roomId));
-    await loadRooms();
-    toast('Room removed');
-  } catch (e) { toast('Failed: ' + e.message, 'err'); }
-}
-
-async function loadGeminiPool() {
-  const keysEl = document.getElementById('gemini-pool-keys');
-  const statsEl = document.getElementById('gemini-pool-stats');
-  if (!keysEl) return;
-  try {
-    const d = await api('GET', '/admin/gemini-pool');
-    const keys = d.keys || [];
-    const stats = d.stats || {};
-    statsEl.textContent = `${stats.pool_size || 0} keys · ${stats.available || 0} available · ${stats.total_calls || 0} calls · ${stats.total_429s || 0} rate limits`;
-    if (!keys.length) {
-      keysEl.innerHTML = '<div class="text-sm text-muted">No keys configured. Add your Gemini API keys below.</div>';
-      return;
-    }
-    keysEl.innerHTML = keys.map((k, i) => {
-      const status = k.available
-        ? '<span style="color:var(--green,#10b981);font-weight:600;">● Active</span>'
-        : '<span style="color:var(--danger,#ef4444);font-weight:600;">● Cooldown ' + k.cooldown_remaining_s + 's</span>';
-      const pins = k.pinned_cameras.length ? '<span class="text-sm text-muted"> · 📷 ' + k.pinned_cameras.join(', ') + '</span>' : '';
-      return '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">'
-        + '<div style="flex:1;">'
-        + '<div style="font-weight:600;font-size:13px;">' + _esc(k.label) + ' <span class="text-muted" style="font-weight:400;">' + _esc(k.masked_key) + '</span></div>'
-        + '<div class="text-sm text-muted">' + status + ' · ' + k.total_calls + ' calls · ' + k.total_429s + ' 429s' + pins + '</div>'
-        + '</div>'
-        + '<button class="btn btn-outline btn-sm" style="font-size:11px;" onclick="removeGeminiKey(' + i + ')">Remove</button>'
-        + '</div>';
-    }).join('');
-  } catch (e) {
-    keysEl.innerHTML = '<div class="text-sm" style="color:var(--danger);">Failed to load pool</div>';
-  }
-}
-
-async function addGeminiKey() {
-  const keyEl = document.getElementById('gemini-new-key');
-  const labelEl = document.getElementById('gemini-new-label');
-  const key = (keyEl?.value || '').trim();
-  const label = (labelEl?.value || '').trim();
-  if (!key) { toast('Enter an API key', 'err'); return; }
-  try {
-    await api('POST', '/admin/gemini-pool/add', { key, label });
-    keyEl.value = '';
-    labelEl.value = '';
-    toast('Key added');
-    loadGeminiPool();
-  } catch (e) { toast('Failed: ' + e.message, 'err'); }
-}
-
-async function removeGeminiKey(index) {
-  if (!confirm('Remove this API key from the pool?')) return;
-  try {
-    await api('DELETE', '/admin/gemini-pool/' + index);
-    toast('Key removed');
-    loadGeminiPool();
-  } catch (e) { toast('Failed: ' + e.message, 'err'); }
-}
-
-async function loadConfig() {
-  try {
-    const d = await api('GET', '/admin/config');
-    _configMeta = d.fields || {};
-    const grid = document.getElementById('config-fields');
-    grid.innerHTML = '';
-
-    // Build a lookup: field key → category name
-    const _fieldToCategory = {};
-    for (const [cat, keys] of Object.entries(_CONFIG_CATEGORIES)) {
-      for (const k of keys) _fieldToCategory[k] = cat;
-    }
-
-    // Group fields by category, preserving order
-    const categoryFields = {};
-    for (const cat of Object.keys(_CONFIG_CATEGORIES)) categoryFields[cat] = [];
-    const uncategorized = [];
-
-    for (const [key, [label, sensitive]] of Object.entries(_configMeta)) {
-      const val = (d.values || {})[key] || '';
-      const cat = _fieldToCategory[key];
-      const entry = { key, label, sensitive, val };
-      if (cat) categoryFields[cat].push(entry);
-      else uncategorized.push(entry);
-    }
-
-    // Helper to build a field element
-    function buildField(entry) {
-      const { key, label, sensitive, val } = entry;
-      const defaults = {
-        HOST:'0.0.0.0', PORT:'8000', LOG_LEVEL:'INFO',
-        HA_URL:'http://homeassistant.local:8123',
-        LLM_PROVIDER:'ollama', OLLAMA_URL:'http://localhost:11434',
-        OLLAMA_MODEL:'llama3.1:8b-instruct-q4_K_M',
-        OLLAMA_VISION_MODEL:'llama3.2-vision:11b-instruct-q4_K_M',
-        CLOUD_MODEL:'gemini-2.5-flash',
-        WHISPER_MODEL:'small', TTS_PROVIDER:'piper',
-        PIPER_VOICE:'en_US-lessac-medium', AFROTTS_VOICE:'af_heart', AFROTTS_SPEED:'1.0',
-        INTRON_AFRO_TTS_URL:'http://127.0.0.1:8021', INTRON_AFRO_TTS_TIMEOUT_S:'90',
-        INTRON_AFRO_TTS_LANGUAGE:'en',
-        TTS_ENGINE:'tts.google_translate_en_com', SPEAKER_AUDIO_OFFSET_MS:'0',
-        MOTION_CLIP_DURATION_S:'8', MOTION_CLIP_SEARCH_CANDIDATES:'120',
-        MOTION_CLIP_SEARCH_RESULTS:'24', MOTION_VISION_PROVIDER:'gemini',
-        HEATING_LLM_PROVIDER:'gemini', HEATING_SHADOW_ENABLED:'true',
-        PROACTIVE_ENTITY_COOLDOWN_S:'600', PROACTIVE_CAMERA_COOLDOWN_S:'600',
-        PROACTIVE_GLOBAL_MOTION_COOLDOWN_S:'600', PROACTIVE_GLOBAL_ANNOUNCE_COOLDOWN_S:'300',
-        PROACTIVE_QUEUE_DEDUP_COOLDOWN_S:'120', PROACTIVE_BATCH_WINDOW_S:'60',
-        PROACTIVE_MAX_BATCH_CHANGES:'20', PROACTIVE_WEATHER_COOLDOWN_S:'3600',
-        PROACTIVE_FORECAST_HOUR:'7', HA_POWER_ALERT_COOLDOWN_S:'1800',
-        MOTION_CLIP_RETENTION_DAYS:'30',
-        SESSION_RATE_LIMIT_MAX:'30', SESSION_RATE_LIMIT_WINDOW_S:'60',
-        MUSIC_ASSISTANT_URL:'http://localhost:8095',
-        BLUEIRIS_URL:'',
-        CODEPROJECT_AI_URL:'',
-      };
-      const ph = defaults[key] ? ` placeholder="default: ${defaults[key]}"` : '';
-      const div = document.createElement('div');
-      div.className = 'field';
-      let input;
-      if (_FIELD_OPTIONS[key]) {
-        input = _buildSelect(key, val, _FIELD_OPTIONS[key]);
-      } else if (key === 'OLLAMA_MODEL') {
-        input = '<div id="ollama-model-wrapper"><input type="text" id="cfg-OLLAMA_MODEL" data-key="OLLAMA_MODEL" value="' + esc(val) + '" placeholder="e.g. qwen2.5:7b"></div>';
-      } else if (key === 'CLOUD_MODEL') {
-        const provider = (d.values || {})['LLM_PROVIDER'] || 'ollama';
-        const models = _CLOUD_MODELS[provider] || [];
-        let inner;
-        if (models.length) {
-          const selected = models.includes(val) ? val : models[0];
-          inner = _buildSelect(key, selected, models);
-        } else {
-          inner = `<input type="text" id="cfg-${key}" data-key="${key}" value="${esc(val)}" placeholder="e.g. llama3.1:8b-instruct-q4_K_M">`;
-        }
-        input = `<div id="cloud-model-wrapper">${inner}</div>`;
-      } else if (sensitive) {
-        input = `<div class="input-reveal"><input type="password" id="cfg-${key}" data-key="${key}" value="${esc(val)}"${ph} autocomplete="off"><button onclick="toggleReveal('cfg-${key}',this)" tabindex="-1">&#128065;</button></div>`;
-      } else {
-        input = `<input type="text" id="cfg-${key}" data-key="${key}" value="${esc(val)}"${ph}>`;
-      }
-      div.innerHTML = `<label for="cfg-${key}">${label}</label>${input}`;
-      return div;
-    }
-
-    // Render each category as a collapsible group
-    for (const [cat, fields] of Object.entries(categoryFields)) {
-      if (!fields.length) continue;
-      const group = document.createElement('div');
-      group.className = 'collapsible-group';
-      group.dataset.expanded = 'false';
-      group.innerHTML = `
-        <button class="collapsible-header" onclick="toggleCollapsible(this)" aria-expanded="false">
-          <span>${cat}</span>
-          <span class="badge badge-muted">${fields.length}</span>
-          <svg class="collapsible-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-        <div class="collapsible-body"><div class="config-grid"></div></div>
-      `;
-      const innerGrid = group.querySelector('.config-grid');
-      for (const entry of fields) innerGrid.appendChild(buildField(entry));
-      grid.appendChild(group);
-    }
-
-    // Render uncategorized fields (if any)
-    if (uncategorized.length) {
-      const group = document.createElement('div');
-      group.className = 'collapsible-group';
-      group.dataset.expanded = 'false';
-      group.innerHTML = `
-        <button class="collapsible-header" onclick="toggleCollapsible(this)" aria-expanded="false">
-          <span>Other</span>
-          <span class="badge badge-muted">${uncategorized.length}</span>
-          <svg class="collapsible-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-        <div class="collapsible-body"><div class="config-grid"></div></div>
-      `;
-      const innerGrid = group.querySelector('.config-grid');
-      for (const entry of uncategorized) innerGrid.appendChild(buildField(entry));
-      grid.appendChild(group);
-    }
-
-    const providerEl = document.getElementById('cfg-LLM_PROVIDER');
-    if (providerEl) {
-      providerEl.addEventListener('change', () => { _updateCloudModelDropdown(providerEl.value); });
-    }
-    if (providerEl) _updateCloudModelDropdown(providerEl.value, (d.values || {})['CLOUD_MODEL'] || '');
-
-    await _fetchOllamaModels();
-    _updateOllamaModelDropdown((d.values || {})['OLLAMA_MODEL'] || '');
-
-    if (providerEl) {
-      providerEl.addEventListener('change', async () => {
-        if (providerEl.value === 'ollama') {
-          await _fetchOllamaModels();
-          _updateOllamaModelDropdown();
-        }
-      });
-    }
-
-    const ttsProviderEl = document.getElementById('cfg-TTS_PROVIDER');
-    if (ttsProviderEl) {
-      ttsProviderEl.addEventListener('change', async () => {
-        _updateTTSFields(ttsProviderEl.value);
-        if (ttsProviderEl.value === 'intron_afro_tts') {
-          await _fetchIntronVoices();
-          const refVal = (d.values || {})['INTRON_AFRO_TTS_REFERENCE_WAV'] || '';
-          _updateIntronVoiceDropdown(refVal);
-        }
-      });
-      _updateTTSFields(ttsProviderEl.value);
-      if (ttsProviderEl.value === 'intron_afro_tts') {
-        await _fetchIntronVoices();
-        const refVal = (d.values || {})['INTRON_AFRO_TTS_REFERENCE_WAV'] || '';
-        _updateIntronVoiceDropdown(refVal);
-      }
-    }
-  } catch(e) { toast('Failed to load config: ' + e.message, 'err'); }
-}
-
-async function saveConfig() {
-  const values = {};
-  document.querySelectorAll('#config-fields [data-key]').forEach(el => {
-    values[el.dataset.key] = el.value;
-  });
-  try {
-    await api('POST', '/admin/config', { values });
-    toast('Configuration saved', 'ok');
-  } catch(e) { toast('Save failed: ' + e.message, 'err'); }
-}
+// ── Configuration section moved to static/admin-config.js ───────────────────
 
 async function loadSpeakerConfig() {
   const container = document.getElementById('speaker-config');
@@ -2874,18 +2414,7 @@ async function restartServer() {
   }
 }
 
-// ── Test announce ─────────────────────────────────────────────────────────────
-
-async function testAnnounce() {
-  const message  = document.getElementById('announce-msg').value.trim();
-  const priority = document.getElementById('announce-priority').value;
-  const targetArea = document.getElementById('announce-target-area')?.value || '';
-  if (!message) { toast('Enter a message', 'warn'); return; }
-  try {
-    await api('POST', '/admin/announce/test', { message, priority, target_area: targetArea });
-    toast('Announcement sent', 'ok');
-  } catch(e) { toast('Announce failed: ' + e.message, 'err'); }
-}
+// ── Test announce moved to static/admin-tools.js ─────────────────────────────
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 
@@ -3164,555 +2693,7 @@ function startDecisionStream() {
 }
 
 
-// ── Parental section ──────────────────────────────────────────────────────────
-let _parentalSelectedDevice = null;
-let _parentalConfigs = [];
-let _parentalDevices = [];
-let _parentalSelectedDeviceNumbers = new Set();
-let _parentalAppCatalog = [];
-let _parentalSelectedAppPkg = '';
-let _parentalSelectedAppName = '';
-let _parentalDeviceLocations = new Map();
-let _parentalMap = null;
-let _parentalMapMarkers = null;
-
-const _origNavigateParental = window.navigate;
-window.navigate = function(el) {
-  _origNavigateParental(el);
-  if (el.dataset.section === 'parental') loadParentalSection();
-};
-
-async function loadParentalSection() {
-  try {
-    const s = await api('GET', '/admin/parental/status');
-    const bar = document.getElementById('parental-status-bar');
-    const badge = document.getElementById('parental-hmdm-status');
-    if (bar) bar.style.display = '';
-    if (s.hmdm_reachable) {
-      badge.textContent = 'MDM Connected';
-      badge.className = 'badge badge-green';
-    } else {
-      badge.textContent = 'MDM Unreachable';
-      badge.className = 'badge badge-red';
-    }
-  } catch(e) {}
-  await loadParentalConfigs();
-  await loadParentalDevices();
-  await parentalLoadAppCatalog();
-  parentalSyncSelectedPackageInputs();
-  _renderApkQr();
-}
-
-async function loadParentalConfigs() {
-  try {
-    const d = await api('GET', '/admin/parental/configurations');
-    _parentalConfigs = d.configurations || [];
-    const sel = document.getElementById('parental-enroll-config');
-    if (sel) {
-      sel.innerHTML = _parentalConfigs.map(c =>
-        `<option value="${c.id}">${esc(c.name)}</option>`
-      ).join('');
-    }
-  } catch(e) { console.error('parental configs', e); }
-}
-
-async function loadParentalDevices() {
-  const el = document.getElementById('parental-device-list');
-  if (!el) return;
-  try {
-    const d = await api('GET', '/admin/parental/devices');
-    _parentalDevices = d.devices || [];
-    const devices = _parentalDevices;
-    _parentalSelectedDeviceNumbers = new Set(
-      [..._parentalSelectedDeviceNumbers].filter(number => devices.some(dev => String(dev.number) === String(number)))
-    );
-    parentalRenderSelectedSummary();
-    if (!devices.length) {
-      el.innerHTML = '<p class="text-muted text-sm">No devices enrolled yet. Use the QR code above to enroll a device.</p>';
-      _parentalDeviceLocations = new Map();
-      parentalRenderDeviceMap();
-      return;
-    }
-    el.innerHTML = devices.map(dev => {
-      const ts = dev.lastUpdate ? new Date(dev.lastUpdate).toLocaleString() : 'Never';
-      const statusColor = dev.statusCode === 'green' ? '#22c55e' : dev.statusCode === 'red' ? '#ef4444' : '#f59e0b';
-      const checked = _parentalSelectedDeviceNumbers.has(String(dev.number)) ? 'checked' : '';
-      return `<div class="flex-between" style="cursor:pointer;padding:8px 0;border-bottom:1px solid var(--border);gap:10px;" onclick='parentalSelectDevice(${JSON.stringify(JSON.stringify(dev))})'>
-        <div style="display:flex;align-items:center;gap:10px;min-width:0;">
-          <input type="checkbox" ${checked} onclick="event.stopPropagation()" onchange='parentalToggleDeviceSelection(${JSON.stringify(JSON.stringify(dev))}, this.checked)'>
-          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColor};margin-right:6px"></span>
-          <div style="min-width:0;">
-            <strong>${esc(dev.description || dev.number)}</strong>
-            <span class="text-muted text-sm" style="margin-left:6px">${esc(dev.number)}</span>
-            <div class="text-sm text-muted">Config ${esc(String(dev.configurationId || '—'))}</div>
-          </div>
-        </div>
-        <div class="text-sm text-muted">${esc(ts)}</div>
-      </div>`;
-    }).join('');
-    await parentalRefreshDeviceLocations(devices);
-  } catch(e) {
-    el.innerHTML = `<p class="text-sm" style="color:var(--red)">Error loading devices: ${esc(e.message)}</p>`;
-    parentalSetMapStatus('Unable to load device locations.');
-  }
-}
-
-function parentalSelectDevice(devJson) {
-  const dev = JSON.parse(devJson);
-  _parentalSelectedDevice = dev;
-  _parentalSelectedDeviceNumbers.add(String(dev.number));
-  parentalRenderSelectedSummary();
-  const panel = document.getElementById('parental-device-panel');
-  document.getElementById('parental-panel-title').textContent =
-    (dev.description || dev.number) + ' (' + dev.number + ')';
-  panel.style.display = '';
-  const pkgInput = document.getElementById('parental-block-pkg');
-  if (pkgInput) pkgInput.value = document.getElementById('parental-selected-pkg')?.value || pkgInput.value;
-  // Load location info
-  parentalLoadDeviceInfo(dev.number);
-  parentalFocusDeviceOnMap(dev.number);
-}
-
-function parentalToggleDeviceSelection(devJson, checked) {
-  const dev = JSON.parse(devJson);
-  const number = String(dev.number);
-  if (checked) _parentalSelectedDeviceNumbers.add(number);
-  else _parentalSelectedDeviceNumbers.delete(number);
-  parentalRenderSelectedSummary();
-}
-
-function parentalSelectAllDevices() {
-  _parentalSelectedDeviceNumbers = new Set((_parentalDevices || []).map(dev => String(dev.number)));
-  parentalRenderSelectedSummary();
-  loadParentalDevices();
-}
-
-function parentalClearDeviceSelection() {
-  _parentalSelectedDeviceNumbers.clear();
-  parentalRenderSelectedSummary();
-  loadParentalDevices();
-}
-
-function parentalRenderSelectedSummary() {
-  const el = document.getElementById('parental-selected-summary');
-  if (!el) return;
-  const count = _parentalSelectedDeviceNumbers.size;
-  if (!count) {
-    el.textContent = '0 selected';
-    return;
-  }
-  const names = (_parentalDevices || [])
-    .filter(dev => _parentalSelectedDeviceNumbers.has(String(dev.number)))
-    .slice(0, 3)
-    .map(dev => dev.description || dev.number);
-  const suffix = count > names.length ? ` +${count - names.length} more` : '';
-  el.textContent = `${count} selected: ${names.join(', ')}${suffix}`;
-}
-
-async function parentalLoadDeviceInfo(number) {
-  const locEl = document.getElementById('parental-location');
-  const device = (_parentalDevices || []).find(dev => String(dev.number) === String(number));
-  try {
-    const info = await api('GET', `/admin/parental/devices/${number}/info`);
-    const location = parentalExtractDeviceLocation(device, info);
-    if (location) {
-      _parentalDeviceLocations.set(String(number), location);
-      locEl.innerHTML = `${location.lat.toFixed(5)}, ${location.lon.toFixed(5)} — <a href="https://www.google.com/maps?q=${location.lat},${location.lon}" target="_blank">View on map</a>`;
-      parentalRenderDeviceMap(String(number));
-    } else {
-      locEl.textContent = 'GPS tracking is enabled for this device; waiting for the first location report.';
-    }
-  } catch(e) {
-    const fallbackLocation = parentalExtractDeviceLocation(device, null);
-    if (fallbackLocation) {
-      _parentalDeviceLocations.set(String(number), fallbackLocation);
-      locEl.innerHTML = `${fallbackLocation.lat.toFixed(5)}, ${fallbackLocation.lon.toFixed(5)} — <a href="https://www.google.com/maps?q=${fallbackLocation.lat},${fallbackLocation.lon}" target="_blank">View on map</a>`;
-      parentalRenderDeviceMap(String(number));
-    } else {
-      locEl.textContent = 'Location unavailable';
-    }
-  }
-}
-
-function parentalExtractDeviceLocation(dev, info) {
-  let devInfo = dev?.info || null;
-  if (typeof devInfo === 'string') {
-    try { devInfo = JSON.parse(devInfo); } catch(_) { devInfo = null; }
-  }
-  const explicitDeviceLocation = dev?.location || null;
-  const latestDynamic = info?.latestDynamicData || devInfo?.latestDynamicData || null;
-  const dynamicGps = latestDynamic && typeof latestDynamic === 'object'
-    ? latestDynamic
-    : null;
-  const embeddedLocation = info?.location || explicitDeviceLocation || devInfo?.location || null;
-  const rawLat =
-    info?.lat ??
-    info?.latitude ??
-    dev?.lat ??
-    dev?.latitude ??
-    embeddedLocation?.lat ??
-    dynamicGps?.gpsLat;
-  const rawLon =
-    info?.lon ??
-    info?.longitude ??
-    info?.lng ??
-    dev?.lon ??
-    dev?.longitude ??
-    dev?.lng ??
-    embeddedLocation?.lon ??
-    dynamicGps?.gpsLon;
-  const lat = Number(rawLat);
-  const lon = Number(rawLon);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  const number = String(dev?.number || info?.deviceNumber || '');
-  const label = dev?.description || number || 'Device';
-  return {
-    number,
-    label,
-    lat,
-    lon,
-    lastUpdate:
-      embeddedLocation?.ts ||
-      explicitDeviceLocation?.ts ||
-      info?.latestUpdateTime ||
-      dev?.lastUpdate ||
-      info?.lastUpdate ||
-      null,
-    statusCode: dev?.statusCode || '',
-  };
-}
-
-function parentalSetMapStatus(text) {
-  const el = document.getElementById('parental-map-status');
-  if (el) el.textContent = text;
-}
-
-function parentalEnsureMap() {
-  const mapEl = document.getElementById('parental-device-map');
-  if (!mapEl || typeof window.L === 'undefined') return null;
-  if (_parentalMap) return _parentalMap;
-  _parentalMap = L.map(mapEl, {
-    zoomControl: true,
-    scrollWheelZoom: false,
-  }).setView([53.48, -2.24], 6);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors',
-  }).addTo(_parentalMap);
-  _parentalMapMarkers = L.layerGroup().addTo(_parentalMap);
-  setTimeout(() => _parentalMap?.invalidateSize(), 0);
-  return _parentalMap;
-}
-
-async function parentalRefreshDeviceLocations(devices = _parentalDevices) {
-  const emptyEl = document.getElementById('parental-device-map-empty');
-  if (!devices || !devices.length) {
-    _parentalDeviceLocations = new Map();
-    if (emptyEl) {
-      emptyEl.textContent = 'No enrolled devices yet.';
-      emptyEl.style.display = '';
-    }
-    parentalSetMapStatus('No enrolled devices.');
-    parentalRenderDeviceMap();
-    return;
-  }
-  parentalSetMapStatus('Loading device locations…');
-  const results = await Promise.allSettled(
-    devices.map(async (dev) => {
-      try {
-        const info = await api('GET', `/admin/parental/devices/${encodeURIComponent(dev.number)}/info`);
-        return parentalExtractDeviceLocation(dev, info);
-      } catch (_) {
-        return parentalExtractDeviceLocation(dev, null);
-      }
-    })
-  );
-  const nextLocations = new Map();
-  for (const result of results) {
-    if (result.status !== 'fulfilled' || !result.value) continue;
-    nextLocations.set(result.value.number, result.value);
-  }
-  _parentalDeviceLocations = nextLocations;
-  const waitingCount = Math.max(0, devices.length - nextLocations.size);
-  if (emptyEl) {
-    if (nextLocations.size) {
-      emptyEl.style.display = 'none';
-    } else {
-      emptyEl.textContent = `GPS tracking is enabled for ${devices.length} device${devices.length === 1 ? '' : 's'}; waiting for the first location report.`;
-      emptyEl.style.display = '';
-    }
-  }
-  parentalSetMapStatus(
-    nextLocations.size
-      ? `${nextLocations.size} device location${nextLocations.size === 1 ? '' : 's'} available${waitingCount ? ` · ${waitingCount} waiting for first report` : ''}`
-      : `GPS tracking enabled · waiting for first location report from ${devices.length} device${devices.length === 1 ? '' : 's'}`
-  );
-  parentalRenderDeviceMap();
-}
-
-function parentalRenderDeviceMap(focusNumber = '') {
-  const map = parentalEnsureMap();
-  const emptyEl = document.getElementById('parental-device-map-empty');
-  if (!map || !_parentalMapMarkers) return;
-  _parentalMapMarkers.clearLayers();
-  const locations = [..._parentalDeviceLocations.values()];
-  if (!locations.length) {
-    if (emptyEl) emptyEl.style.display = '';
-    return;
-  }
-  if (emptyEl) emptyEl.style.display = 'none';
-  const bounds = [];
-  let focusMarker = null;
-  for (const loc of locations) {
-    const marker = L.marker([loc.lat, loc.lon]);
-    const when = loc.lastUpdate ? new Date(loc.lastUpdate).toLocaleString() : 'Unknown';
-    marker.bindPopup(
-      `<strong>${esc(loc.label)}</strong><br>${esc(loc.number)}<br>${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)}<br><span class="text-muted">Updated ${esc(when)}</span><br><a href="https://www.google.com/maps?q=${loc.lat},${loc.lon}" target="_blank">Open in Maps</a>`
-    );
-    marker.addTo(_parentalMapMarkers);
-    bounds.push([loc.lat, loc.lon]);
-    if (focusNumber && String(loc.number) === String(focusNumber)) focusMarker = marker;
-  }
-  if (bounds.length === 1) map.setView(bounds[0], 14);
-  else map.fitBounds(bounds, { padding: [24, 24] });
-  setTimeout(() => {
-    map.invalidateSize();
-    if (focusMarker) focusMarker.openPopup();
-  }, 0);
-}
-
-function parentalFocusDeviceOnMap(number) {
-  if (!number || !_parentalDeviceLocations.has(String(number))) return;
-  parentalRenderDeviceMap(String(number));
-}
-
-async function parentalSendAlert() {
-  if (!_parentalSelectedDevice) return;
-  const msg = document.getElementById('parental-alert-msg').value.trim();
-  if (!msg) { toast('Enter a message first', 'err'); return; }
-  try {
-    await api('POST', '/admin/parental/alert', {
-      device_number: _parentalSelectedDevice.number,
-      message: msg,
-      title: 'Nova Alert',
-    });
-    document.getElementById('parental-alert-msg').value = '';
-    toast('Alert sent to ' + (_parentalSelectedDevice.description || _parentalSelectedDevice.number), 'ok');
-  } catch(e) { toast('Failed: ' + e.message, 'err'); }
-}
-
-async function parentalLoadAppCatalog(query='') {
-  const resultsEl = document.getElementById('parental-app-results');
-  if (!resultsEl) return;
-  resultsEl.innerHTML = '<p class="text-sm text-muted">Loading available packages…</p>';
-  try {
-    const q = query.trim();
-    const endpoint = q ? `/admin/parental/apps?query=${encodeURIComponent(q)}` : '/admin/parental/apps';
-    const d = await api('GET', endpoint);
-    _parentalAppCatalog = d.apps || [];
-    parentalRenderAppCatalog();
-  } catch (e) {
-    resultsEl.innerHTML = `<p class="text-sm" style="color:var(--red)">Error loading packages: ${esc(e.message)}</p>`;
-  }
-}
-
-async function parentalSearchApps() {
-  const q = document.getElementById('parental-app-search')?.value || '';
-  await parentalLoadAppCatalog(q);
-}
-
-function parentalRenderAppCatalog() {
-  const resultsEl = document.getElementById('parental-app-results');
-  if (!resultsEl) return;
-  parentalSyncSelectedPackageInputs();
-  if (!_parentalAppCatalog.length) {
-    resultsEl.innerHTML = '<p class="text-sm text-muted">No packages found.</p>';
-    return;
-  }
-  resultsEl.innerHTML = _parentalAppCatalog.map(app => {
-    const name = esc(app.name || app.pkg);
-    const pkg = esc(app.pkg || '');
-    const version = esc(app.version || '');
-    const installBadge = app.installable
-      ? '<span class="badge badge-green" style="font-size:11px;">Installable</span>'
-      : '<span class="badge badge-yellow" style="font-size:11px;">Allow only</span>';
-    const systemBadge = app.system
-      ? '<span class="badge badge-gray" style="font-size:11px;">System</span>'
-      : '';
-    const selected = _parentalSelectedAppPkg === (app.pkg || '');
-    const rowStyle = selected
-      ? 'display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 4px;border-bottom:1px solid var(--border2);background:rgba(34,197,94,0.08);border-radius:8px;'
-      : 'display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 4px;border-bottom:1px solid var(--border2);';
-    const buttonClass = selected ? 'btn btn-primary' : 'btn btn-outline';
-    const buttonLabel = selected ? 'Selected' : 'Use';
-    return `<div style="${rowStyle}">
-      <div style="min-width:0;">
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-          <div style="font-weight:600;">${name}</div>
-          ${installBadge}
-          ${systemBadge}
-        </div>
-        <div class="text-sm text-muted" style="word-break:break-all;">${pkg}${version ? ` · ${version}` : ''}</div>
-      </div>
-      <button class="${buttonClass}" style="font-size:12px;flex-shrink:0;" onclick='return parentalSelectAppFromCatalog(${JSON.stringify(app.pkg)}, ${JSON.stringify(app.name || app.pkg)})'>${buttonLabel}</button>
-    </div>`;
-  }).join('');
-  parentalUpdateSelectedAppNote();
-}
-
-function parentalSetSelectedApp(pkg, name='') {
-  _parentalSelectedAppPkg = pkg;
-  _parentalSelectedAppName = name || pkg;
-  parentalSyncSelectedPackageInputs();
-}
-
-function parentalSelectAppFromCatalog(pkg, name='') {
-  parentalSetSelectedApp(pkg, name);
-  const search = document.getElementById('parental-app-search');
-  if (search && name) search.value = name;
-  parentalRenderAppCatalog();
-  parentalUpdateSelectedAppNote();
-  parentalUpdateSelectedAppDisplay(name || pkg, pkg);
-  return false;
-}
-
-function parentalPickApp(pkg, name='') {
-  return parentalSelectAppFromCatalog(pkg, name);
-}
-
-function parentalSelectedAppRecord() {
-  const pkg = parentalSelectedPackage();
-  return (_parentalAppCatalog || []).find(app => app.pkg === pkg) || null;
-}
-
-function parentalUpdateSelectedAppNote() {
-  const el = document.getElementById('parental-selected-app-note');
-  if (!el) return;
-  const app = parentalSelectedAppRecord();
-  if (!app) {
-    el.textContent = 'Apps marked “Allow only” cannot be silently installed by Headwind; Deploy will just allow them on the selected configuration.';
-    return;
-  }
-  if (app.installable) {
-    el.textContent = `${app.name || app.pkg} is installable in Headwind. Deploy will mark it for installation on the selected configuration(s).`;
-    return;
-  }
-  el.textContent = `${app.name || app.pkg} is an allow-only Headwind entry. Deploy will allow it on the selected configuration(s), but Headwind cannot silently install it because this catalog entry has no APK URL.`;
-}
-
-function parentalUpdateSelectedAppDisplay(name='', pkg='') {
-  const el = document.getElementById('parental-selected-app-display');
-  if (!el) return;
-  const value = pkg || parentalSelectedPackage();
-  if (!value) {
-    el.textContent = 'No app selected.';
-    return;
-  }
-  el.textContent = `Selected app: ${name || value} (${value})`;
-}
-
-function parentalSyncSelectedPackageInputs() {
-  const pkg = (_parentalSelectedAppPkg || '').trim();
-  const selected = document.getElementById('parental-selected-pkg');
-  const single = document.getElementById('parental-block-pkg');
-  if (selected) {
-    selected.value = pkg;
-    selected.setAttribute('value', pkg);
-  }
-  if (single && pkg) {
-    single.value = pkg;
-    single.setAttribute('value', pkg);
-  }
-  parentalUpdateSelectedAppDisplay(_parentalSelectedAppName || pkg, pkg);
-}
-
-function parentalSelectedPackage() {
-  const pkg = (document.getElementById('parental-selected-pkg')?.value || '').trim();
-  return pkg || (document.getElementById('parental-block-pkg')?.value || '').trim();
-}
-
-async function parentalApplyToSelectedDevices(action) {
-  const selected = [..._parentalSelectedDeviceNumbers];
-  if (!selected.length) { toast('Select at least one device first', 'err'); return; }
-  const pkg = parentalSelectedPackage();
-  if (!pkg) { toast('Choose a package first', 'err'); return; }
-  const match = (_parentalAppCatalog || []).find(app => app.pkg === pkg);
-  const payload = {
-    pkg,
-    name: match?.name || pkg,
-    device_numbers: selected,
-  };
-  const endpoint = action === 2 ? '/admin/parental/apps/deploy' : '/admin/parental/apps/block';
-  if (action !== 2) payload.action = action;
-  try {
-    const res = await api('POST', endpoint, payload);
-    const verb = action === 2
-      ? (res.result_mode === 'install' ? 'Deployed' : 'Allowed')
-      : action === 0 ? 'Blocked' : 'Unblocked';
-    const affected = res.affected_devices?.length || selected.length;
-    const detail = res.message ? ` ${res.message}` : '';
-    toast(`${verb} ${pkg} for ${affected} device${affected === 1 ? '' : 's'}.${detail}`, 'ok');
-    await loadParentalDevices();
-  } catch (e) {
-    toast('Failed: ' + e.message, 'err');
-  }
-}
-
-async function parentalBlockApp(action) {
-  if (!_parentalSelectedDevice) { toast('Select a device first', 'err'); return; }
-  const pkg = document.getElementById('parental-block-pkg').value.trim();
-  if (!pkg) { toast('Enter a package name', 'err'); return; }
-  const configId = _parentalSelectedDevice.configurationId;
-  if (!configId) { toast('Device has no configuration assigned', 'err'); return; }
-  try {
-    const match = (_parentalAppCatalog || []).find(app => app.pkg === pkg);
-    const endpoint = action === 2 ? '/admin/parental/apps/deploy' : '/admin/parental/apps/block';
-    const payload = { config_id: configId, pkg, name: match?.name || pkg };
-    if (action !== 2) payload.action = action;
-    const res = await api('POST', endpoint, payload);
-    document.getElementById('parental-block-pkg').value = '';
-    const bulkInput = document.getElementById('parental-selected-pkg');
-    if (bulkInput && !bulkInput.value) bulkInput.value = pkg;
-    parentalUpdateSelectedAppNote();
-    const verb = action === 2
-      ? (res.result_mode === 'install' ? 'Deployed' : 'Allowed')
-      : action === 0 ? 'Blocked' : 'Unblocked';
-    const detail = res.message ? ` ${res.message}` : '';
-    toast(`${verb} ${pkg}.${detail}`, 'ok');
-  } catch(e) { toast('Failed: ' + e.message, 'err'); }
-}
-
-function parentalQuickBlock(pkg) {
-  parentalPickApp(pkg, pkg);
-}
-
-async function parentalShowEnroll() {
-  const sel = document.getElementById('parental-enroll-config');
-  const configId = sel?.value;
-  if (!configId) { toast('Select a configuration first', 'err'); return; }
-  try {
-    const d = await api('GET', `/admin/parental/enroll/${configId}`);
-    const area = document.getElementById('parental-qr-area');
-    const img = document.getElementById('parental-qr-img');
-    const urlEl = document.getElementById('parental-enroll-url');
-    img.src = d.qr_image_url;
-    urlEl.textContent = d.enroll_url;
-    area.style.display = '';
-  } catch(e) { toast('Failed: ' + e.message, 'err'); }
-}
-
-async function parentalShowProvisioningQr() {
-  const sel = document.getElementById('parental-enroll-config');
-  const configId = sel?.value;
-  if (!configId) { toast('Select a configuration first', 'err'); return; }
-  try {
-    const d = await api('GET', `/admin/parental/provisioning-qr?config_id=${configId}`);
-    const area = document.getElementById('parental-provision-qr-area');
-    const img = document.getElementById('parental-provision-qr-img');
-    img.src = d.qr_image_url;
-    area.style.display = '';
-  } catch(e) { toast('Failed: ' + e.message, 'err'); }
-}
+// ── Parental section moved to static/admin-parental.js ───────────────────────
 
 const _origNavigate = window.navigate;
 window.navigate = function(el) {
@@ -4396,67 +3377,7 @@ function _observeVideos(container) {
 }
 
 
-// ── Avatar Background Settings ──────────────────────────────────────────────
-function onBgTypeChange() {
-  const type = document.querySelector('input[name="bg-type"]:checked')?.value || 'color';
-  document.getElementById('bg-color-section').style.display = type === 'color' ? '' : 'none';
-  document.getElementById('bg-image-section').style.display = type === 'image' ? '' : 'none';
-}
-
-function setBgColor(hex) {
-  document.getElementById('bg-color-input').value = hex;
-  document.getElementById('bg-color-picker').value = hex;
-}
-
-function previewBgImage() {
-  const url = document.getElementById('bg-image-input').value.trim();
-  const preview = document.getElementById('bg-image-preview');
-  const img = document.getElementById('bg-image-preview-img');
-  if (url) {
-    img.src = url;
-    preview.style.display = '';
-    img.onerror = () => { preview.style.display = 'none'; };
-  } else {
-    preview.style.display = 'none';
-  }
-}
-
-async function saveAvatarBg() {
-  const type = document.querySelector('input[name="bg-type"]:checked')?.value || 'color';
-  const color = document.getElementById('bg-color-input').value.trim();
-  const imageUrl = document.getElementById('bg-image-input').value.trim();
-  try {
-    await api('POST', '/admin/avatar-settings', {
-      skin_tone: _currentSkinTone,
-      avatar_url: _activeAvatarUrl || '',
-      bg_type: type,
-      bg_color: type === 'color' ? color : '',
-      bg_image_url: type === 'image' ? imageUrl : '',
-    });
-    toast('Background saved — reload the avatar page to see changes', 'ok');
-  } catch(e) { toast('Failed to save: ' + e.message, 'err'); }
-}
-
-async function resetAvatarBg() {
-  document.querySelector('input[name="bg-type"][value="color"]').checked = true;
-  onBgTypeChange();
-  setBgColor('#080d16');
-  document.getElementById('bg-image-input').value = '';
-  document.getElementById('bg-image-preview').style.display = 'none';
-  try {
-    await api('POST', '/admin/avatar-settings', {
-      skin_tone: _currentSkinTone,
-      avatar_url: _activeAvatarUrl || '',
-      bg_type: 'color',
-      bg_color: '',
-      bg_image_url: '',
-    });
-    toast('Background reset to default', 'ok');
-  } catch(e) { toast('Failed to reset: ' + e.message, 'err'); }
-}
-
-// Load background settings when avatar section loads
-const _origLoadAvatarSettings = typeof loadAvatarSettings === 'function' ? loadAvatarSettings : null;
+// ── Avatar section moved to static/admin-avatar.js ──────────────────────────
 
 // ── Announcement Log ─────────────────────────────────────────────────────────
 
@@ -4476,309 +3397,7 @@ function _fmtAnnounceTs(ts) {
   } catch { return ts || '—'; }
 }
 
-async function loadAnnouncementLog() {
-  const el = document.getElementById('announce-log-list');
-  if (!el) return;
-  try {
-    const d = await api('GET', '/admin/announcements?limit=200');
-    const items = d.announcements || [];
-    if (!items.length) {
-      el.innerHTML = '<div class="text-sm text-muted" style="padding:8px 0;">No announcements logged yet.</div>';
-      return;
-    }
-    el.innerHTML = items.map(a => {
-      const label = _SOURCE_LABELS[a.source] || a.source || 'Unknown';
-      const areas = Array.isArray(a.target_areas) && a.target_areas.length ? a.target_areas.join(', ') : 'All';
-      const priClass = a.priority === 'alert' ? 'coral-plate' : 'good';
-      const queryHtml = a.query ? `<div class="announce-log-query">${_esc(a.query)}</div>` : '';
-      return `<div class="announce-log-row">
-        <div class="announce-log-meta">
-          <span class="motion-chip ${priClass}" style="font-size:10px;padding:2px 7px;">${_esc(a.priority)}</span>
-          <span class="motion-chip" style="font-size:10px;padding:2px 7px;">${_esc(label)}</span>
-          <span class="announce-log-areas">${_esc(areas)}</span>
-          <span class="announce-log-time">${_esc(_fmtAnnounceTs(a.ts))}</span>
-        </div>
-        ${queryHtml}<div class="announce-log-text">${_esc(a.text)}</div>
-      </div>`;
-    }).join('');
-  } catch(e) {
-    el.innerHTML = `<div class="text-sm" style="color:var(--danger,#ff453a);padding:8px 0;">Failed to load announcement log: ${_esc(e.message || String(e))}</div>`;
-  }
-}
-
-async function clearAnnouncementLog() {
-  if (!confirm('Clear all announcement history?')) return;
-  try {
-    await api('DELETE', '/admin/announcements');
-    await loadAnnouncementLog();
-    toast('Announcement log cleared');
-  } catch(e) {
-    alert('Failed to clear: ' + (e.message || e));
-  }
-}
-
-// ── Heating Shadow Monitor ────────────────────────────────────────────────────
-
-async function loadHeatingShadow() {
-  const el = document.getElementById('heating-shadow-list');
-  if (!el) return;
-  try {
-    const d = await api('GET', '/admin/heating-shadow/history?limit=80');
-    const entries = d.entries || [];
-    if (!entries.length) {
-      el.innerHTML = '<div class="text-sm text-muted" style="padding:8px 0;">No shadow evaluations yet. Shadow runs automatically every 30 min alongside the primary heating eval.</div>';
-      return;
-    }
-
-    // Group entries into evaluation runs by pairing eval_start → comparison
-    const runs = [];
-    let current = null;
-    for (const e of entries) {
-      if (e.kind === 'heating_shadow_eval_start') {
-        current = { start: e, tools: [], comparison: null };
-        runs.push(current);
-      } else if (current) {
-        if (e.kind === 'heating_shadow_tool_call') current.tools.push(e);
-        else if (e.kind === 'heating_shadow_comparison') { current.comparison = e; current = null; }
-        else if (['heating_shadow_round_silent','heating_shadow_eval_error','heating_shadow_max_rounds'].includes(e.kind)) {
-          current.endEvent = e;
-        }
-      }
-    }
-
-    // Update model label from first start entry
-    const firstStart = entries.find(e => e.kind === 'heating_shadow_eval_start');
-    if (firstStart?.llm_model) {
-      const lbl = document.getElementById('shadow-model-label');
-      if (lbl) lbl.textContent = firstStart.llm_model;
-    }
-
-    el.innerHTML = runs.slice().reverse().map(run => {
-      const cmp = run.comparison;
-      const agreement = cmp?.agreement || (run.endEvent?.kind === 'heating_shadow_eval_error' ? 'error' : 'pending');
-      const agreeLabel = {
-        both_silent:   '<span class="shadow-agree">✓ Both silent</span>',
-        both_acted:    '<span class="shadow-agree">✓ Both acted</span>',
-        shadow_only:   '<span class="shadow-diverge">⚠ Shadow acted, primary silent</span>',
-        primary_only:  '<span class="shadow-diverge">⚠ Primary acted, shadow silent</span>',
-        error:         '<span style="color:var(--danger)">✗ Error</span>',
-        pending:       '<span class="shadow-silent">… pending</span>',
-      }[agreement] || `<span>${_esc(agreement)}</span>`;
-
-      const writes = run.tools.filter(t => t.is_write);
-      const reads  = run.tools.filter(t => !t.is_write);
-      const season = run.start?.season || '—';
-      const ts     = run.start?.ts || '';
-      const shadowOnly = run.start?.shadow_only ? ' <span style="color:#60a5fa;font-size:10px;">[manual]</span>' : '';
-
-      const toolRows = run.tools.map(t => {
-        const cls = t.is_write ? 'shadow-tool-write' : 'shadow-tool-read';
-        const icon = t.is_write ? '✎' : '↳';
-        const entity = t.args?.entity_id || '';
-        const argsStr = Object.entries(t.args||{}).map(([k,v])=>`${k}=${v}`).join(', ');
-        return `<div class="shadow-tool-row ${cls}">${icon} r${t.round} ${_esc(t.tool)}(${_esc(argsStr)})${entity ? ` <em>${_esc(entity)}</em>` : ''}${t.is_write ? ' <span style="opacity:.5">[intercepted]</span>' : ''}</div>`;
-      }).join('');
-
-      const entityDiff = cmp ? (() => {
-        const parts = [];
-        if (cmp.entity_overlap?.length) parts.push(`<span style="color:#4ade80">match: ${cmp.entity_overlap.join(', ')}</span>`);
-        if (cmp.entity_shadow_only?.length) parts.push(`<span style="color:#f97316">shadow-only: ${cmp.entity_shadow_only.join(', ')}</span>`);
-        if (cmp.entity_primary_only?.length) parts.push(`<span style="color:#60a5fa">primary-only: ${cmp.entity_primary_only.join(', ')}</span>`);
-        return parts.length ? `<div style="font-size:11px;margin-top:4px;">${parts.join(' · ')}</div>` : '';
-      })() : '';
-
-      return `<div class="shadow-eval-row">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px;margin-bottom:4px;">
-          <div>${agreeLabel}${shadowOnly} <span class="text-xs text-muted" style="margin-left:6px;">${_esc(season)}</span></div>
-          <span class="text-xs text-muted">${_esc(ts)}</span>
-        </div>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:4px;">
-          ${writes.length} write${writes.length!==1?'s':''} intercepted · ${reads.length} read${reads.length!==1?'s':''} executed · ${run.tools.length} total calls
-        </div>
-        ${entityDiff}
-        ${toolRows ? `<details style="margin-top:4px;"><summary style="font-size:11px;cursor:pointer;color:var(--text3);">Show tool calls (${run.tools.length})</summary>${toolRows}</details>` : ''}
-      </div>`;
-    }).join('');
-  } catch(e) {
-    el.innerHTML = `<div class="text-sm" style="color:var(--danger);padding:8px 0;">Failed to load: ${_esc(e.message||String(e))}</div>`;
-  }
-}
-
-async function forceHeatingShadow(scenario) {
-  const btn = event?.target;
-  if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
-  try {
-    const d = await api('POST', `/admin/heating-shadow/force?scenario=${encodeURIComponent(scenario)}`);
-    if (d.ok) {
-      toast(`Shadow ${scenario} test done — ${d.write_calls_intercepted} writes intercepted, ${d.read_calls_executed} reads executed`);
-      await loadHeatingShadow();
-    } else {
-      alert('Shadow test failed: ' + (d.message || 'unknown error'));
-    }
-  } catch(e) {
-    alert('Error: ' + (e.message || e));
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = scenario === 'winter' ? '▶ Run Winter Test' : '▶ Run Spring Test'; }
-  }
-}
-
-// ── Conversation Audit Trail ──────────────────────────────────────────────────
-
-async function loadConversationAudit() {
-  const el = document.getElementById('audit-list');
-  if (!el) return;
-  el.innerHTML = '<div class="text-sm text-muted" style="padding:8px 0;">Loading…</div>';
-  const sid = (document.getElementById('audit-session-filter')?.value || '').trim();
-  const url = sid ? `/admin/conversations/${encodeURIComponent(sid)}` : '/admin/conversations?limit=100';
-  try {
-    const d = await api('GET', url);
-    const items = d.conversations || [];
-    if (!items.length) {
-      el.innerHTML = '<div class="text-sm text-muted" style="padding:8px 0;">No conversations found.</div>';
-      return;
-    }
-    el.innerHTML = items.map(a => {
-      const tc = Array.isArray(a.tool_calls) ? a.tool_calls : [];
-      const toolBadges = tc.map(t =>
-        `<span class="motion-chip ${t.status==='allowed'?'good':'coral-plate'}" style="font-size:10px;padding:2px 7px;">${_esc(t.name)}</span>`
-      ).join(' ');
-      const ts = (a.ts||'').replace('T',' ').slice(0,19);
-      return `<div style="padding:10px 0;border-bottom:1px solid var(--border);">
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
-          <span class="motion-chip" style="font-size:10px;padding:2px 7px;">${_esc(a.model||'?')}</span>
-          <span class="text-xs text-muted">${_esc(ts)}</span>
-          <span class="text-xs text-muted">${a.processing_ms||0}ms</span>
-          ${toolBadges}
-        </div>
-        <div class="text-sm" style="margin-bottom:2px;"><strong>User:</strong> ${_esc((a.user_text||'').slice(0,200))}</div>
-        <div class="text-sm text-muted">${_esc((a.final_reply||'').slice(0,300))}</div>
-      </div>`;
-    }).join('');
-  } catch(e) {
-    el.innerHTML = `<div class="text-sm" style="color:var(--danger,#ff453a);padding:8px 0;">Failed: ${_esc(e.message||String(e))}</div>`;
-  }
-}
-
-// ── Wake Word Training ────────────────────────────────────────────────────────
-
-async function loadWakeStatus() {
-  const el = document.getElementById('wake-status');
-  if (!el) return;
-  try {
-    const d = await api('GET', '/admin/coral/wake-status');
-    const stages = (d.pipeline_stages || []).join(' → ');
-    const lines = [
-      `<strong>Pipeline:</strong> ${stages || 'not initialized'}`,
-      `Coral TPU: ${d.coral_available ? '✅ Edge TPU (~1ms)' : d.cpu_tflite_available ? '✅ CPU TFLite (~3-8ms)' : '❌ Not available'}`,
-    ];
-    // Show the best available classifier — only one should be active
-    if (d.cpu_tflite_available) {
-      lines.push(`CPU TFLite: ✅ Active (~3-8ms)`);
-    }
-    if (d.numpy_model_available) {
-      lines.push(`Numpy Classifier: ✅ Active (~3-5ms)`);
-    }
-    lines.push(`Verifier: ${d.verifier_available ? '✅ Active' : (d.verifier_model_exists ? '✅ Trained' : '⚠ Not trained')}`);
-    lines.push(`VAD Gate: ${d.vad_available ? '✅ Active' : '❌ Not available'}`);
-    lines.push(`Whisper Fallback: ✅ Ready`);
-    lines.push(`Edge TPU Model: ${d.coral_model_exists ? '✅ Present' : '⚠ Not present'}`);
-    lines.push(`Edge TPU Compiler: ${d.edgetpu_compiler_available ? '✅ Installed' : '⚠ Not installed (optional)'}`);
-    const compilerBtn = document.getElementById('wake-install-compiler-btn');
-    if (compilerBtn) compilerBtn.style.display = d.edgetpu_compiler_available ? 'none' : '';
-    el.innerHTML = lines.join('<br>');
-  } catch (e) {
-    if (!el._retries) el._retries = 0;
-    if (++el._retries < 3) setTimeout(loadWakeStatus, 2000);
-    else el.textContent = 'Could not load wake word status.';
-  }
-}
-
-async function installEdgeTPUCompiler() {
-  const btn = document.getElementById('wake-install-compiler-btn');
-  if (!btn) return;
-  btn.disabled = true;
-  btn.textContent = 'Installing...';
-  try {
-    const d = await api('POST', '/admin/coral/install-edgetpu-compiler');
-    if (d.ok) {
-      toast('Edge TPU compiler installed! Re-train to compile for TPU.', 'ok');
-    } else {
-      toast(d.message || 'Installation failed', 'err');
-    }
-    await loadWakeStatus();
-  } catch (e) {
-    toast('Installation failed: ' + e.message, 'err');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Install Edge TPU Compiler';
-  }
-}
-
-async function trainWakeWord() {
-  const btn = document.getElementById('wake-train-btn');
-  const progress = document.getElementById('wake-progress');
-  const bar = document.getElementById('wake-progress-bar');
-  const text = document.getElementById('wake-progress-text');
-  const wakeWord = (document.getElementById('wake-word-input')?.value || 'Nova').trim();
-  if (!wakeWord) { toast('Enter a wake word first', 'err'); return; }
-  btn.disabled = true;
-  progress.style.display = '';
-  bar.style.width = '0%';
-  text.textContent = `Training "${wakeWord}"...`;
-
-  try {
-    const resp = await fetch('/admin/coral/train-wakeword', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ wake_word: wakeWord }),
-    });
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop();
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const d = JSON.parse(line.slice(6));
-          bar.style.width = d.progress + '%';
-          text.textContent = d.message || '';
-          if (d.stage === 'done') {
-            toast(d.message, 'ok');
-            await loadWakeStatus();
-          } else if (d.stage === 'error') {
-            toast(d.message, 'err');
-          }
-        } catch (_) {}
-      }
-    }
-  } catch (e) {
-    toast('Training failed: ' + e.message, 'err');
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-// Load wake status when Tools section is shown
-// Use MutationObserver to detect when tools section becomes visible
-setTimeout(() => {
-  const toolsSection = document.getElementById('section-tools');
-  if (toolsSection) {
-    const observer = new MutationObserver(() => {
-      if (toolsSection.classList.contains('active')) {
-        loadWakeStatus();
-        loadAnnouncementLog();
-      }
-    });
-    observer.observe(toolsSection, { attributes: true, attributeFilter: ['class'] });
-  }
-}, 500);
+// ── Tools section moved to static/admin-tools.js ─────────────────────────────
 
 // ── Prompts & Tuning ──────────────────────────────────────────────────────────
 
@@ -6224,21 +4843,6 @@ document.getElementById('nav')?.addEventListener('click', e => {
   if (btn) navigate(btn);
 });
 
-document.getElementById('skin-swatches')?.addEventListener('click', e => {
-  const sw = e.target.closest('.skin-swatch[data-index]');
-  if (sw) selectSkin(parseInt(sw.dataset.index));
-});
-
-document.getElementById('hair-swatches')?.addEventListener('click', e => {
-  const sw = e.target.closest('.skin-swatch[data-hair]');
-  if (sw) selectHair(parseInt(sw.dataset.hair));
-});
-
-document.getElementById('bg-swatches')?.addEventListener('click', e => {
-  const sw = e.target.closest('.skin-swatch[data-color]');
-  if (sw) setBgColor(sw.dataset.color);
-});
-
 document.getElementById('pylog-levels')?.addEventListener('click', e => {
   const btn = e.target.closest('.pylog-level[data-level]');
   if (btn) setPylogLevel(btn);
@@ -6302,23 +4906,6 @@ document.getElementById('restart-btn')?.addEventListener('click', () => restartS
 document.getElementById('chat-form')?.addEventListener('submit', e => chatSend(e));
 document.getElementById('btn-chat-clear')?.addEventListener('click', () => chatClear());
 
-// -- Config --
-document.getElementById('btn-save-config')?.addEventListener('click', () => saveConfig());
-document.getElementById('btn-load-config')?.addEventListener('click', () => loadConfig());
-document.getElementById('btn-gemini-add-key')?.addEventListener('click', () => addGeminiKey());
-document.getElementById('btn-gemini-refresh')?.addEventListener('click', () => loadGeminiPool());
-document.getElementById('btn-save-vision-cameras')?.addEventListener('click', () => saveVisionCameras());
-document.getElementById('btn-refresh-vision-cameras')?.addEventListener('click', () => loadVisionCameras());
-document.getElementById('btn-add-room')?.addEventListener('click', () => addRoom());
-document.getElementById('room-new-label')?.addEventListener('input', function() {
-  const slug = this.value.trim().toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
-  const idEl = document.getElementById('room-new-id');
-  if (idEl && !idEl.dataset.manualEdit) idEl.value = slug;
-});
-document.getElementById('room-new-id')?.addEventListener('input', function() { this.dataset.manualEdit = this.value ? '1' : ''; });
-document.getElementById('room-new-label')?.addEventListener('keydown', e => { if (e.key === 'Enter') addRoom(); });
-document.getElementById('room-new-id')?.addEventListener('keydown', e => { if (e.key === 'Enter') addRoom(); });
-
 // -- Prompts & Tuning --
 document.querySelectorAll('.tuning-card-header').forEach(el => {
   el.addEventListener('click', () => toggleTuningCard(el));
@@ -6359,28 +4946,6 @@ document.getElementById('btn-sync-cancel')?.addEventListener('click', () => {
 // -- ACL --
 document.getElementById('btn-save-acl')?.addEventListener('click', () => saveAcl());
 document.getElementById('btn-load-acl')?.addEventListener('click', () => loadAcl());
-
-// -- Avatar --
-document.getElementById('btn-save-skin-tone')?.addEventListener('click', () => saveSkinTone());
-document.getElementById('btn-save-hair-color')?.addEventListener('click', () => saveHairColor());
-document.querySelectorAll('input[name="bg-type"]').forEach(r => {
-  r.addEventListener('change', () => onBgTypeChange());
-});
-document.getElementById('bg-color-picker')?.addEventListener('change', function() {
-  document.getElementById('bg-color-input').value = this.value;
-});
-document.getElementById('bg-color-input')?.addEventListener('input', function() {
-  try { document.getElementById('bg-color-picker').value = this.value; } catch(e) {}
-});
-document.getElementById('bg-image-input')?.addEventListener('input', () => previewBgImage());
-document.getElementById('btn-save-avatar-bg')?.addEventListener('click', () => saveAvatarBg());
-document.getElementById('btn-reset-avatar-bg')?.addEventListener('click', () => resetAvatarBg());
-document.getElementById('avatar-upload-input')?.addEventListener('change', function() { uploadAvatar(this); });
-document.getElementById('btn-upload-avatar')?.addEventListener('click', () => {
-  document.getElementById('avatar-upload-input').click();
-});
-document.getElementById('btn-save-external-url')?.addEventListener('click', () => saveExternalUrl());
-document.getElementById('btn-clear-external-url')?.addEventListener('click', () => clearExternalUrl());
 
 // -- Server Logs --
 document.getElementById('pylog-search')?.addEventListener('input', () => filterPylog());
@@ -6438,25 +5003,7 @@ document.getElementById('btn-fa-collapse')?.addEventListener('click', () => faCo
 // -- LLM Cost --
 document.getElementById('btn-clear-costs')?.addEventListener('click', () => clearCosts());
 
-// -- Tools: Announce --
-document.getElementById('btn-test-announce')?.addEventListener('click', () => testAnnounce());
-document.getElementById('btn-clear-announce-log')?.addEventListener('click', () => clearAnnouncementLog());
-
-// -- Tools: Heating Shadow --
-document.getElementById('btn-refresh-heating-shadow')?.addEventListener('click', () => loadHeatingShadow());
-document.getElementById('btn-force-heating-winter')?.addEventListener('click', () => forceHeatingShadow('winter'));
-document.getElementById('btn-force-heating-spring')?.addEventListener('click', () => forceHeatingShadow('spring'));
-
-// -- Tools: Wake Word --
-document.getElementById('wake-train-btn')?.addEventListener('click', () => trainWakeWord());
-document.getElementById('wake-install-compiler-btn')?.addEventListener('click', () => installEdgeTPUCompiler());
-
-// -- Tools: Conversation Audit --
-document.getElementById('audit-toggle')?.addEventListener('click', () => {
-  _toggleCollapsibleSection('audit-body', 'audit-chevron', loadConversationAudit);
-});
-document.getElementById('btn-audit-search')?.addEventListener('click', () => loadConversationAudit());
-document.getElementById('btn-audit-refresh')?.addEventListener('click', () => loadConversationAudit());
+// -- Tools moved to static/admin-tools.js --
 
 // -- Self-Heal --
 document.getElementById('btn-refresh-selfheal')?.addEventListener('click', () => loadSelfHeal());
@@ -6476,320 +5023,13 @@ document.getElementById('btn-sh-save-config')?.addEventListener('click', () => s
 
 
 // ══════════════════════════════════════════════════════════════════
-// Scoreboard
+// Scoreboard moved to static/admin-scoreboard.js
 // ══════════════════════════════════════════════════════════════════
-let _sbConfig = {};
-
-async function loadScoreboard() {
-  loadSbNotifications();
-  try {
-    const d = await api('GET', '/admin/scoreboard');
-    _sbConfig = d.config || {};
-    _renderSbLeaderboard(d.weekly || []);
-    _renderSbRecent(d.recent || []);
-    _populateSbSelects(_sbConfig);
-    _renderSbTasks(_sbConfig);
-    _setSbToggleState(_sbConfig.show_widget !== false);
-    loadPenalties();
-  } catch (e) { console.error('loadScoreboard', e); }
-}
-
-function _setSbToggleState(on) {
-  const track = document.getElementById('sb-widget-toggle');
-  const knob = document.getElementById('sb-widget-knob');
-  if (!track || !knob) return;
-  track.style.background = on ? 'var(--accent)' : 'var(--border)';
-  knob.style.transform = on ? 'translateX(16px)' : 'translateX(0)';
-}
-
-async function sbToggleWidget() {
-  const on = _sbConfig.show_widget !== false;
-  const next = !on;
-  try {
-    await api('POST', '/admin/scoreboard/widget-visibility', { show_widget: next });
-    _sbConfig.show_widget = next;
-    _setSbToggleState(next);
-  } catch(e) { toast('Failed to update', 'err'); }
-}
-
-function _renderSbLeaderboard(weekly) {
-  const el = document.getElementById('sb-leaderboard');
-  if (!el) return;
-  if (!weekly.length) { el.innerHTML = '<span style="color:var(--muted)">No scores yet this week.</span>'; return; }
-  const medals = ['🥇','🥈','🥉'];
-  el.innerHTML = weekly.map((s, i) => {
-    const photoUrl = `/admin/faces/photo/${encodeURIComponent(s.person)}`;
-    const initials = s.person.charAt(0).toUpperCase();
-    return `<div style="background:var(--bg3);border-radius:10px;padding:16px 20px;min-width:120px;text-align:center;">
-      <div style="position:relative;width:56px;height:56px;margin:0 auto 8px;">
-        <img src="${photoUrl}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);"
-          onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-        <div style="display:none;width:56px;height:56px;border-radius:50%;background:var(--surface2);align-items:center;justify-content:center;font-size:22px;font-weight:700;color:var(--accent);border:2px solid var(--accent);">${initials}</div>
-        <div style="position:absolute;bottom:-4px;right:-4px;font-size:18px;">${medals[i] || '🏅'}</div>
-      </div>
-      <div style="font-weight:700;font-size:15px;margin:4px 0;">${s.person.charAt(0).toUpperCase()+s.person.slice(1)}</div>
-      <div style="font-size:20px;font-weight:700;color:var(--accent);">${s.points} pts</div>
-      <div style="font-size:11px;color:var(--muted);">${s.tasks} tasks</div>
-    </div>`;
-  }).join('');
-}
-
-function _renderSbRecent(recent) {
-  const el = document.getElementById('sb-recent');
-  if (!el) return;
-  if (!recent.length) { el.innerHTML = '<span style="color:var(--muted)">No recent activity.</span>'; return; }
-  el.innerHTML = '<table style="width:100%;border-collapse:collapse;">' +
-    '<thead><tr style="color:var(--muted);text-align:left;"><th style="padding:4px 8px;">Person</th><th style="padding:4px 8px;">Task</th><th style="padding:4px 8px;">Points</th><th style="padding:4px 8px;">When</th><th></th></tr></thead><tbody>' +
-    recent.map(r => {
-      const when = new Date(r.ts * 1000).toLocaleString();
-      return `<tr style="border-top:1px solid var(--border);">
-        <td style="padding:4px 8px;">${r.person}</td>
-        <td style="padding:4px 8px;">${r.task_label}</td>
-        <td style="padding:4px 8px;color:var(--accent);">+${r.points}</td>
-        <td style="padding:4px 8px;color:var(--muted);">${when}</td>
-        <td style="padding:4px 8px;"><button class="btn btn-outline" style="font-size:11px;padding:2px 8px;" onclick="sbDeleteLog(${r.id})">Delete</button></td>
-      </tr>`;
-    }).join('') + '</tbody></table>';
-}
-
-function _populateSbSelects(cfg) {
-  const taskSel = document.getElementById('sb-award-task');
-  if (taskSel) taskSel.innerHTML = (cfg.tasks || []).map(t => `<option value="${t.id}">${t.label} (${t.points}pts)</option>`).join('');
-
-  const members = cfg.members || [];
-  const memberOptions = members.map(m => `<option value="${m}">${m.charAt(0).toUpperCase()+m.slice(1)}</option>`).join('');
-  const personSel = document.getElementById('sb-award-person');
-  if (personSel) personSel.innerHTML = memberOptions;
-  const deductPersonSel = document.getElementById('sb-deduct-person');
-  if (deductPersonSel) deductPersonSel.innerHTML = memberOptions;
-
-  // Checkboxes for assign-to in add-task form
-  const assignDiv = document.getElementById('sb-new-assigned');
-  if (assignDiv) {
-    assignDiv.innerHTML = members.map(m => `
-      <label style="display:flex;align-items:center;gap:4px;font-size:12px;">
-        <input type="checkbox" name="sb-assign" value="${m}"> ${m.charAt(0).toUpperCase()+m.slice(1)}
-      </label>`).join('');
-  }
-}
-
-function _renderSbTasks(cfg) {
-  const el = document.getElementById('sb-tasks-list');
-  if (!el) return;
-  const members = cfg.members || [];
-  const tasks = cfg.tasks || [];
-  if (!tasks.length) { el.innerHTML = '<span style="color:var(--muted)">No tasks configured.</span>'; return; }
-  el.innerHTML = '<table style="width:100%;border-collapse:collapse;">' +
-    '<thead><tr style="color:var(--muted);font-size:12px;text-align:left;">' +
-    '<th style="padding:4px 8px;">Task</th><th style="padding:4px 8px;">Pts</th>' +
-    '<th style="padding:4px 8px;">Verify</th><th style="padding:4px 8px;">Assigned To</th><th style="padding:4px 8px;"></th>' +
-    '</tr></thead><tbody>' +
-    tasks.map(t => {
-      const assigned = (t.assigned_to && t.assigned_to.length) ? t.assigned_to.join(', ') : 'Everyone';
-      const assignCheckboxes = members.map(m => `
-        <label style="display:flex;align-items:center;gap:3px;font-size:11px;white-space:nowrap;">
-          <input type="checkbox" onchange="sbToggleAssign('${t.id}','${m}',this.checked)" ${(t.assigned_to||[]).includes(m)?'checked':''}>
-          ${m.charAt(0).toUpperCase()+m.slice(1)}
-        </label>`).join('');
-      return `<tr style="border-top:1px solid var(--border);">
-        <td style="padding:6px 8px;font-weight:600;">${t.label}<div style="font-size:10px;color:var(--muted);">${t.id}</div></td>
-        <td style="padding:6px 8px;color:var(--accent);">${t.points}</td>
-        <td style="padding:6px 8px;">${t.verification}</td>
-        <td style="padding:6px 8px;"><div style="display:flex;gap:8px;flex-wrap:wrap;">${assignCheckboxes}</div></td>
-        <td style="padding:6px 8px;"><button class="btn btn-outline" style="font-size:11px;padding:2px 8px;color:#f87171;" onclick="sbDeleteTask('${t.id}')">Delete</button></td>
-      </tr>`;
-    }).join('') + '</tbody></table>';
-}
-
-async function sbToggleAssign(taskId, member, checked) {
-  const cfg = _sbConfig;
-  const task = (cfg.tasks||[]).find(t => t.id === taskId);
-  if (!task) return;
-  const assigned = task.assigned_to || [];
-  if (checked && !assigned.includes(member)) assigned.push(member);
-  if (!checked) task.assigned_to = assigned.filter(m => m !== member);
-  else task.assigned_to = assigned;
-  try {
-    await api('PATCH', '/admin/scoreboard/tasks/' + taskId, { assigned_to: task.assigned_to });
-  } catch(e) { toast('Failed to update assignment', 'err'); }
-}
-
-async function sbDeleteTask(taskId) {
-  if (!confirm(`Delete task "${taskId}"? This cannot be undone.`)) return;
-  try {
-    const r = await api('DELETE', '/admin/scoreboard/tasks/' + taskId);
-    if (r.ok) { toast('Task deleted', 'ok'); loadScoreboard(); }
-    else toast(r.error || 'Error', 'err');
-  } catch(e) { toast('Error', 'err'); }
-}
-
-async function sbAddTask() {
-  const id = document.getElementById('sb-new-id')?.value.trim();
-  const label = document.getElementById('sb-new-label')?.value.trim();
-  const points = parseInt(document.getElementById('sb-new-points')?.value || '5');
-  const cooldown = parseInt(document.getElementById('sb-new-cooldown')?.value || '16');
-  const verification = document.getElementById('sb-new-verification')?.value || 'honour';
-  const keywords = (document.getElementById('sb-new-keywords')?.value || '').split(',').map(s=>s.trim()).filter(Boolean);
-  const assigned_to = [...document.querySelectorAll('input[name="sb-assign"]:checked')].map(cb => cb.value);
-  const msg = document.getElementById('sb-add-task-msg');
-  if (!id || !label) { if (msg) msg.textContent = 'ID and Label are required.'; return; }
-  try {
-    const r = await api('POST', '/admin/scoreboard/tasks', { id, label, points, cooldown_hours: cooldown, verification, keywords, assigned_to });
-    if (r.ok) {
-      if (msg) msg.textContent = 'Task added!';
-      loadScoreboard();
-      ['sb-new-id','sb-new-label','sb-new-keywords'].forEach(id => { const el = document.getElementById(id); if(el) el.value=''; });
-    } else { if (msg) msg.textContent = r.error || 'Error'; }
-  } catch(e) { if (msg) msg.textContent = 'Error: ' + e.message; }
-}
-
-async function sbDeleteLog(id) {
-  if (!confirm('Delete this log entry?')) return;
-  try {
-    await api('DELETE', '/admin/scoreboard/logs/' + id);
-    loadScoreboard();
-  } catch (e) { toast('Failed to delete', 'err'); }
-}
-
-async function sbAward() {
-  const person = document.getElementById('sb-award-person')?.value || '';
-  const taskId = document.getElementById('sb-award-task')?.value || '';
-  const msg = document.getElementById('sb-award-msg');
-  if (!person || !taskId) { if (msg) msg.textContent = 'Select person and task.'; return; }
-  try {
-    const r = await api('POST', '/admin/scoreboard/log', { person, task_id: taskId });
-    if (msg) msg.textContent = r.ok ? 'Points awarded!' : (r.error || 'Error');
-    loadScoreboard();
-  } catch (e) { if (msg) msg.textContent = 'Error: ' + e.message; }
-}
-
-async function sbLoadLogs() {
-  const days = document.getElementById('sb-log-days')?.value || 7;
-  const el = document.getElementById('sb-logs-table');
-  try {
-    const d = await api('GET', '/admin/scoreboard/logs?days=' + days);
-    const logs = d.logs || [];
-    if (!logs.length) { if (el) el.innerHTML = '<span style="color:var(--muted)">No logs found.</span>'; return; }
-    if (el) el.innerHTML = '<table style="width:100%;border-collapse:collapse;">' +
-      '<thead><tr style="color:var(--muted);"><th style="padding:4px 8px;text-align:left;">Date</th><th style="padding:4px 8px;text-align:left;">Person</th><th style="padding:4px 8px;text-align:left;">Task</th><th style="padding:4px 8px;">Pts</th><th style="padding:4px 8px;">Verified</th><th></th></tr></thead><tbody>' +
-      logs.map(r => {
-        const when = new Date(r.ts * 1000).toLocaleString();
-        return `<tr style="border-top:1px solid var(--border);">
-          <td style="padding:4px 8px;color:var(--muted);">${when}</td>
-          <td style="padding:4px 8px;">${r.person}</td>
-          <td style="padding:4px 8px;">${r.task_label}</td>
-          <td style="padding:4px 8px;text-align:center;color:var(--accent);">+${r.points}</td>
-          <td style="padding:4px 8px;text-align:center;">${r.verified ? '✓' : '—'}</td>
-          <td style="padding:4px 8px;"><button class="btn btn-outline" style="font-size:11px;padding:2px 8px;" onclick="sbDeleteLog(${r.id})">Del</button></td>
-        </tr>`;
-      }).join('') + '</tbody></table>';
-  } catch (e) { if (el) el.innerHTML = 'Error loading logs.'; }
-}
 
 // -- Faces --
 document.getElementById('btn-refresh-faces')?.addEventListener('click', () => loadFaces());
-
-// -- Scoreboard --
-document.getElementById('btn-sb-refresh')?.addEventListener('click', () => loadScoreboard());
-document.getElementById('btn-sb-award')?.addEventListener('click', () => sbAward());
-document.getElementById('btn-sb-logs')?.addEventListener('click', () => sbLoadLogs());
-document.getElementById('btn-sb-add-task')?.addEventListener('click', () => sbAddTask());
 
 // -- Users --
 document.getElementById('btn-create-user')?.addEventListener('click', () => createUser());
 document.getElementById('btn-submit-pw-change')?.addEventListener('click', () => submitPasswordChange());
 document.getElementById('btn-cancel-pw-change')?.addEventListener('click', () => cancelPasswordChange());
-async function loadSbNotifications() {
-  try {
-    const d = await apiFetch('/admin/scoreboard/notifications');
-    const el = document.getElementById('sb-blind-names');
-    if (el) el.value = d.blind_reminder_names || '';
-  } catch(e) { console.warn('loadSbNotifications', e); }
-}
-
-async function sbSaveNotifications() {
-  const names = (document.getElementById('sb-blind-names')?.value || '').trim();
-  if (!names) return;
-  try {
-    await apiFetch('/admin/scoreboard/notifications', {
-      method: 'PATCH',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({blind_reminder_names: names}),
-    });
-    showToast('Blind reminder names saved.');
-  } catch(e) { showToast('Save failed: ' + e.message, true); }
-}
-
-async function loadPenalties() {
-  try {
-    const d = await api('GET', '/admin/scoreboard/penalties');
-    const penalties = d.penalties || [];
-    // Populate dropdown in Deductions card
-    const sel = document.getElementById('sb-deduct-penalty');
-    if (sel) sel.innerHTML = penalties.map(p => `<option value="${p.id}">${p.label} (-${p.points}pts)</option>`).join('');
-    // Render manage list
-    const list = document.getElementById('sb-penalties-list');
-    if (list) {
-      if (!penalties.length) {
-        list.innerHTML = '<span style="color:var(--muted);font-size:13px;">No penalty types configured.</span>';
-      } else {
-        list.innerHTML = '<table style="width:100%;border-collapse:collapse;">' +
-          '<thead><tr style="color:var(--muted);font-size:12px;text-align:left;">' +
-          '<th style="padding:4px 8px;">Label</th><th style="padding:4px 8px;">Points</th><th style="padding:4px 8px;"></th>' +
-          '</tr></thead><tbody>' +
-          penalties.map(p => `<tr>
-            <td style="padding:4px 8px;font-size:13px;">${p.label}</td>
-            <td style="padding:4px 8px;font-size:13px;color:#e53e3e;">-${p.points}</td>
-            <td style="padding:4px 8px;">
-              <button class="btn" style="padding:2px 8px;font-size:11px;" onclick="sbDeletePenalty('${p.id}')">Remove</button>
-            </td>
-          </tr>`).join('') +
-          '</tbody></table>';
-      }
-    }
-  } catch(e) { console.warn('loadPenalties', e); }
-}
-
-async function sbIssueDeduction() {
-  const person = document.getElementById('sb-deduct-person')?.value;
-  const penalty_id = document.getElementById('sb-deduct-penalty')?.value;
-  if (!person || !penalty_id) { toast('Select a member and penalty', 'err'); return; }
-  try {
-    const r = await api('POST', '/admin/scoreboard/penalty', { person, penalty_id });
-    toast(`-${r.deducted}pts deducted from ${person} for ${r.label}`, 'ok');
-    loadScoreboard();
-  } catch(e) { toast('Deduction failed: ' + e.message, 'err'); }
-}
-
-async function sbAddPenalty() {
-  const id = (document.getElementById('sb-new-penalty-id')?.value || '').trim();
-  const label = (document.getElementById('sb-new-penalty-label')?.value || '').trim();
-  const points = parseInt(document.getElementById('sb-new-penalty-points')?.value || '10');
-  if (!id || !label) { toast('ID and label required', 'err'); return; }
-  try {
-    await api('POST', '/admin/scoreboard/penalties', { id, label, points });
-    document.getElementById('sb-new-penalty-id').value = '';
-    document.getElementById('sb-new-penalty-label').value = '';
-    document.getElementById('sb-new-penalty-points').value = '10';
-    toast('Penalty type added', 'ok');
-    loadPenalties();
-  } catch(e) { toast('Failed: ' + e.message, 'err'); }
-}
-
-async function sbDeletePenalty(penalty_id) {
-  if (!confirm('Remove this penalty type?')) return;
-  try {
-    await api('DELETE', '/admin/scoreboard/penalties/' + penalty_id);
-    toast('Penalty removed', 'ok');
-    loadPenalties();
-  } catch(e) { toast('Failed: ' + e.message, 'err'); }
-}
-
-async function _renderApkQr(){
-  const el=document.getElementById("parental-apk-qr");
-  if(!el)return;
-  try{
-    const d=await api("GET","/admin/parental/apk-qr");
-    el.innerHTML='<img src="'+d.qr_image_url+'" width="150" height="150" style="border:1px solid var(--border);border-radius:8px;">';
-  }catch(e){el.innerHTML='<span class="text-sm text-muted">QR unavailable</span>';}
-}
