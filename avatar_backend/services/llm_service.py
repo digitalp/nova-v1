@@ -237,6 +237,61 @@ HA_TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "get_parental_status",
+            "description": (
+                "Check whether the Headwind parental management backend is reachable. "
+                "Use this before deeper device-management actions if parental controls seem unavailable."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_device_location",
+            "description": (
+                "Get the latest known location for a managed Android device. "
+                "Use get_enrolled_devices first to find the device_number."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "device_number": {
+                        "type": "string",
+                        "description": "The device number from get_enrolled_devices.",
+                    },
+                },
+                "required": ["device_number"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_apps",
+            "description": (
+                "Search Headwind's Android app catalog to find package names and whether an app is installable or allow-only. "
+                "Use this before deploy_app if you are unsure of the exact package."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "App name or package fragment, e.g. 'YouTube', 'WhatsApp', or 'roblox'.",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "block_app",
             "description": (
                 "Block (hide/disable) an Android app on a child's device. "
@@ -289,6 +344,36 @@ HA_TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "deploy_app",
+            "description": (
+                "Deploy or allow an Android app on a child's device using Headwind's app catalog. "
+                "For installable apps, Headwind marks them for install. "
+                "For system or allow-only apps, Nova can only allow them, not silently install them. "
+                "Use get_enrolled_devices and optionally search_apps first."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "device_number": {
+                        "type": "string",
+                        "description": "The device number from get_enrolled_devices.",
+                    },
+                    "package": {
+                        "type": "string",
+                        "description": "Android package name, e.g. 'com.whatsapp'.",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Optional display name for clearer confirmations, e.g. 'WhatsApp'.",
+                    },
+                },
+                "required": ["device_number", "package"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "send_device_message",
             "description": (
                 "Send a full-screen push notification to a child's Android device. "
@@ -308,6 +393,40 @@ HA_TOOLS: list[dict] = [
                     },
                 },
                 "required": ["device_number", "message"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_parental_configurations",
+            "description": (
+                "List Headwind parental configurations. Useful for enrollment and understanding which configuration a device belongs to."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_enrollment_link",
+            "description": (
+                "Get the enrollment URL for a Headwind configuration so a parent can enroll a device. "
+                "This returns the enroll link and QR key as text, not the QR image."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "config_id": {
+                        "type": "integer",
+                        "description": "Headwind configuration id, e.g. 2.",
+                    },
+                },
+                "required": ["config_id"],
             },
         },
     },

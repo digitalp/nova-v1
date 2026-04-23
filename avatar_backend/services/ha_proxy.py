@@ -187,14 +187,32 @@ class HAProxy:
         if tool_call.function_name == "get_enrolled_devices":
             return await self._get_enrolled_devices()
 
+        if tool_call.function_name == "get_parental_status":
+            return await self._get_parental_status()
+
+        if tool_call.function_name == "get_device_location":
+            return await self._get_device_location(tool_call.arguments)
+
+        if tool_call.function_name == "search_apps":
+            return await self._search_apps(tool_call.arguments)
+
         if tool_call.function_name == "block_app":
             return await self._mdm_set_app(tool_call.arguments, action=0)
 
         if tool_call.function_name == "unblock_app":
             return await self._mdm_set_app(tool_call.arguments, action=1)
 
+        if tool_call.function_name == "deploy_app":
+            return await self._deploy_app(tool_call.arguments)
+
         if tool_call.function_name == "send_device_message":
             return await self._send_device_message(tool_call.arguments)
+
+        if tool_call.function_name == "get_parental_configurations":
+            return await self._get_parental_configurations()
+
+        if tool_call.function_name == "get_enrollment_link":
+            return await self._get_enrollment_link(tool_call.arguments)
 
         if tool_call.function_name != "call_ha_service":
             logger.warning("ha_proxy.unknown_tool", name=tool_call.function_name)
@@ -448,6 +466,54 @@ class HAProxy:
         except Exception as exc:
             return ToolResult(success=False, message=f"MDM error: {exc}")
 
+    async def _get_parental_status(self) -> "ToolResult":
+        try:
+            status = await _mdm.get_parental_status()
+            reachable = "reachable" if status.get("hmdm_reachable") else "unreachable"
+            url = status.get("url") or ""
+            msg = f"Headwind parental backend is {reachable}."
+            if url:
+                msg += f" URL: {url}"
+            return ToolResult(success=True, message=msg)
+        except Exception as exc:
+            return ToolResult(success=False, message=f"MDM error: {exc}")
+
+    async def _get_device_location(self, args: dict) -> "ToolResult":
+        device_number = str(args.get("device_number") or "").strip()
+        if not device_number:
+            return ToolResult(success=False, message="device_number is required.")
+        try:
+            device = await _mdm.get_device(device_number)
+            location = await _mdm.get_device_location(device_number)
+            name = device.get("description") or device.get("name") or device.get("model") or device_number
+            if not location:
+                return ToolResult(success=True, message=f"No recent location is available for {name} ({device_number}).")
+            lat = location.get("lat")
+            lon = location.get("lon")
+            ts = location.get("ts") or "unknown time"
+            return ToolResult(
+                success=True,
+                message=f"{name} ({device_number}) last reported location: {lat}, {lon} at {ts}.",
+            )
+        except Exception as exc:
+            return ToolResult(success=False, message=f"MDM error: {exc}")
+
+    async def _search_apps(self, args: dict) -> "ToolResult":
+        query = str(args.get("query") or "").strip()
+        if not query:
+            return ToolResult(success=False, message="query is required.")
+        try:
+            apps = await _mdm.search_apps(query, limit=12)
+            if not apps:
+                return ToolResult(success=True, message=f"No apps found for '{query}'.")
+            lines = []
+            for app in apps:
+                mode = "installable" if app.get("installable") else "allow only"
+                lines.append(f"{app.get('name') or app.get('pkg')} — {app.get('pkg')} ({mode})")
+            return ToolResult(success=True, message="\n".join(lines))
+        except Exception as exc:
+            return ToolResult(success=False, message=f"MDM error: {exc}")
+
     async def _mdm_set_app(self, args: dict, action: int) -> "ToolResult":
         device_number = str(args.get("device_number") or "").strip()
         package = str(args.get("package") or "").strip()
@@ -460,6 +526,28 @@ class HAProxy:
         except Exception as exc:
             return ToolResult(success=False, message=f"MDM error: {exc}")
 
+    async def _deploy_app(self, args: dict) -> "ToolResult":
+        device_number = str(args.get("device_number") or "").strip()
+        package = str(args.get("package") or "").strip()
+        name = str(args.get("name") or "").strip()
+        if not device_number or not package:
+            return ToolResult(success=False, message="device_number and package are required.")
+        try:
+            result = await _mdm.deploy_app(device_number, package, preferred_name=name)
+            app = result.get("application") or {}
+            mode = result.get("result_mode") or "allow"
+            app_name = app.get("name") or name or package
+            if mode == "install":
+                msg = f"{app_name} is marked for install on device {device_number}."
+            else:
+                msg = (
+                    f"{app_name} is allow-only in Headwind, so Nova allowed it on device {device_number} "
+                    f"but Headwind cannot silently install it."
+                )
+            return ToolResult(success=True, message=msg)
+        except Exception as exc:
+            return ToolResult(success=False, message=f"MDM error: {exc}")
+
     async def _send_device_message(self, args: dict) -> "ToolResult":
         device_number = str(args.get("device_number") or "").strip()
         message = str(args.get("message") or "").strip()
@@ -468,6 +556,38 @@ class HAProxy:
         try:
             await _mdm.send_message(device_number, message)
             return ToolResult(success=True, message=f"Message sent to device {device_number}.")
+        except Exception as exc:
+            return ToolResult(success=False, message=f"MDM error: {exc}")
+
+    async def _get_parental_configurations(self) -> "ToolResult":
+        try:
+            configs = await _mdm.get_configurations()
+            if not configs:
+                return ToolResult(success=True, message="No parental configurations were found.")
+            lines = []
+            for cfg in configs:
+                cfg_id = cfg.get("id", "?")
+                name = cfg.get("name") or f"Configuration {cfg_id}"
+                desc = str(cfg.get("description") or "").strip()
+                lines.append(f"{cfg_id}: {name}" + (f" — {desc}" if desc else ""))
+            return ToolResult(success=True, message="\n".join(lines))
+        except Exception as exc:
+            return ToolResult(success=False, message=f"MDM error: {exc}")
+
+    async def _get_enrollment_link(self, args: dict) -> "ToolResult":
+        raw_config_id = args.get("config_id")
+        if raw_config_id is None:
+            return ToolResult(success=False, message="config_id is required.")
+        try:
+            config_id = int(raw_config_id)
+            info = await _mdm.get_enrollment_info(config_id)
+            return ToolResult(
+                success=True,
+                message=(
+                    f"Enrollment link for {info.get('config_name') or config_id}: "
+                    f"{info.get('enroll_url')} (QR key: {info.get('qr_key')})"
+                ),
+            )
         except Exception as exc:
             return ToolResult(success=False, message=f"MDM error: {exc}")
 
