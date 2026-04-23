@@ -44,14 +44,9 @@ async def bootstrap(app: FastAPI, settings, system_prompt: str) -> AppContainer:
     c.llm_service = LLMService()
 
     # Gemini API key pool for vision rotation
-    from avatar_backend.services.gemini_key_pool import GeminiKeyPool
+    from avatar_backend.services.gemini_key_pool import GeminiKeyPool, load_pool_from_settings
     c.gemini_key_pool = GeminiKeyPool()
-    # Add primary key
-    if settings.google_api_key:
-        c.gemini_key_pool.add_key(settings.google_api_key, "Primary")
-    # Add pool keys
-    for i, key in enumerate(k.strip() for k in settings.gemini_api_keys.split(",") if k.strip()):
-        c.gemini_key_pool.add_key(key, f"Pool {i + 1}")
+    load_pool_from_settings(c.gemini_key_pool, settings)
     if c.gemini_key_pool.size:
         logger.info("gemini_key_pool.configured", pool_size=c.gemini_key_pool.size)
     from avatar_backend.services.llm_service import set_gemini_key_pool

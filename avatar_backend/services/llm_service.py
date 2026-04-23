@@ -1,5 +1,5 @@
 """
-LLM service — supports Ollama (local), OpenAI, Google Gemini, and Anthropic.
+LLM service - supports Ollama (local), OpenAI, Google Gemini, and Anthropic.
 Automatically falls back to Ollama gemma2:9b when the cloud provider is unavailable.
 
 Set LLM_PROVIDER in .env to switch providers:
@@ -108,8 +108,8 @@ HA_TOOLS: list[dict] = [
             "description": (
                 "Control a Home Assistant device by calling a service (turn on/off, lock, unlock, etc). "
                 "Use get_entities first if you are unsure of the entity_id. "
-                "NEVER use this to read sensor values — use get_entity_state instead. "
-                "NEVER call tts or media_player speak services — your text responses are automatically spoken."
+                "NEVER use this to read sensor values - use get_entity_state instead. "
+                "NEVER call tts or media_player speak services - your text responses are automatically spoken."
             ),
             "parameters": {
                 "type": "object",
@@ -157,7 +157,7 @@ HA_TOOLS: list[dict] = [
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "What to search for — artist name, song title, or album.",
+                        "description": "What to search for - artist name, song title, or album.",
                     },
                     "entity_id": {
                         "type": "string",
@@ -689,28 +689,41 @@ class _GeminiBackend:
         )
 
         t0 = time.monotonic()
-        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
-            resp = await client.post(url, json=payload,
-                                     headers={"Content-Type": "application/json",
-                                              "X-goog-api-key": self._api_key})
-            resp.raise_for_status()
+        last_exc = None
+        for _attempt in range(_gemini_attempt_budget()):
+            api_key = _get_gemini_key() or self._api_key
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+                    resp = await client.post(url, json=payload,
+                                             headers={"Content-Type": "application/json",
+                                                      "X-goog-api-key": api_key})
+                    resp.raise_for_status()
+                data = resp.json()
+                
+                parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
 
-        data  = resp.json()
-        parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
-
-        text  = " ".join(p.get("text", "") for p in parts if "text" in p).strip()
-        tools = [
-            ToolCall(
-                function_name=p["functionCall"]["name"],
-                arguments=p["functionCall"].get("args", {}),
-            )
-            for p in parts if "functionCall" in p
-        ]
-        _um = data.get("usageMetadata", {})
-        _log("google", self._model, t0, text, tools,
-             input_tokens=_um.get("promptTokenCount", 0),
-             output_tokens=_um.get("candidatesTokenCount", 0))
-        return text, tools
+                text  = " ".join(p.get("text", "") for p in parts if "text" in p).strip()
+                tools = [
+                    ToolCall(
+                        function_name=p["functionCall"]["name"],
+                        arguments=p["functionCall"].get("args", {}),
+                    )
+                    for p in parts if "functionCall" in p
+                ]
+                _um = data.get("usageMetadata", {})
+                _log("google", self._model, t0, text, tools,
+                     input_tokens=_um.get("promptTokenCount", 0),
+                     output_tokens=_um.get("candidatesTokenCount", 0))
+                return text, tools
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+                if exc.response.status_code == 429:
+                    _report_gemini_429(api_key)
+                    continue
+                raise
+        else:
+            if last_exc: raise last_exc
+            raise RuntimeError("Gemini chat failed after rotation")
 
     async def generate_text(self, prompt: str, timeout_s: float = 180.0) -> str:
         payload: dict[str, Any] = {
@@ -722,20 +735,32 @@ class _GeminiBackend:
             f"/{self._model}:generateContent"
         )
         t0 = time.monotonic()
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
-            resp = await client.post(url, json=payload,
-                                     headers={"Content-Type": "application/json",
-                                              "X-goog-api-key": self._api_key})
-            resp.raise_for_status()
-        _d = resp.json()
-        parts = (_d.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
-        text = " ".join(p.get("text", "") for p in parts if "text" in p).strip()
-        _um = _d.get("usageMetadata", {})
-        _log("google", self._model, t0, text, [],
-             input_tokens=_um.get("promptTokenCount", 0),
-             output_tokens=_um.get("candidatesTokenCount", 0),
-             purpose="proactive")
-        return text
+        last_exc = None
+        for _attempt in range(_gemini_attempt_budget()):
+            api_key = _get_gemini_key() or self._api_key
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
+                    resp = await client.post(url, json=payload,
+                                             headers={"Content-Type": "application/json",
+                                                      "X-goog-api-key": api_key})
+                    resp.raise_for_status()
+                _d = resp.json()
+                parts = (_d.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+                text = " ".join(p.get("text", "") for p in parts if "text" in p).strip()
+                _um = _d.get("usageMetadata", {})
+                _log("google", self._model, t0, text, [],
+                     input_tokens=_um.get("promptTokenCount", 0),
+                     output_tokens=_um.get("candidatesTokenCount", 0),
+                     purpose="proactive")
+                return text
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+                if exc.response.status_code == 429:
+                    _report_gemini_429(api_key)
+                    continue
+                raise
+        if last_exc: raise last_exc
+        return ""
 
     async def generate_text_with_search(self, prompt: str, timeout_s: float = 30.0) -> str:
         """Call Gemini with Google Search grounding enabled for web-sourced answers."""
@@ -749,20 +774,32 @@ class _GeminiBackend:
             f"/{self._model}:generateContent"
         )
         t0 = time.monotonic()
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
-            resp = await client.post(url, json=payload,
-                                     headers={"Content-Type": "application/json",
-                                              "X-goog-api-key": self._api_key})
-            resp.raise_for_status()
-        _d = resp.json()
-        parts = (_d.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
-        text = " ".join(p.get("text", "") for p in parts if "text" in p).strip()
-        _um = _d.get("usageMetadata", {})
-        _log("google", self._model, t0, text, [],
-             input_tokens=_um.get("promptTokenCount", 0),
-             output_tokens=_um.get("candidatesTokenCount", 0),
-             purpose="media_fun_fact")
-        return text
+        last_exc = None
+        for _attempt in range(_gemini_attempt_budget()):
+            api_key = _get_gemini_key() or self._api_key
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
+                    resp = await client.post(url, json=payload,
+                                             headers={"Content-Type": "application/json",
+                                                      "X-goog-api-key": api_key})
+                    resp.raise_for_status()
+                _d = resp.json()
+                parts = (_d.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+                text = " ".join(p.get("text", "") for p in parts if "text" in p).strip()
+                _um = _d.get("usageMetadata", {})
+                _log("google", self._model, t0, text, [],
+                     input_tokens=_um.get("promptTokenCount", 0),
+                     output_tokens=_um.get("candidatesTokenCount", 0),
+                     purpose="grounded")
+                return text
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+                if exc.response.status_code == 429:
+                    _report_gemini_429(api_key)
+                    continue
+                raise
+        if last_exc: raise last_exc
+        return ""
 
     @property
     def model_name(self) -> str:
@@ -848,9 +885,9 @@ class _AnthropicBackend:
 # ── Vision helpers ───────────────────────────────────────────────────────────
 
 from avatar_backend.services.gpu_gate import GPUMemoryGate as _GPUMemoryGate
-_GPU_GATE = _GPUMemoryGate(min_free_mb=200)  # Ollama swaps models dynamically — just need enough for CUDA overhead
+_GPU_GATE = _GPUMemoryGate(min_free_mb=200)  # Ollama swaps models dynamically - just need enough for CUDA overhead
 
-# Gemini key pool — set by bootstrap, used by vision calls
+# Gemini key pool - set by bootstrap, used by vision calls
 _gemini_key_pool = None
 
 # Limit concurrent vision API calls to prevent server overload
@@ -871,8 +908,14 @@ def _report_gemini_429(key: str) -> None:
         _gemini_key_pool.report_429(key)
 
 
+def _gemini_attempt_budget() -> int:
+    if _gemini_key_pool and _gemini_key_pool.size:
+        return max(1, _gemini_key_pool.size)
+    return 1
+
+
 def _vision_ollama_url() -> str:
-    """Return the Ollama URL for vision calls — remote if configured, local otherwise."""
+    """Return the Ollama URL for vision calls - remote if configured, local otherwise."""
     from avatar_backend.config import get_settings
     s = get_settings()
     return (s.ollama_vision_url or "").strip() or s.ollama_url
@@ -890,7 +933,7 @@ _DEFAULT_IMAGE_PROMPT = (
 _DOORBELL_IMAGE_PROMPT = (
     "This is a snapshot from a front-door security camera taken because the doorbell was just rung. "
     "Is there a person clearly visible at or approaching the door? "
-    "If YES: describe them in one sentence — clothing colours and any items they are carrying only. "
+    "If YES: describe them in one sentence - clothing colours and any items they are carrying only. "
     "Do NOT mention age, race, gender, or any personal attributes. "
     "If NO person is clearly visible, reply with exactly: NO_PERSON"
 )
@@ -924,7 +967,7 @@ def _is_moondream(model: str) -> bool:
 def _resize_for_ollama(image_bytes: bytes, max_width: int = 1280) -> bytes:
     """Downscale image to max_width if wider, preserving aspect ratio.
 
-    llama3.2-vision tiles images at 560×560.  A 2560×1440 camera frame creates
+    llama3.2-vision tiles images at 560x560.  A 2560x1440 camera frame creates
     ~15 tiles, which takes >60 s to process on an RTX 2060.  Capping at 1280 px
     wide reduces that to ~4 tiles and keeps inference well under 60 s with no
     meaningful quality loss for security-camera analysis.
@@ -954,7 +997,7 @@ async def _ollama_describe_image(image_bytes: bytes, base_url: str, model: str, 
             prompt = _MOONDREAM_DOORBELL_PROMPT
         elif prompt == _DEFAULT_IMAGE_PROMPT:
             prompt = _MOONDREAM_DEFAULT_PROMPT
-    # Only gate local GPU — remote Ollama has its own resources
+    # Only gate local GPU - remote Ollama has its own resources
     if not _vision_is_remote():
         acquired = await _GPU_GATE.acquire(caller="ollama_vision")
         if not acquired:
@@ -1000,9 +1043,6 @@ async def _gemini_describe_image(image_bytes: bytes, api_key: str, model: str, p
         resp = await client.post(url, json=payload,
                                  headers={"Content-Type": "application/json",
                                           "X-goog-api-key": api_key})
-        if resp.status_code == 429:
-            _report_gemini_429(api_key)
-            resp.raise_for_status()
         resp.raise_for_status()
     data = resp.json()
     parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
@@ -1040,7 +1080,7 @@ class _OllamaFallbackBackend:
         self._model    = model
 
     async def chat(self, messages: list[dict], use_tools: bool) -> tuple[str, list[ToolCall]]:
-        # gemma2 does not support tool_calls natively — strip tools, rely on text.
+        # gemma2 does not support tool_calls natively - strip tools, rely on text.
         # num_ctx must cover the full system prompt (~16k tokens for Nova's 63KB prompt)
         # plus multi-round tool conversation. mistral-nemo:12b supports 128k natively.
         payload: dict[str, Any] = {
@@ -1139,7 +1179,7 @@ def _select_fast_local_text_model(settings) -> str:
 class LLMService:
     """
     Routes LLM requests to the configured provider.
-    Switch providers via LLM_PROVIDER in .env — no code changes needed.
+    Switch providers via LLM_PROVIDER in .env - no code changes needed.
     """
 
     _FALLBACK_MODEL = "gemma2:9b"
@@ -1157,7 +1197,7 @@ class LLMService:
             self._backend = _OllamaBackend(settings)
         self._provider = provider
 
-        # Ollama gemma2:9b failover — only for cloud providers
+        # Ollama gemma2:9b failover - only for cloud providers
         if provider != "ollama":
             self._fallback: _OllamaBackend | None = _OllamaFallbackBackend(
                 settings.ollama_url, self._FALLBACK_MODEL
@@ -1242,7 +1282,7 @@ class LLMService:
                     return any(family in m for m in models)
             except Exception:
                 return False
-        # Cloud providers — assume ready if API key is set
+        # Cloud providers - assume ready if API key is set
         settings = get_settings()
         provider = settings.llm_provider.lower()
         key_map  = {"openai": settings.openai_api_key,
@@ -1253,7 +1293,7 @@ class LLMService:
     async def generate_text(self, prompt: str, timeout_s: float = 180.0) -> str:
         """
         Simple text-in / text-out generation using the active provider.
-        Uses a longer timeout than chat() — suitable for large one-shot tasks
+        Uses a longer timeout than chat() - suitable for large one-shot tasks
         like system prompt updates. No tools, temperature 0.2.
         """
         try:
@@ -1492,8 +1532,8 @@ class LLMService:
             model = settings.cloud_model if settings.llm_provider.lower() == "google" else _DEFAULT_MODELS["google"]
             _prompt = prompt or _DEFAULT_IMAGE_PROMPT
 
-            # Try up to 3 different keys from the pool
-            for _attempt in range(3):
+            # Try each configured key at most once before falling back.
+            for _attempt in range(_gemini_attempt_budget()):
                 api_key = _get_gemini_key(camera_id)
                 if not api_key:
                     break
@@ -1506,7 +1546,7 @@ class LLMService:
                         continue
                     raise
 
-            # All keys exhausted — fall back to Ollama
+            # All keys exhausted - fall back to Ollama
             return await self._fallback_to_ollama_vision(image_bytes, prompt)
 
     async def _fallback_to_ollama_vision(self, image_bytes: bytes, prompt: str | None = None) -> str:

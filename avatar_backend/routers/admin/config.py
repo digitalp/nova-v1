@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from avatar_backend.bootstrap.container import AppContainer, get_container
+from avatar_backend.services.gemini_key_pool import load_pool_from_settings
 
 from .common import (
     _CONFIG_DIR,
@@ -63,10 +64,13 @@ async def save_config(body: ConfigUpdate, request: Request, container: AppContai
     sanitized = {
         k: v.translate(_UNSAFE_ENV_CHARS)
         for k, v in body.values.items()
-        if v != "" and k in _CONFIG_FIELDS
+        if k in _CONFIG_FIELDS
     }
     existing.update(sanitized)
-    lines = header_lines + [f"{k}={v}" for k, v in existing.items()]
+    # Ensure we preserve the order of fields from _CONFIG_FIELDS or existing
+    lines = header_lines
+    for k, v in existing.items():
+        lines.append(f"{k}={v}")
     _ENV_FILE.write_text("\n".join(lines) + "\n")
     _LOGGER.info("admin.config_saved")
 
@@ -77,6 +81,11 @@ async def save_config(body: ConfigUpdate, request: Request, container: AppContai
     new_tts = create_tts_service(new_settings)
     container.tts_service = new_tts
     _LOGGER.info("admin.tts_reloaded", provider=new_settings.tts_provider)
+
+    # Reload Gemini Key Pool
+    if hasattr(container, "gemini_key_pool"):
+        load_pool_from_settings(container.gemini_key_pool, new_settings)
+        _LOGGER.info("admin.gemini_pool_reloaded", size=container.gemini_key_pool.size)
 
     if new_settings.tts_provider.lower() == "afrotts":
         async def _warm():
@@ -129,6 +138,12 @@ async def reload_config(request: Request, container: AppContainer = Depends(get_
         limiter = getattr(container, "session_limiter", None)
         if limiter:
             limiter.update_config(new.session_rate_limit_max, new.session_rate_limit_window_s)
+
+    if hasattr(container, "gemini_key_pool") and any(
+        key in changed for key in ("google_api_key", "google_api_key_enabled", "gemini_api_keys")
+    ):
+        load_pool_from_settings(container.gemini_key_pool, new)
+        _LOGGER.info("admin.gemini_pool_reloaded", size=container.gemini_key_pool.size)
 
     return {"reloaded": True, "changed_keys": changed}
 

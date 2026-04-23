@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.responses import Response as RawResponse
 
 from avatar_backend.bootstrap.container import AppContainer, get_container
+from avatar_backend.services.gemini_key_pool import serialize_pool_for_env
 
 from avatar_backend.runtime_paths import install_dir
 
@@ -31,6 +32,13 @@ router = APIRouter()
 
 _RESTART_KIOSK_TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
 _SELFHEAL_BASE = "http://localhost:7779"
+
+
+def _sync_gemini_pool_env(pool, primary_key: str) -> None:
+    primary_enabled, pool_value = serialize_pool_for_env(pool, primary_key)
+    if primary_enabled is not None:
+        _update_env_value("GOOGLE_API_KEY_ENABLED", primary_enabled)
+    _update_env_value("GEMINI_API_KEYS", pool_value)
 
 # ── Intron Afro TTS sidecar toggle ────────────────────────────────────────────
 
@@ -826,6 +834,10 @@ async def add_gemini_key(request: Request, container: AppContainer = Depends(get
     if not pool:
         raise HTTPException(status_code=503, detail="Key pool not initialized")
     pool.add_key(key, label)
+    # Sync to .env
+    from avatar_backend.config import get_settings
+    primary = get_settings().google_api_key
+    _sync_gemini_pool_env(pool, primary)
     return {"ok": True, "pool_size": pool.size}
 
 
@@ -838,8 +850,33 @@ async def remove_gemini_key(index: int, request: Request, container: AppContaine
     ok = pool.remove_key(index)
     if not ok:
         raise HTTPException(status_code=404, detail="Key not found")
+    # Sync to .env
+    from avatar_backend.config import get_settings
+    primary = get_settings().google_api_key
+    _sync_gemini_pool_env(pool, primary)
     return {"ok": True, "pool_size": pool.size}
 
+
+@router.post("/gemini-pool/toggle")
+async def toggle_gemini_key(request: Request, container: AppContainer = Depends(get_container)):
+    _require_session(request, min_role="admin")
+    body = await request.json()
+    index = body.get("index")
+    enabled = body.get("enabled", True)
+    pool = container.gemini_key_pool
+    if not pool:
+        raise HTTPException(status_code=503, detail="Key pool not initialized")
+    
+    if index is None: raise HTTPException(status_code=400, detail="Missing index")
+    
+    ok = pool.toggle_key(index, enabled)
+    if not ok: raise HTTPException(status_code=404, detail="Key not found")
+    
+    # Sync to .env
+    from avatar_backend.config import get_settings
+    primary = get_settings().google_api_key
+    _sync_gemini_pool_env(pool, primary)
+    return {"ok": True, "enabled": enabled}
 
 @router.post("/gemini-pool/pin")
 async def pin_camera_to_key(request: Request, container: AppContainer = Depends(get_container)):

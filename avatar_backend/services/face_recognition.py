@@ -52,7 +52,12 @@ class FaceRecognitionService:
 
     # ── Face Recognition ──────────────────────────────────────────────────
 
-    async def recognize(self, image_bytes: bytes, min_confidence: float = 0.5) -> list[dict]:
+    async def recognize(
+        self,
+        image_bytes: bytes,
+        min_confidence: float = 0.5,
+        queue_full_frame_on_empty: bool = False,
+    ) -> list[dict]:
         if not self._url or not image_bytes:
             return []
         try:
@@ -78,11 +83,11 @@ class FaceRecognitionService:
                         faces.append({"name": name, "confidence": conf})
                         _LOGGER.info("face.recognized", name=name, confidence=conf)
                     elif p.get("x_min") is not None:
-                        # Face detected but not confidently identified — queue for review
+                        # Face detected but not confidently identified (or unrecognized) — queue for review
                         self._queue_unknown(image_bytes, p)
-                if not has_any or (not faces and not any(
-                    p.get("userid") == "unknown" for p in predictions if p.get("x_min") is not None
-                )):
+
+                # Only queue an empty frame when a caller explicitly asks for that behavior.
+                if not has_any and queue_full_frame_on_empty:
                     self._queue_full_frame(image_bytes)
                 return faces
         except Exception as exc:

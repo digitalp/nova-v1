@@ -223,7 +223,11 @@ async def greet_face(request: Request, container: AppContainer = Depends(get_con
     })
 
 @router.post("/face/recognize", dependencies=[Depends(verify_api_key)])
-async def recognize_face(request: Request, container: AppContainer = Depends(get_container)):
+async def recognize_face(
+    request: Request,
+    queue_unknown: bool = Query(False),
+    container: AppContainer = Depends(get_container)
+):
     """Accept a JPEG frame from the browser webcam and return recognized faces."""
     face_service = getattr(container, "face_service", None)
     if not face_service or not face_service.available:
@@ -231,5 +235,9 @@ async def recognize_face(request: Request, container: AppContainer = Depends(get
     body = await request.body()
     if not body:
         return JSONResponse({"faces": []})
-    faces = await face_service.recognize(body)
+    
+    # Match the browser greeting threshold. Unknown detected faces are already queued
+    # by the recognition service, so avoid queueing every empty-room frame here.
+    faces = await face_service.recognize(body, min_confidence=0.72)
+
     return JSONResponse({"faces": faces})
