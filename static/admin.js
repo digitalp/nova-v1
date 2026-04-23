@@ -1362,11 +1362,17 @@ function startDecisionStream() {
 
 // ── Parental section moved to static/admin-parental.js ───────────────────────
 
-const _origNavigate = window.navigate;
-window.navigate = function(el) {
-  _origNavigate(el);
-  if (el.dataset.section === 'decisions') startDecisionStream();
-};
+window.registerAdminSection?.('decisions', {
+  onEnter() {
+    startDecisionStream();
+  },
+  onLeave() {
+    if (_decES) {
+      _decES.close();
+      _decES = null;
+    }
+  },
+});
 
 // ── LLM Cost Log ─────────────────────────────────────────────────────────────
 let _costES = null;
@@ -1495,11 +1501,18 @@ function startCostStream() {
   _costES.onerror = () => { if (status) status.textContent = '⚠ Retrying…'; };
 }
 
-const _origNavigateCost = window.navigate;
-window.navigate = function(el) {
-  _origNavigateCost(el);
-  if (el.dataset.section === 'costs') startCostStream();
-};
+window.registerAdminSection?.('costs', {
+  onEnter() {
+    startCostStream();
+    loadCostHistory(_costPeriod);
+  },
+  onLeave() {
+    if (_costES) {
+      _costES.close();
+      _costES = null;
+    }
+  },
+});
 
 
 // ══════════════════════════════════════════════════════════════════
@@ -1703,15 +1716,6 @@ async function loadCostHistory(period='month') {
     if (chartData.length) _buildCostChart(chartData);
   } catch(e) { console.warn('cost history err', e); }
 }
-
-// Hook into cost section navigation to also load DB history
-const _origNavigateCostHist = window.navigate;
-window.navigate = function(el) {
-  _origNavigateCostHist(el);
-  if (el.dataset.section === 'costs') loadCostHistory(_costPeriod);
-};
-
-
 
   // ── Server Logs (pylog) ───────────────────────────────────────────
   let _pylogES = null, _pylogAll = [], _pylogLevel = '', _pylogSearch = '';

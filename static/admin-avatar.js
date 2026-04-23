@@ -2,6 +2,7 @@
 
 (() => {
   const avatarApi = window.adminApi?.avatar;
+  const configApi = window.adminApi?.config;
   if (!avatarApi) return;
 
   const SKIN_LABELS = ['Porcelain', 'Light', 'Medium', 'Dark', 'Deep'];
@@ -10,6 +11,42 @@
   let currentSkinTone = -1;
   let currentHairColor = -1;
   let activeAvatarUrl = '';
+  let avatarRoomCount = 0;
+
+  function renderAvatarSummary() {
+    const skinEl = document.getElementById('avatar-summary-skin');
+    const hairEl = document.getElementById('avatar-summary-hair');
+    const modelEl = document.getElementById('avatar-summary-model');
+    const roomsEl = document.getElementById('avatar-summary-rooms');
+    if (skinEl) skinEl.textContent = currentSkinTone < 0 ? 'GLB Default' : (SKIN_LABELS[currentSkinTone] || 'Custom');
+    if (hairEl) hairEl.textContent = currentHairColor < 0 ? 'GLB Default' : (HAIR_LABELS[currentHairColor] || 'Custom');
+    if (modelEl) {
+      if (!activeAvatarUrl) {
+        modelEl.textContent = 'Default';
+      } else {
+        const raw = activeAvatarUrl.split('/').pop() || activeAvatarUrl;
+        modelEl.textContent = raw.replace(/\.glb$/i, '').replace(/[-_]/g, ' ');
+      }
+    }
+    if (roomsEl) roomsEl.textContent = `${avatarRoomCount || 0} configured`;
+  }
+
+  async function loadAvatarRooms() {
+    if (typeof window.loadRooms === 'function') {
+      await window.loadRooms();
+    }
+    if (configApi) {
+      try {
+        const data = await configApi.getRooms();
+        avatarRoomCount = (data.rooms || []).length;
+      } catch (_) {
+        avatarRoomCount = 0;
+      }
+    } else {
+      avatarRoomCount = document.querySelectorAll('#rooms-list > *').length;
+    }
+    renderAvatarSummary();
+  }
 
   function currentBgType() {
     return document.querySelector('input[name="bg-type"]:checked')?.value || 'color';
@@ -31,6 +68,7 @@
     if (el) el.classList.add('selected');
     const label = document.getElementById('skin-label');
     if (label) label.textContent = index < 0 ? 'GLB Default' : (SKIN_LABELS[index] || '—');
+    renderAvatarSummary();
   }
 
   function selectHair(index) {
@@ -40,6 +78,7 @@
     });
     const label = document.getElementById('hair-label');
     if (label) label.textContent = index < 0 ? 'GLB Default' : (HAIR_LABELS[index] || '—');
+    renderAvatarSummary();
   }
 
   function onBgTypeChange() {
@@ -80,6 +119,7 @@
         avatarApi.getLibrary(),
       ]);
       activeAvatarUrl = settings.avatar_url || '';
+      renderAvatarSummary();
       grid.innerHTML = '';
       if (!lib.avatars.length) {
         grid.innerHTML = '<div class="text-md text-muted">No avatars found in static/avatars/</div>';
@@ -114,6 +154,7 @@
       selectSkin(d.skin_tone ?? -1);
       selectHair(d.hair_color ?? -1);
       activeAvatarUrl = d.avatar_url || '';
+      renderAvatarSummary();
       const avatarUrlInput = document.getElementById('avatar-url');
       if (avatarUrlInput) avatarUrlInput.value = activeAvatarUrl.startsWith('/static/') ? '' : activeAvatarUrl;
       if (d.bg_type) {
@@ -137,6 +178,7 @@
 
   async function selectAvatarFile(url) {
     activeAvatarUrl = url;
+    renderAvatarSummary();
     await avatarApi.saveSettings({
       skin_tone: currentSkinTone,
       hair_color: currentHairColor,
@@ -177,6 +219,7 @@
       return;
     }
     activeAvatarUrl = url;
+    renderAvatarSummary();
     await avatarApi.saveSettings({
       skin_tone: currentSkinTone,
       hair_color: currentHairColor,
@@ -191,6 +234,7 @@
     const input = document.getElementById('avatar-url');
     if (input) input.value = '';
     activeAvatarUrl = '/static/avatars/brunette.glb';
+    renderAvatarSummary();
     await avatarApi.saveSettings({
       skin_tone: currentSkinTone,
       hair_color: currentHairColor,
@@ -264,6 +308,7 @@
       await avatarApi.deleteAvatar(filename);
       if (activeAvatarUrl === '/static/avatars/' + filename) {
         activeAvatarUrl = '/static/avatars/brunette.glb';
+        renderAvatarSummary();
         await avatarApi.saveSettings({
           skin_tone: currentSkinTone,
           hair_color: currentHairColor,
@@ -360,7 +405,7 @@
   bindAvatarEvents();
 
   window.registerAdminSection?.('avatar', {
-    onEnter: () => loadAvatarSettings(),
+    onEnter: () => Promise.allSettled([loadAvatarSettings(), loadAvatarRooms()]),
   });
 
   Object.assign(window, {

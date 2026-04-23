@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.responses import Response as RawResponse
 
 from avatar_backend.bootstrap.container import AppContainer, get_container
-from avatar_backend.services.gemini_key_pool import serialize_pool_for_env
+from avatar_backend.services.gemini_key_pool import serialize_pins_for_env, serialize_pool_for_env
 
 from avatar_backend.runtime_paths import install_dir
 
@@ -39,6 +39,7 @@ def _sync_gemini_pool_env(pool, primary_key: str) -> None:
     if primary_enabled is not None:
         _update_env_value("GOOGLE_API_KEY_ENABLED", primary_enabled)
     _update_env_value("GEMINI_API_KEYS", pool_value)
+    _update_env_value("GEMINI_CAMERA_PINS", serialize_pins_for_env(pool))
 
 # ── Intron Afro TTS sidecar toggle ────────────────────────────────────────────
 
@@ -890,6 +891,9 @@ async def pin_camera_to_key(request: Request, container: AppContainer = Depends(
     if not pool:
         raise HTTPException(status_code=503, detail="Key pool not initialized")
     pool.pin_camera(int(key_index), camera_id)
+    from avatar_backend.config import get_settings
+    primary = get_settings().google_api_key
+    _sync_gemini_pool_env(pool, primary)
     return {"ok": True}
 
 
@@ -904,6 +908,9 @@ async def unpin_camera(request: Request, container: AppContainer = Depends(get_c
     if not pool:
         raise HTTPException(status_code=503, detail="Key pool not initialized")
     pool.unpin_camera(camera_id)
+    from avatar_backend.config import get_settings
+    primary = get_settings().google_api_key
+    _sync_gemini_pool_env(pool, primary)
     return {"ok": True}
 
 

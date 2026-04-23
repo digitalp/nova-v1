@@ -45,7 +45,9 @@ class Settings(BaseSettings):
     sensor_watch_review_timeout_s: float = 120.0
     openai_api_key: str = ""
     google_api_key: str = ""
+    google_api_key_enabled: bool = True
     gemini_api_keys: str = ""  # Comma-separated pool of Gemini API keys for vision rotation
+    gemini_camera_pins: str = ""  # Comma-separated camera_id|raw_key pin mappings
     anthropic_api_key: str = ""
     cloud_model: str = ""
 

@@ -75,7 +75,15 @@ class GeminiKeyPool:
     def get_internal_state(self) -> list[dict]:
         """Return raw internal state for serialization."""
         with self._lock:
-            return [{"key": k.key, "label": k.label, "enabled": k.enabled} for k in self._keys]
+            return [
+                {
+                    "key": k.key,
+                    "label": k.label,
+                    "enabled": k.enabled,
+                    "pinned_cameras": list(k.pinned_cameras),
+                }
+                for k in self._keys
+            ]
 
     @property
     def size(self) -> int:
@@ -212,15 +220,36 @@ def _parse_pool_entry(raw_value: str, default_label: str) -> tuple[str, str, boo
     return key, label, enabled
 
 
+def _parse_pin_entry(raw_value: str) -> tuple[str, str]:
+    raw_value = (raw_value or "").strip()
+    if not raw_value or "|" not in raw_value:
+        return "", ""
+    camera_id, _, key = raw_value.partition("|")
+    return camera_id.strip(), key.strip()
+
+
 def load_pool_from_settings(pool: GeminiKeyPool, settings) -> None:
     """Rebuild a Gemini key pool from settings, preserving labels and enabled flags."""
     pool.clear()
     if settings.google_api_key:
-        pool.add_key(settings.google_api_key, "Primary", enabled=settings.google_api_key_enabled)
+        pool.add_key(
+            settings.google_api_key,
+            "Primary",
+            enabled=getattr(settings, "google_api_key_enabled", True),
+        )
     for i, raw_value in enumerate(k.strip() for k in settings.gemini_api_keys.split(",") if k.strip()):
         key, label, enabled = _parse_pool_entry(raw_value, f"Pool {i + 1}")
         if key:
             pool.add_key(key, label, enabled=enabled)
+    pins_raw = getattr(settings, "gemini_camera_pins", "") or ""
+    for raw_value in (entry.strip() for entry in pins_raw.split(",") if entry.strip()):
+        camera_id, key = _parse_pin_entry(raw_value)
+        if not camera_id or not key:
+            continue
+        for idx, state in enumerate(pool.get_internal_state()):
+            if state["key"] == key:
+                pool.pin_camera(idx, camera_id)
+                break
 
 
 def serialize_pool_for_env(pool: GeminiKeyPool, primary_key: str) -> tuple[str | None, str]:
@@ -236,3 +265,13 @@ def serialize_pool_for_env(pool: GeminiKeyPool, primary_key: str) -> tuple[str |
         else:
             pool_entries.append(f"{key}|{label}|{enabled}")
     return primary_enabled, ",".join(pool_entries)
+
+
+def serialize_pins_for_env(pool: GeminiKeyPool) -> str:
+    """Serialize camera pin state back into GEMINI_CAMERA_PINS."""
+    entries: list[str] = []
+    for state in pool.get_internal_state():
+        key = state["key"]
+        for camera_id in state.get("pinned_cameras") or []:
+            entries.append(f"{camera_id}|{key}")
+    return ",".join(entries)
