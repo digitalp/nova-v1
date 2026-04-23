@@ -48,12 +48,13 @@ const TITLES = {
   'prompts-tuning':'Prompts & Tuning',
   acl:'ACL Rules', sessions:'Sessions', memory:'Memory',
   avatar:'Avatar', tools:'Tools', users:'Users', faces:'Face Recognition',
-  decisions:'AI Decisions', selfheal:'Self-Heal', motion:'Find Anything',
+  decisions:'AI Decisions', selfheal:'Self-Heal', motion:'AI Vision',
   costs:'LLM Cost', metrics:'System Metrics', pylog:'Server Logs',
 };
 
 const _sectionControllers = new Map();
 let _activeSection = document.querySelector('.nav-item.active')?.dataset.section || 'dashboard';
+const SIDEBAR_PREF_KEY = 'novaAdminSidebarCollapsed';
 
 function registerAdminSection(section, controller) {
   if (!section || !controller) return;
@@ -71,12 +72,57 @@ window.registerAdminSection = registerAdminSection;
 
 // ── Avatar section moved to static/admin-avatar.js ──────────────────────────
 
-function toggleSidebar() {
-  const open = document.getElementById('sidebar').classList.toggle('open');
-  document.getElementById('sidebar-overlay').classList.toggle('show', open);
+function dashOpenSection(section) {
+  const btn = document.querySelector(`.nav-item[data-section="${section}"]`);
+  if (btn) btn.click();
 }
+
+function _isMobileNav() {
+  return window.matchMedia('(max-width: 900px)').matches;
+}
+
+function applySidebarPreference(collapsed) {
+  document.body.classList.toggle('sidebar-collapsed', !!collapsed && !_isMobileNav());
+}
+
+function loadSidebarPreference() {
+  const collapsed = localStorage.getItem(SIDEBAR_PREF_KEY) === '1';
+  applySidebarPreference(collapsed);
+}
+
+function setSidebarCollapsed(collapsed) {
+  localStorage.setItem(SIDEBAR_PREF_KEY, collapsed ? '1' : '0');
+  applySidebarPreference(collapsed);
+}
+
+function initSidebarMode() {
+  document.querySelectorAll('.nav-item[data-section]').forEach(btn => {
+    if (!btn.title) btn.title = btn.textContent.trim();
+  });
+  loadSidebarPreference();
+  window.addEventListener('resize', () => {
+    if (_isMobileNav()) {
+      document.body.classList.remove('sidebar-collapsed');
+    } else {
+      loadSidebarPreference();
+      closeSidebar();
+    }
+  });
+}
+
+function toggleSidebar() {
+  if (_isMobileNav()) {
+    const open = document.getElementById('sidebar').classList.toggle('open');
+    document.getElementById('sidebar-overlay').classList.toggle('show', open);
+    return;
+  }
+  setSidebarCollapsed(!document.body.classList.contains('sidebar-collapsed'));
+}
+
 function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('show');
+}
 
 // ── Intron Afro TTS toggle ───────────────────────────────────────────────────
 async function checkIntronStatus() {
@@ -99,8 +145,8 @@ async function toggleIntronTTS() {
   } catch (e) { toast('Failed: ' + e.message, 'err'); }
   setTimeout(checkIntronStatus, 2000);
 }
-  document.getElementById('sidebar-overlay').classList.remove('show');
-}
+
+initSidebarMode();
 
 function navigate(el) {
   closeSidebar();
@@ -168,6 +214,7 @@ const adminApi = {
     getGeminiPool: () => api('GET', '/admin/gemini-pool'),
     addGeminiKey: (payload) => api('POST', '/admin/gemini-pool/add', payload),
     removeGeminiKey: (index) => api('DELETE', '/admin/gemini-pool/' + encodeURIComponent(index)),
+    toggleGeminiKey: (payload) => api('POST', '/admin/gemini-pool/toggle', payload),
     getVisionCameras: () => api('GET', '/admin/vision-cameras'),
     saveVisionCameras: (payload) => api('POST', '/admin/vision-cameras', payload),
     getRooms: () => api('GET', '/admin/rooms'),
@@ -316,12 +363,17 @@ function renderHealth(d) {
 
 async function loadDashboard() {
   _initDashCharts();
+  const dashNeedsFallback = (el) => !el || /^[-—\s]*$/.test(el.textContent || '');
   try {
-    const [health, sessions, monthCost, metricsNow] = await Promise.all([
+    const [health, sessions, monthCost, metricsNow, decisions, selfhealStatus, memory, parentalDevices] = await Promise.all([
       fetch('/health').then(r => r.json()),
       api('GET', '/admin/sessions'),
       api('GET', '/admin/costs/history?period=month').catch(() => null),
       api('GET', '/admin/metrics').catch(() => null),
+      fetch('/admin/decisions', { credentials:'include' }).then(r => r.ok ? r.json() : null).catch(() => null),
+      selfhealRequest('/status').catch(() => null),
+      api('GET', '/admin/memory?n=200').catch(() => null),
+      api('GET', '/admin/parental/devices').catch(() => null),
     ]);
     renderHealth(health);
     document.getElementById('dash-sessions').textContent = sessions.active_sessions ?? '—';
@@ -330,6 +382,61 @@ async function loadDashboard() {
       const cost = s.cost_usd || 0;
       document.getElementById('dash-month-cost').textContent = '$' + cost.toFixed(cost < 0.01 ? 6 : 4);
       document.getElementById('dash-month-calls').textContent = (s.calls || 0) + ' calls this month';
+    }
+    if (decisions && Array.isArray(decisions.decisions)) {
+      const items = decisions.decisions;
+      const announces = items.filter(e => e.kind === 'triage_announce' || e.kind === 'motion_announce' || e.kind === 'weather_announce').length;
+      const tools = items.filter(e => e.kind === 'tool_call').length;
+      const el = document.getElementById('dash-decisions');
+      const sub = document.getElementById('dash-decisions-sub');
+      if (el) el.textContent = `${items.length} entries`;
+      if (sub) sub.textContent = `${announces} announces · ${tools} tools`;
+    } else {
+      const el = document.getElementById('dash-decisions');
+      const sub = document.getElementById('dash-decisions-sub');
+      if (dashNeedsFallback(el)) el.textContent = 'Unavailable';
+      if (dashNeedsFallback(sub)) sub.textContent = 'No data';
+    }
+    if (selfhealStatus) {
+      const pending = Number(selfhealStatus.pending_count || 0);
+      const applied = Number(selfhealStatus.patches_applied || 0);
+      const errors = Number(selfhealStatus.errors_detected || 0);
+      const el = document.getElementById('dash-selfheal');
+      const sub = document.getElementById('dash-selfheal-sub');
+      if (el) el.textContent = pending ? `${pending} pending` : 'Running';
+      if (sub) sub.textContent = `${applied} applied · ${errors} errors`;
+    } else {
+      const el = document.getElementById('dash-selfheal');
+      const sub = document.getElementById('dash-selfheal-sub');
+      if (dashNeedsFallback(el)) el.textContent = 'Unavailable';
+      if (dashNeedsFallback(sub)) sub.textContent = 'No data';
+    }
+    if (memory && Array.isArray(memory.memories)) {
+      const items = memory.memories;
+      const pinned = items.filter(m => m.pinned).length;
+      const categories = new Set(items.map(m => (m.category || 'general').trim()).filter(Boolean)).size;
+      const el = document.getElementById('dash-memory');
+      const sub = document.getElementById('dash-memory-sub');
+      if (el) el.textContent = `${items.length} stored`;
+      if (sub) sub.textContent = `${pinned} pinned · ${categories} categories`;
+    } else {
+      const el = document.getElementById('dash-memory');
+      const sub = document.getElementById('dash-memory-sub');
+      if (dashNeedsFallback(el)) el.textContent = 'Unavailable';
+      if (dashNeedsFallback(sub)) sub.textContent = 'No data';
+    }
+    if (parentalDevices && Array.isArray(parentalDevices.devices)) {
+      const devices = parentalDevices.devices;
+      const online = devices.filter(d => d.statusCode === 'green').length;
+      const el = document.getElementById('dash-parental');
+      const sub = document.getElementById('dash-parental-sub');
+      if (el) el.textContent = `${devices.length} devices`;
+      if (sub) sub.textContent = `${online} online`;
+    } else {
+      const el = document.getElementById('dash-parental');
+      const sub = document.getElementById('dash-parental-sub');
+      if (dashNeedsFallback(el)) el.textContent = 'Unavailable';
+      if (dashNeedsFallback(sub)) sub.textContent = 'No data';
     }
     if (metricsNow && metricsNow.latest) _applyGaugeDash(metricsNow.latest);
   } catch(e) { console.warn(e); }
@@ -691,6 +798,24 @@ async function saveAcl() {
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
 
+function renderSessionsSummary(sessions) {
+  const items = sessions || [];
+  const totalEl = document.getElementById('sessions-summary-total');
+  const roomsEl = document.getElementById('sessions-summary-rooms');
+  const messagesEl = document.getElementById('sessions-summary-messages');
+  const hostsEl = document.getElementById('sessions-summary-hosts');
+  const roomCount = new Set(items.map(s => s.room_id).filter(Boolean)).size;
+  const hostCount = new Set(items.map(s => {
+    const meta = s.metadata || {};
+    return meta.host_label || meta.host || '';
+  }).filter(Boolean)).size;
+  const messageCount = items.reduce((sum, s) => sum + Number(s.message_count || 0), 0);
+  if (totalEl) totalEl.textContent = `${items.length}`;
+  if (roomsEl) roomsEl.textContent = `${roomCount}`;
+  if (messagesEl) messagesEl.textContent = `${messageCount}`;
+  if (hostsEl) hostsEl.textContent = `${hostCount}`;
+}
+
 async function loadSessions() {
   try {
     const d = await api('GET', '/admin/sessions');
@@ -698,6 +823,7 @@ async function loadSessions() {
     tbody.innerHTML = '';
     const count = d.active_sessions || 0;
     const sessions = d.sessions || [];
+    renderSessionsSummary(sessions);
     if (count === 0) {
       tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="empty-state-icon">💬</div><div class="empty-state-title">No active sessions</div><div class="empty-state-desc">Conversations will appear here when users connect to the avatar.</div></div></td></tr>';
       return;
@@ -726,7 +852,10 @@ async function loadSessions() {
       `;
       tbody.appendChild(tr);
     });
-  } catch(e) { toast('Failed to load sessions: ' + e.message, 'err'); }
+  } catch(e) {
+    renderSessionsSummary([]);
+    toast('Failed to load sessions: ' + e.message, 'err');
+  }
 }
 
 async function clearSession(sessionId) {
@@ -773,6 +902,24 @@ function _fmtMemoryTs(ts) {
   return d.toLocaleString();
 }
 
+function renderMemorySummary(items) {
+  const totalEl = document.getElementById('memory-summary-total');
+  const pinnedEl = document.getElementById('memory-summary-pinned');
+  const categoriesEl = document.getElementById('memory-summary-categories');
+  const updatedEl = document.getElementById('memory-summary-updated');
+  const memories = items || [];
+  const pinnedCount = memories.filter(m => m.pinned).length;
+  const categories = new Set(memories.map(m => (m.category || 'general').trim()).filter(Boolean));
+  const lastUpdated = memories
+    .map(m => m.updated_ts || m.created_ts)
+    .filter(Boolean)
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+  if (totalEl) totalEl.textContent = `${memories.length}`;
+  if (pinnedEl) pinnedEl.textContent = `${pinnedCount}`;
+  if (categoriesEl) categoriesEl.textContent = `${categories.size}`;
+  if (updatedEl) updatedEl.textContent = memories.length ? _fmtMemoryTs(lastUpdated) : 'No memories yet';
+}
+
 async function loadMemory() {
   const tbody = document.getElementById('memory-tbody');
   if (!tbody) return;
@@ -780,6 +927,7 @@ async function loadMemory() {
   try {
     const d = await api('GET', '/admin/memory?n=200');
     const items = d.memories || [];
+    renderMemorySummary(items);
     if (!items.length) {
       tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="empty-state-icon">🧠</div><div class="empty-state-title">No memories stored yet</div><div class="empty-state-desc">Nova learns from conversations, or you can add memories manually using the form above.</div></div></td></tr>';
       return;
@@ -802,6 +950,7 @@ async function loadMemory() {
       </tr>
     `).join('');
   } catch(e) {
+    renderMemorySummary([]);
     tbody.innerHTML = '<tr><td colspan="7" style="color:#fca5a5;">Failed to load memory.</td></tr>';
     toast('Failed to load memory: ' + e.message, 'err');
   }
@@ -905,11 +1054,20 @@ async function loadUsers() {
   try {
     const d = await api('GET', '/admin/users');
     const container = document.getElementById('users-list');
-    if (!d.users.length) {
+    const users = d.users || [];
+    const adminCount = users.filter(u => u.role === 'admin').length;
+    const viewerCount = users.filter(u => u.role === 'viewer').length;
+    const totalEl = document.getElementById('users-summary-total');
+    const adminEl = document.getElementById('users-summary-admins');
+    const viewerEl = document.getElementById('users-summary-viewers');
+    if (totalEl) totalEl.textContent = `${users.length}`;
+    if (adminEl) adminEl.textContent = `${adminCount}`;
+    if (viewerEl) viewerEl.textContent = `${viewerCount}`;
+    if (!users.length) {
       container.innerHTML = '<p style="padding:16px 0;color:var(--text3);font-size:13px;">No users yet.</p>';
       return;
     }
-    container.innerHTML = d.users.map(u => `
+    container.innerHTML = users.map(u => `
       <div class="user-row">
         <div class="user-row-icon">${esc(u.username.charAt(0).toUpperCase())}</div>
         <span class="user-name">${esc(u.username)}</span>
@@ -1017,6 +1175,21 @@ const _kindMeta = {
   motion_coral_filtered:  { label:'🪸 FILTERED', bg:'rgba(71,85,105,.2)',   color:'#64748b' },
 };
 
+function renderDecisionSummary(statusText = null) {
+  const totalEl = document.getElementById('dec-summary-total');
+  const announcesEl = document.getElementById('dec-summary-announces');
+  const toolsEl = document.getElementById('dec-summary-tools');
+  const streamEl = document.getElementById('dec-summary-stream');
+  const entries = _decEntries || [];
+  const announceCount = entries.filter(e => e.kind === 'triage_announce' || e.kind === 'motion_announce' || e.kind === 'weather_announce').length;
+  const toolCount = entries.filter(e => e.kind === 'tool_call').length;
+  const liveText = statusText ?? document.getElementById('dec-status')?.textContent ?? 'Idle';
+  if (totalEl) totalEl.textContent = `${entries.length}`;
+  if (announcesEl) announcesEl.textContent = `${announceCount}`;
+  if (toolsEl) toolsEl.textContent = `${toolCount}`;
+  if (streamEl) streamEl.textContent = liveText || 'Idle';
+}
+
 function _kindBadge(kind) {
   const m = _kindMeta[kind] || { label: kind.toUpperCase(), bg:'rgba(255,255,255,.08)', color:'#e2e8f0' };
   return `<span style="background:${m.bg};color:${m.color};padding:1px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.3px;flex-shrink:0;">${m.label}</span>`;
@@ -1104,6 +1277,7 @@ function _decEntryHTML(e, idx = -1, entries = _decEntries) {
 function _appendDecEntry(e) {
   _decEntries.push(e);
   if (_decEntries.length > 500) _decEntries.shift();
+  renderDecisionSummary();
   const log = document.getElementById('dec-log');
   if (!log) return;
   // Skip full re-render: just append the new row to the DOM
@@ -1135,6 +1309,7 @@ function filterDecisions(btn) {
 
 function clearDecisions() {
   _decEntries = [];
+  renderDecisionSummary('Log cleared');
   const log = document.getElementById('dec-log');
   if (log) log.innerHTML = '<div style="padding:12px 18px;color:var(--text3);">Log cleared.</div>';
 }
@@ -1142,10 +1317,14 @@ function clearDecisions() {
 function startDecisionStream() {
   if (_decES) { _decES.close(); _decES = null; }
   _decEntries = [];
+  renderDecisionSummary('Connecting…');
   const decLog = document.getElementById('dec-log');
   if (decLog) decLog.innerHTML = '<div style="padding:12px 18px;color:var(--text3);">Loading…</div>';
   const status = document.getElementById('dec-status');
-  if (status) status.textContent = 'Connecting…';
+  if (status) {
+    status.textContent = 'Connecting…';
+    renderDecisionSummary(status.textContent);
+  }
   fetch('/admin/decisions', { credentials:'include' })
     .then(r => r.json())
     .then(data => {
@@ -1160,19 +1339,24 @@ function startDecisionStream() {
         }
       }
       if (status) status.textContent = `${_decEntries.length} loaded`;
+      renderDecisionSummary(status?.textContent || `${_decEntries.length} loaded`);
     })
     .catch(() => {});
   let _sseDecBacklogDone = false;
   _decES = new EventSource('/admin/decisions/stream');
   _decES.onopen = () => {
     if (status) status.textContent = '● Live';
+    renderDecisionSummary(status?.textContent || '● Live');
     setTimeout(() => { _sseDecBacklogDone = true; }, 1500);
   };
   _decES.onmessage = (ev) => {
     if (!_sseDecBacklogDone) return;
     try { const e = JSON.parse(ev.data); if (e && e.kind) _appendDecEntry(e); } catch {}
   };
-  _decES.onerror = () => { if (status) status.textContent = '⚠ Retrying…'; };
+  _decES.onerror = () => {
+    if (status) status.textContent = '⚠ Retrying…';
+    renderDecisionSummary(status?.textContent || '⚠ Retrying…');
+  };
 }
 
 
@@ -1533,20 +1717,43 @@ window.navigate = function(el) {
   let _pylogES = null, _pylogAll = [], _pylogLevel = '', _pylogSearch = '';
   const _LEVEL_COL = {debug:'#475569',info:'#94a3b8',warning:'#fbbf24',error:'#f87171',critical:'#f97316'};
 
+  function renderPylogSummary(statusText = null) {
+    const totalEl = document.getElementById('pylog-summary-total');
+    const warningsEl = document.getElementById('pylog-summary-warnings');
+    const errorsEl = document.getElementById('pylog-summary-errors');
+    const streamEl = document.getElementById('pylog-summary-stream');
+    const entries = _pylogAll || [];
+    const warnings = entries.filter(e => e.level === 'warning').length;
+    const errors = entries.filter(e => e.level === 'error' || e.level === 'critical').length;
+    const liveText = statusText ?? document.getElementById('pylog-status')?.textContent ?? 'idle';
+    if (totalEl) totalEl.textContent = `${entries.length}`;
+    if (warningsEl) warningsEl.textContent = `${warnings}`;
+    if (errorsEl) errorsEl.textContent = `${errors}`;
+    if (streamEl) streamEl.textContent = liveText || 'idle';
+  }
+
   function initPylog() {
     if (_pylogES) return;
     fetch('/admin/pylog?n=500').then(r=>r.json()).then(d=>{
       _pylogAll = d.entries||[];
+      renderPylogSummary();
       _renderPylog();
     }).catch(()=>{});
     _pylogES = new EventSource('/admin/pylog/stream');
-    _pylogES.onopen  = ()=>{ document.getElementById('pylog-status').textContent='live'; };
-    _pylogES.onerror = ()=>{ document.getElementById('pylog-status').textContent='disconnected'; };
+    _pylogES.onopen  = ()=>{
+      document.getElementById('pylog-status').textContent='live';
+      renderPylogSummary('live');
+    };
+    _pylogES.onerror = ()=>{
+      document.getElementById('pylog-status').textContent='disconnected';
+      renderPylogSummary('disconnected');
+    };
     _pylogES.onmessage = e => {
       try {
         const entry = JSON.parse(e.data);
         _pylogAll.push(entry);
         if (_pylogAll.length > 2000) _pylogAll.shift();
+        renderPylogSummary();
         if (_pylogMatch(entry)) {
           _appendPylogLine(entry);
           if (document.getElementById('pylog-autoscroll').checked) {
@@ -1605,7 +1812,11 @@ window.navigate = function(el) {
     btn.classList.add('active'); _pylogLevel=btn.dataset.level; _renderPylog();
   }
   function filterPylog() { _pylogSearch=document.getElementById('pylog-search').value; _renderPylog(); }
-  function clearPylog() { _pylogAll=[]; document.getElementById('pylog-output').innerHTML='<div style="padding:12px 18px;color:var(--text3);">Cleared.</div>'; }
+  function clearPylog() {
+    _pylogAll=[];
+    renderPylogSummary('cleared');
+    document.getElementById('pylog-output').innerHTML='<div style="padding:12px 18px;color:var(--text3);">Cleared.</div>';
+  }
   function _esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 

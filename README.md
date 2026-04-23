@@ -109,7 +109,7 @@ Gamified household chore tracking with voice integration, camera verification, a
 Full web UI — no SSH needed for day-to-day management:
 - **Dashboard** — live system metrics (CPU, RAM, GPU), Ollama status, health indicators
 - **AI Decisions log** — real-time stream of every triage, tool call, chat response, sensor event, and heating shadow evaluation with LLM badges
-- **Find Anything** — AI-powered natural language search over archived motion clips. UniFi-style evidence console with camera rail, day/event-type grouping, keyboard navigation, lazy video loading
+- **AI Vision** — AI-powered natural language search over archived motion clips. UniFi-style evidence console with camera rail, day/event-type grouping, keyboard navigation, lazy video loading
 - **LLM Cost log** — per-model token and cost tracking with daily/monthly charts
 - **Server Logs** — searchable structured log stream
 - **System Prompt** — edit Nova's personality and capabilities live

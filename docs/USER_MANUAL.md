@@ -38,7 +38,7 @@ The admin panel is your control centre. It has these sections:
 |---------|-------------|
 | **Dashboard** | System health, CPU/RAM/GPU usage, Ollama status |
 | **AI Decisions** | Live feed of every decision Nova makes — triage, announcements, heating |
-| **Find Anything** | Search and browse archived camera motion clips |
+| **AI Vision** | Search and browse archived camera motion clips |
 | **LLM Costs** | Track token usage and costs if using cloud AI |
 | **Server Logs** | Searchable log stream for debugging |
 | **Settings** | Change AI provider, voice, speakers, background |
@@ -122,7 +122,7 @@ Nova watches your cameras for motion and can:
 
 - **Describe what she sees** — "A person in a dark jacket approaching the front door"
 - **Detect deliveries** — "DELIVERY: Amazon" triggers special handling
-- **Archive video clips** — searchable in Find Anything
+- **Archive video clips** — searchable in AI Vision
 - **Alert you** — announces on speakers and/or sends phone notifications
 
 **How it works:**
