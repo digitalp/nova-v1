@@ -897,6 +897,12 @@ def set_gemini_key_pool(pool) -> None:
     global _gemini_key_pool
     _gemini_key_pool = pool
 
+
+def _gemini_attempt_budget() -> int:
+    if _gemini_key_pool and _gemini_key_pool.size:
+        return max(1, _gemini_key_pool.size)
+    return 1
+
 def _get_gemini_key(camera_id: str | None = None) -> str | None:
     """Get a Gemini API key from the pool, or fall back to settings."""
     if _gemini_key_pool and _gemini_key_pool.size:
@@ -908,10 +914,6 @@ def _report_gemini_429(key: str) -> None:
         _gemini_key_pool.report_429(key)
 
 
-def _gemini_attempt_budget() -> int:
-    if _gemini_key_pool and _gemini_key_pool.size:
-        return max(1, _gemini_key_pool.size)
-    return 1
 
 
 def _vision_ollama_url() -> str:
