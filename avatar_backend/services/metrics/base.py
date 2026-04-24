@@ -91,6 +91,13 @@ CREATE TABLE IF NOT EXISTS child_states (
     entered_ts TEXT,
     expires_ts TEXT
 );
+CREATE TABLE IF NOT EXISTS child_state_history (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts        TEXT NOT NULL,
+    person_id TEXT NOT NULL,
+    state     TEXT NOT NULL,
+    reason    TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS parental_tool_audit (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     ts         TEXT NOT NULL,

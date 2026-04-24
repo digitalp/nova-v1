@@ -941,6 +941,44 @@ async def get_family_status(request: Request, container: AppContainer = Depends(
     return {"configured": True, "people": people_out}
 
 
+@router.get("/parental/timeline")
+async def get_timeline(request: Request, container: AppContainer = Depends(get_container),
+                       days: int = 3):
+    """Merged timeline of state changes and tool calls, newest first."""
+    _require_session(request, min_role="viewer")
+    db = getattr(container, "metrics_db", None)
+    if db is None:
+        return {"events": []}
+    events = []
+    # State change history
+    for row in db.list_child_state_history(limit=200):
+        events.append({
+            "ts": row["ts"],
+            "kind": "state_change",
+            "person_id": row["person_id"],
+            "state": row["state"],
+            "reason": row["reason"],
+        })
+    # Parental tool audit
+    for row in db.list_parental_audit(limit=200):
+        import json as _json
+        try:
+            args = _json.loads(row.get("args") or "{}")
+        except Exception:
+            args = {}
+        person_id = args.get("person_id") or args.get("device_number") or ""
+        events.append({
+            "ts": row["ts"],
+            "kind": "tool_call",
+            "person_id": person_id,
+            "tool": row["tool"],
+            "success": bool(row["success"]),
+            "message": row["message"],
+        })
+    events.sort(key=lambda e: e["ts"], reverse=True)
+    return {"events": events[:300]}
+
+
 @router.get("/parental/audit")
 async def list_parental_audit(request: Request, container: AppContainer = Depends(get_container)):
     """Return recent parental LLM tool call audit log."""

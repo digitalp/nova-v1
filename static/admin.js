@@ -289,7 +289,8 @@ const adminApi = {
     approveOverride: (id) => api('POST', `/admin/parental/overrides/${encodeURIComponent(id)}/approve`),
     denyOverride: (id) => api('POST', `/admin/parental/overrides/${encodeURIComponent(id)}/deny`),
     getAudit: (limit=100) => api('GET', `/admin/parental/audit?limit=${limit}`),
-    getFamily: () => api('GET', '/admin/parental/family'),
+    getFamily:   () => api('GET', '/admin/parental/family'),
+    getTimeline: () => api('GET', '/admin/parental/timeline'),
   },
   scoreboard: {
     getOverview: () => api('GET', '/admin/scoreboard'),

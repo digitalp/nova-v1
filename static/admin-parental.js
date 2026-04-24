@@ -792,9 +792,61 @@
     }
   }
 
+
+  // ── Activity Timeline ─────────────────────────────────────────────────────
+
+  const _TIMELINE_ICONS = {
+    state_change: '🔄',
+    tool_call:    '🔧',
+  };
+  const _STATE_LABELS = {
+    allowed:      'Allowed',
+    warned:       'Warned',
+    grace_period: 'Grace Period',
+    restricted:   'Restricted',
+    overridden:   'Override Active',
+  };
+
+  async function parentalLoadTimeline() {
+    const el = document.getElementById('parental-timeline-list');
+    if (!el) return;
+    el.textContent = 'Loading…';
+    try {
+      const data = await window.adminApi.parental.getTimeline();
+      const events = data.events || [];
+      if (!events.length) {
+        el.innerHTML = '<span class="text-muted">No events recorded yet.</span>';
+        return;
+      }
+      el.innerHTML = events.map(ev => {
+        const icon = _TIMELINE_ICONS[ev.kind] || '•';
+        const ts = _esc((ev.ts || '').replace('T', ' ').slice(0, 16));
+        let detail = '';
+        if (ev.kind === 'state_change') {
+          const label = _STATE_LABELS[ev.state] || _esc(ev.state);
+          const who = _esc(ev.person_id || '');
+          const reason = ev.reason ? ` — ${_esc(ev.reason)}` : '';
+          detail = `<strong>${who}</strong> → <span style="font-weight:600;">${label}</span>${reason}`;
+        } else {
+          const who = ev.person_id ? `<strong>${_esc(ev.person_id)}</strong> · ` : '';
+          const ok = ev.success ? '' : '<span style="color:var(--danger);">[failed]</span> ';
+          detail = `${who}${ok}<code>${_esc(ev.tool || '')}</code> — ${_esc((ev.message || '').slice(0, 80))}`;
+        }
+        return `<div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;">
+          <span style="color:var(--text3);min-width:110px;flex-shrink:0;">${ts}</span>
+          <span style="min-width:18px;">${icon}</span>
+          <span style="flex:1;min-width:0;">${detail}</span>
+        </div>`;
+      }).join('');
+    } catch (e) {
+      el.innerHTML = '<span style="color:var(--danger);">Failed: ' + _esc(e.message) + '</span>';
+    }
+  }
+
   window.registerAdminSection('parental', {
     onEnter() {
       parentalLoadFamily();
+      parentalLoadTimeline();
       parentalLoadOverrides('pending');
       parentalLoadAudit();
       return loadParentalSection();
@@ -844,5 +896,6 @@
     parentalDenyOverride,
     parentalLoadAudit,
     parentalLoadFamily,
+    parentalLoadTimeline,
   });
 })();

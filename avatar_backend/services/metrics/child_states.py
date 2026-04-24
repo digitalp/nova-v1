@@ -35,9 +35,28 @@ class ChildStatesMixin:
                 (person_id, state, reason, now, expires_ts),
             )
             row = conn.execute(
+                "INSERT INTO child_state_history (ts, person_id, state, reason) VALUES (datetime('now'),?,?,?)",
+                (person_id, state, reason or ""),
+            )
+            self._write_conn.execute(
                 "SELECT * FROM child_states WHERE person_id = ?", (person_id,)
             ).fetchone()
             return dict(row) if row else {}
+
+
+    def list_child_state_history(self, person_id: str | None = None, limit: int = 100) -> list[dict]:
+        with self._conn() as conn:
+            if person_id:
+                rows = conn.execute(
+                    "SELECT * FROM child_state_history WHERE person_id=? ORDER BY id DESC LIMIT ?",
+                    (person_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM child_state_history ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            return [dict(r) for r in rows]
 
     def list_child_states(self) -> list[dict]:
         with self._conn() as conn:
