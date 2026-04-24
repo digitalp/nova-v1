@@ -61,7 +61,7 @@ class OverridesMixin:
         return dict(row) if row else None
 
     def ensure_parental_audit_table(self) -> None:
-        with self._connect() as conn:
+        with self._write_lock, self._write_conn as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS parental_tool_audit (
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,7 +76,7 @@ class OverridesMixin:
     def log_parental_tool(self, tool: str, args: dict, success: bool, message: str) -> None:
         from datetime import datetime as _dt
         import json as _json
-        with self._connect() as conn:
+        with self._write_lock, self._write_conn as conn:
             conn.execute(
                 "INSERT INTO parental_tool_audit (ts, tool, args, success, message) VALUES (?,?,?,?,?)",
                 (
@@ -89,7 +89,7 @@ class OverridesMixin:
             )
 
     def list_parental_audit(self, limit: int = 100) -> list[dict]:
-        with self._connect() as conn:
+        with self._conn() as conn:
             rows = conn.execute(
                 "SELECT * FROM parental_tool_audit ORDER BY id DESC LIMIT ?", (limit,)
             ).fetchall()
