@@ -328,25 +328,30 @@ async def _bootstrap_phase3(app, settings, system_prompt, c, logger):
     from avatar_backend.bootstrap.background import schedule_background_tasks
     schedule_background_tasks(app, c)
 
-    # Auto-detect Cloudflare tunnel URL
+    # Auto-detect Cloudflare quick-tunnel URL — skipped when a permanent domain is set.
+    # A permanent domain is any PUBLIC_URL that is set and is NOT a trycloudflare.com URL.
     try:
-        from avatar_backend.routers.admin import _read_tunnel_url, _update_env_value
-        tunnel_url = None
-        for _attempt in range(5):
-            tunnel_url = await _read_tunnel_url()
-            if tunnel_url:
-                break
-            await asyncio.sleep(3)
-        if tunnel_url:
-            current_public = settings.public_url or ""
-            if current_public != tunnel_url:
-                _update_env_value("PUBLIC_URL", tunnel_url)
-                get_settings.cache_clear()
-                logger.info("tunnel.auto_updated", old=current_public, new=tunnel_url)
-            else:
-                logger.info("tunnel.url_current", url=tunnel_url)
+        current_public = settings.public_url or ""
+        _is_permanent = current_public and "trycloudflare.com" not in current_public
+        if _is_permanent:
+            logger.info("tunnel.permanent_url", url=current_public, detail="skipping quick-tunnel auto-detect")
         else:
-            logger.info("tunnel.not_detected", detail="No Cloudflare tunnel found — Alexa will use native TTS")
+            from avatar_backend.routers.admin import _read_tunnel_url, _update_env_value
+            tunnel_url = None
+            for _attempt in range(5):
+                tunnel_url = await _read_tunnel_url()
+                if tunnel_url:
+                    break
+                await asyncio.sleep(3)
+            if tunnel_url:
+                if current_public != tunnel_url:
+                    _update_env_value("PUBLIC_URL", tunnel_url)
+                    get_settings.cache_clear()
+                    logger.info("tunnel.auto_updated", old=current_public, new=tunnel_url)
+                else:
+                    logger.info("tunnel.url_current", url=tunnel_url)
+            else:
+                logger.info("tunnel.not_detected", detail="No Cloudflare tunnel found — Alexa will use native TTS")
     except Exception as exc:
         logger.debug("tunnel.auto_detect_skipped", exc=str(exc))
 
