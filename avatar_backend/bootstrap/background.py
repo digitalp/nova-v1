@@ -785,6 +785,13 @@ def schedule_background_tasks(app: FastAPI, container) -> None:
             name="morning_digest",
         ))
     # Homework gate (only if family_service + mdm_client available)
+    # Doc update loop
+    nova_path = str(getattr(container, "_nova_path", "/opt/avatar-server"))
+    loop.create_task(
+        _doc_update_loop(nova_path),
+        name="doc_update",
+    )
+
     # Bedtime enforcement loop
     _fs = getattr(container, 'family_service', None)
     if _fs is not None and getattr(container, 'mdm_client', None) is not None:

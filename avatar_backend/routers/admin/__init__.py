@@ -11,7 +11,7 @@ viewer — read-only: dashboard, logs, sessions
 """
 from fastapi import APIRouter
 
-from . import auth, config, motion, events, dashboard, monitoring, system, scoreboard, parental
+from . import auth, config, motion, events, dashboard, monitoring, system, scoreboard, parental, help_docs
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -24,6 +24,7 @@ router.include_router(monitoring.router)
 router.include_router(system.router)
 router.include_router(scoreboard.router)
 router.include_router(parental.router)
+router.include_router(help_docs.router)
 
 # Re-exports for backward compatibility (tests, main.py, etc.)
 from .common import (  # noqa: F401

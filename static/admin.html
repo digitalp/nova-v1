@@ -103,6 +103,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       Self-Heal
     </button>
+    <button class="nav-item" data-section="help">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      Help &amp; Tips
+    </button>
 
     <div class="nav-group-label mt-1">People &amp; Devices</div>
     <button class="nav-item admin-only" data-section="parental" style="display:none">
@@ -2168,6 +2172,33 @@
 
     </div>
 
+
+    <div id="section-help" class="section" data-admin-section="help">
+      <div class="page-header">
+        <div class="page-title">Help &amp; Tips</div>
+        <div class="page-sub">Guides, feature docs, and tips for getting the most out of Nova</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:220px 1fr;gap:20px;align-items:start;">
+
+        <!-- Doc list sidebar -->
+        <div class="card" style="margin-bottom:0;padding:12px;">
+          <div class="card-title" style="margin-bottom:10px;">Sections</div>
+          <div id="help-doc-list" style="display:flex;flex-direction:column;gap:2px;">
+            <div class="text-muted text-sm">Loading…</div>
+          </div>
+        </div>
+
+        <!-- Doc content panel -->
+        <div class="card" style="margin-bottom:0;min-height:400px;">
+          <div id="help-doc-content" class="help-doc-body text-sm">
+            <div class="text-muted">Select a section on the left to get started.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
     <div id="section-parental" class="section" data-admin-section="parental">
 
       <div class="page-header">
@@ -2397,7 +2428,8 @@
 
 
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/admin.js?v=1777056218"></script>
+<script src="/static/admin-help.js"></script>
+    <script src="/static/admin.js?v=1777057361"></script>
 <script src="/static/admin-config.js?v=1777044379"></script>
 <script src="/static/admin-avatar.js?v=1777020339"></script>
 <script src="/static/admin-parental.js?v=1777020343"></script>

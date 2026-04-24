@@ -315,6 +315,10 @@ const adminApi = {
   memory: {
     getUsage: (id) => api('GET', '/admin/memory/' + encodeURIComponent(id) + '/usage'),
   },
+  help: {
+    listDocs: () => api('GET', '/admin/help/docs'),
+    getDoc: (name) => fetch('/admin/help/docs/' + encodeURIComponent(name), {credentials:'include'}).then(r => r.text()),
+  },
   tools: {
     sendAnnouncementTest: (payload) => api('POST', '/admin/announce/test', payload),
     getAnnouncements: (limit=200) => api('GET', '/admin/announcements?limit=' + encodeURIComponent(limit)),
