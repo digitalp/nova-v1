@@ -1,4 +1,93 @@
 
+async function parentalShowAddGate() {
+  const modal = document.getElementById('parental-add-gate-modal');
+  if (!modal) return;
+
+  // Populate person selector (children without an existing homework gate)
+  const [policiesData, devicesData] = await Promise.all([
+    adminApi.parental.getPolicies(),
+    adminApi.parental.getDevices().catch(() => ({ devices: [] })),
+  ]);
+  const existingSubjects = new Set((policiesData.policies || []).map(p => p.subject_id));
+  const allPeople = (policiesData.policies || []);  // we need family data
+
+  // Fetch family to get all children
+  const familyData = await adminApi.parental.getFamily().catch(() => ({ members: [] }));
+  const children = (familyData.people || familyData.members || []).filter(m => m.role === 'child');
+  const available = children.filter(c => !existingSubjects.has(c.id));
+
+  const personSel = document.getElementById('add-gate-person');
+  const deviceSel = document.getElementById('add-gate-device');
+
+  if (!available.length) {
+    toast('All children already have a homework gate policy', 'info');
+    return;
+  }
+
+  personSel.innerHTML = available.map(c =>
+    `<option value="${_escapeHtml(c.id)}">${_escapeHtml(c.display_name || c.name || c.id)}</option>`
+  ).join('');
+
+  const devices = (devicesData.devices || []);
+  deviceSel.innerHTML = devices.length
+    ? devices.map(d => `<option value="${_escapeHtml(String(d.number || d.id || ''))}">
+        ${_escapeHtml(String(d.number || d.id || '?'))}${d.description ? ' — ' + _escapeHtml(d.description) : ''}
+      </option>`).join('')
+    : '<option value="">No MDM devices enrolled</option>';
+
+  // Populate task checkboxes
+  const taskBox = document.getElementById('add-gate-tasks');
+  const tasks = policiesData.tasks || [];
+  taskBox.innerHTML = tasks.length
+    ? tasks.map(t => `
+        <label style="display:flex;align-items:center;gap:6px;margin-bottom:4px;cursor:pointer;">
+          <input type="checkbox" data-task="${_escapeHtml(t.id)}" checked>
+          <span>${_escapeHtml(t.label)}</span>
+        </label>`).join('')
+    : '<div class="text-muted" style="font-size:12px;">No tasks in Scoreboard yet.</div>';
+
+  modal.style.display = 'flex';
+}
+
+function parentalCloseAddGate() {
+  const modal = document.getElementById('parental-add-gate-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function parentalSubmitAddGate() {
+  const personId  = document.getElementById('add-gate-person').value;
+  const deviceNum = document.getElementById('add-gate-device').value;
+  const from      = document.getElementById('add-gate-from').value || '15:00';
+  const until     = document.getElementById('add-gate-until').value || '21:00';
+  const tasks     = [...document.querySelectorAll('#add-gate-tasks input[type=checkbox]:checked')]
+                      .map(c => c.dataset.task);
+  const btn       = document.getElementById('add-gate-submit');
+
+  if (!personId || !deviceNum) {
+    toast('Please select a person and a device', 'err'); return;
+  }
+
+  try {
+    btn.disabled = true; btn.textContent = 'Saving…';
+    const res = await adminApi.parental.createResource({ person_id: personId, device_number: deviceNum });
+    if (!res.ok && !res.existed) throw new Error(res.error || 'resource creation failed');
+    const resourceId = res.resource_id;
+    const pol = await adminApi.parental.createPolicy({
+      person_id: personId, resource_id: resourceId,
+      required_task_ids: tasks, enforce_from: from, enforce_until: until,
+    });
+    if (!pol.ok) throw new Error(pol.error || 'policy creation failed');
+    toast('Homework gate created', 'ok');
+    parentalCloseAddGate();
+    await parentalLoadPolicies();
+  } catch(e) {
+    toast('Failed: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Create';
+  }
+}
+
+
 async function parentalLoadPolicies() {
   const el = document.getElementById('parental-policies-list');
   if (!el) return;

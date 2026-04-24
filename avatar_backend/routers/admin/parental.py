@@ -979,6 +979,106 @@ async def get_timeline(request: Request, container: AppContainer = Depends(get_c
     return {"events": events[:300]}
 
 
+
+class ResourceCreate(BaseModel):
+    person_id: str
+    device_number: str          # MDM device "number" field
+
+
+class PolicyCreate(BaseModel):
+    person_id: str
+    resource_id: str
+    required_task_ids: list[str] = []
+    enforce_from: str = "15:00"
+    enforce_until: str = "21:00"
+
+
+@router.post("/parental/resources")
+async def create_parental_resource(
+    body: ResourceCreate,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+):
+    """Add an MDM device resource for a person and return the new resource id."""
+    import json as _json
+    _require_session(request)
+    fs = getattr(container, "family_service", None)
+    if not fs:
+        return JSONResponse({"ok": False, "error": "family service not available"}, status_code=503)
+    state_path = fs._path
+    data = _json.loads(state_path.read_text())
+
+    person_id = body.person_id.strip().lower()
+    # Prevent duplicate resources for same person + device
+    for r in data.get("resources", []):
+        if r.get("owner_id") == person_id and r.get("device_number", "").lower() == body.device_number.lower():
+            return JSONResponse({"ok": True, "resource_id": r["id"], "existed": True})
+
+    resource_id = f"{person_id}_device"
+    # Ensure unique id
+    existing_ids = {r["id"] for r in data.get("resources", [])}
+    base = resource_id
+    counter = 2
+    while resource_id in existing_ids:
+        resource_id = f"{base}_{counter}"
+        counter += 1
+
+    data.setdefault("resources", []).append({
+        "id": resource_id,
+        "kind": "mdm_device",
+        "device_number": body.device_number,
+        "owner_id": person_id,
+    })
+    state_path.write_text(_json.dumps(data, indent=2))
+    fs.reload()
+    return JSONResponse({"ok": True, "resource_id": resource_id, "existed": False})
+
+
+@router.post("/parental/policies")
+async def create_parental_policy(
+    body: PolicyCreate,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+):
+    """Add a homework gate policy for a person + resource."""
+    import json as _json
+    _require_session(request)
+    fs = getattr(container, "family_service", None)
+    if not fs:
+        return JSONResponse({"ok": False, "error": "family service not available"}, status_code=503)
+    state_path = fs._path
+    data = _json.loads(state_path.read_text())
+
+    person_id = body.person_id.strip().lower()
+    # Prevent duplicate policy for same person + rule_type
+    for p in data.get("policies", []):
+        if (p.get("subject_id") == person_id
+                and p.get("rule_type") == "requires_task_before_entertainment"):
+            return JSONResponse({"ok": False, "error": "policy already exists for this person"}, status_code=409)
+
+    policy_id = f"{person_id}_homework_gate"
+    existing_ids = {p["id"] for p in data.get("policies", [])}
+    base = policy_id
+    counter = 2
+    while policy_id in existing_ids:
+        policy_id = f"{base}_{counter}"
+        counter += 1
+
+    data.setdefault("policies", []).append({
+        "id": policy_id,
+        "subject_id": person_id,
+        "resource_id": body.resource_id,
+        "rule_type": "requires_task_before_entertainment",
+        "active": True,
+        "required_task_ids": body.required_task_ids,
+        "enforce_from": body.enforce_from,
+        "enforce_until": body.enforce_until,
+    })
+    state_path.write_text(_json.dumps(data, indent=2))
+    fs.reload()
+    return JSONResponse({"ok": True, "policy_id": policy_id})
+
+
 class PolicyPatch(BaseModel):
     required_task_ids: list[str] | None = None
     enforce_from: str | None = None

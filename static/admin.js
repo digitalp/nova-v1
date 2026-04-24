@@ -293,6 +293,8 @@ const adminApi = {
     getTimeline: () => api('GET', '/admin/parental/timeline'),
     getPolicies: () => api('GET', '/admin/parental/policies'),
     patchPolicy: (id, payload) => api('PATCH', '/admin/parental/policies/' + encodeURIComponent(id), payload),
+    createResource: (payload) => api('POST', '/admin/parental/resources', payload),
+    createPolicy: (payload) => api('POST', '/admin/parental/policies', payload),
   },
   scoreboard: {
     getOverview: () => api('GET', '/admin/scoreboard'),

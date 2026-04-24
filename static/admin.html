@@ -2199,7 +2199,10 @@
       <div class="card" style="margin-bottom:12px;">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
           <div class="card-title" style="margin:0;">Enforcement Rules</div>
-          <button class="btn btn-outline" style="font-size:12px;" onclick="parentalLoadPolicies()">Refresh</button>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" style="font-size:12px;" onclick="parentalShowAddGate()">+ Add Homework Gate</button>
+            <button class="btn btn-outline" style="font-size:12px;" onclick="parentalLoadPolicies()">Refresh</button>
+          </div>
         </div>
         <div id="parental-policies-list" class="text-sm text-muted">Loading…</div>
       </div>
@@ -2394,8 +2397,8 @@
 
 
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/admin.js?v=1777040420"></script>
-<script src="/static/admin-config.js?v=1777021843"></script>
+<script src="/static/admin.js?v=1777055843"></script>
+<script src="/static/admin-config.js?v=1777044379"></script>
 <script src="/static/admin-avatar.js?v=1777020339"></script>
 <script src="/static/admin-parental.js?v=1777020343"></script>
 <script src="/static/admin-scoreboard.js?v=1777020339"></script>
@@ -2408,6 +2411,45 @@
 <script src="/static/admin-motion.js?v=1777020339"></script>
 
     
+
+
+      <!-- Add Homework Gate Modal -->
+      <div id="parental-add-gate-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.55);align-items:center;justify-content:center;">
+        <div style="background:var(--surface);border:1px solid var(--border2);border-radius:12px;padding:24px;width:100%;max-width:460px;box-shadow:0 20px 60px rgba(0,0,0,.7);">
+          <div style="font-weight:700;font-size:16px;margin-bottom:16px;">Add Homework Gate</div>
+
+          <div style="margin-bottom:12px;">
+            <label class="text-sm text-muted" style="display:block;margin-bottom:4px;">Child</label>
+            <select id="add-gate-person" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font-size:13px;"></select>
+          </div>
+
+          <div style="margin-bottom:12px;">
+            <label class="text-sm text-muted" style="display:block;margin-bottom:4px;">MDM Device</label>
+            <select id="add-gate-device" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font-size:13px;"></select>
+          </div>
+
+          <div style="margin-bottom:12px;">
+            <div class="text-sm text-muted" style="margin-bottom:6px;font-weight:500;">Required Tasks</div>
+            <div id="add-gate-tasks"></div>
+          </div>
+
+          <div style="display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap;">
+            <div>
+              <label class="text-sm text-muted" style="display:block;margin-bottom:4px;">Enforce From</label>
+              <input type="time" id="add-gate-from" value="15:00" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font-size:13px;">
+            </div>
+            <div>
+              <label class="text-sm text-muted" style="display:block;margin-bottom:4px;">Enforce Until</label>
+              <input type="time" id="add-gate-until" value="21:00" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font-size:13px;">
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;justify-content:flex-end;">
+            <button class="btn btn-outline" onclick="parentalCloseAddGate()">Cancel</button>
+            <button id="add-gate-submit" class="btn btn-primary" onclick="parentalSubmitAddGate()">Create</button>
+          </div>
+        </div>
+      </div>
 
 </body>
 </html>
