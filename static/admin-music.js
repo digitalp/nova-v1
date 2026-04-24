@@ -101,15 +101,10 @@
       if (_sumActive) _sumActive.textContent = active.length;
       if (_sumAvail)  _sumAvail.textContent  = available.length;
 
-      if (!active.length) {
-        // Nothing actively playing — show all available speakers so they don't disappear
-        if (available.length) {
-          renderMusicPlayersList(available, npEl);
-        } else {
-          npEl.innerHTML = '<div class="text-sm text-muted">Nothing playing.</div>';
-        }
+      if (available.length) {
+        renderMusicPlayersList(available, npEl);
       } else {
-        renderMusicPlayersList(active, npEl);
+        npEl.innerHTML = '<div class="text-sm text-muted">No speakers available.</div>';
       }
       if (!players.length) {
         allEl.innerHTML = '<div class="text-sm text-muted">No media players found.</div>';
