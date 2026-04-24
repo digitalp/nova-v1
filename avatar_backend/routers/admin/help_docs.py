@@ -9,7 +9,7 @@ from .common import _require_session
 
 router = APIRouter()
 
-_DOCS_DIR = Path(__file__).parent.parent.parent / "docs"
+_DOCS_DIR = Path(__file__).parent.parent.parent.parent / "docs"
 
 # Docs shown in the Help section (in display order)
 _FEATURED = [
