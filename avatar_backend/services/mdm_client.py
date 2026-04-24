@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import os
 import json
 import subprocess
 import time
@@ -13,11 +14,11 @@ import structlog
 
 _LOGGER = structlog.get_logger(__name__)
 
-_HMDM_BASE = "http://localhost:8083"
-_HMDM_PUBLIC = "https://mdm.nova-home.co.uk"
-_HMDM_LOGIN = "admin"
-_HMDM_RAW_PW = "linkstar"
-_HMDM_API_PW = hashlib.md5(_HMDM_RAW_PW.encode()).hexdigest().upper()
+_HMDM_BASE = os.getenv("HEADWIND_URL", "http://localhost:8083")
+_HMDM_PUBLIC = os.getenv("HEADWIND_PUBLIC_URL", "")
+_HMDM_LOGIN = os.getenv("HEADWIND_LOGIN", "admin")
+_HMDM_RAW_PW = os.getenv("HEADWIND_PASSWORD", "")
+_HMDM_API_PW = hashlib.md5(_HMDM_RAW_PW.encode()).hexdigest().upper() if _HMDM_RAW_PW else ""
 _KNOWN_SOCIAL_APPS = [
     {"name": "Instagram", "pkg": "com.instagram.android"},
     {"name": "TikTok", "pkg": "com.zhiliaoapp.musically"},

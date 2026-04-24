@@ -141,6 +141,19 @@ if $UPDATE_ONLY; then
       info "Updating Music Assistant…"
       $DC pull music-assistant 2>/dev/null && $DC up -d music-assistant || warn "Could not refresh Music Assistant"
     fi
+    if docker ps -a --format '{{.Names}}' | grep -qx 'hmdm_server'; then
+      info "Updating Headwind MDM…"
+      docker pull headwindmdm/hmdm:latest 2>/dev/null && docker restart hmdm_server || warn "Could not update Headwind MDM"
+    fi
+  fi
+  # DeepFace — install package if enabled in .env but not yet installed
+  if grep -q "^DEEPFACE_ENABLED=true" "${INSTALL_DIR}/.env" 2>/dev/null; then
+    if ! "${INSTALL_DIR}/.venv/bin/python3" -c "import deepface" &>/dev/null 2>&1; then
+      info "Installing DeepFace (enabled in .env but package missing)…"
+      "${INSTALL_DIR}/.venv/bin/pip" install -q "deepface>=0.0.93" "tf-keras" || warn "DeepFace install failed — run manually"
+    else
+      success "DeepFace already installed"
+    fi
   fi
   info "Ensuring gemma2:9b is available (sensor watch + fallback)…"
   docker exec avatar_ollama ollama pull gemma2:9b 2>/dev/null || true
@@ -427,12 +440,53 @@ else
 fi
 
 
-# ── Optional: scoreboard ─────────────────────────────────────────────────────
+# ── Optional features ─────────────────────────────────────────────────────────
 INPUT_SCOREBOARD=true
-if ! $NON_INTERACTIVE; then
-  ask "Enable family chore scoreboard? (points, tasks, penalties) [Y/n]:"
-  read -r _sb_ans
-  [[ "${_sb_ans,,}" == n* ]] && INPUT_SCOREBOARD=false
+INPUT_DEEPFACE=false
+INPUT_PARENTAL=false
+INSTALL_HEADWIND_DOCKER=false
+HEADWIND_URL="http://localhost:8083"
+HEADWIND_LOGIN="admin"
+HEADWIND_PASSWORD=""
+
+if ! $USE_DEFAULTS; then
+  echo ""
+  echo -e "  ${BOLD}Optional features:${RESET}"
+  echo ""
+  ask "  Enable family chore scoreboard? (points, tasks, penalties) [Y/n]:"
+  read -r _sb_ans; [[ "${_sb_ans,,}" == n* ]] && INPUT_SCOREBOARD=false
+
+  ask "  Enable DeepFace local face matching? (ArcFace second-pass filter, ~1.5 GB) [y/N]:"
+  read -r _df_ans; [[ "${_df_ans,,}" == y* ]] && INPUT_DEEPFACE=true
+
+  ask "  Enable Parental homework gate? (blocks children's devices until tasks complete) [y/N]:"
+  read -r _par_ans; [[ "${_par_ans,,}" == y* ]] && INPUT_PARENTAL=true
+
+  if [[ "$INPUT_PARENTAL" == "true" ]]; then
+    echo ""
+    echo -e "  ${CYAN}Parental controls use Headwind MDM for Android device management.${RESET}"
+    if $DOCKER_OK && ! docker ps -a --format '{{.Names}}' | grep -qx 'hmdm_server'; then
+      ask "  Install Headwind MDM via Docker on this machine? [Y/n]:"
+      read -r _hw_fresh; [[ "${_hw_fresh,,}" == n* ]] && _hw_fresh="n" || _hw_fresh="y"
+    else
+      _hw_fresh="n"
+    fi
+    if [[ "$_hw_fresh" == "y" ]]; then
+      ask "  Set Headwind admin password [changeme]:"
+      read -r _hw_pass; HEADWIND_PASSWORD="${_hw_pass:-changeme}"
+      INSTALL_HEADWIND_DOCKER=true
+    else
+      ask "  Headwind MDM URL [http://localhost:8083]:"
+      read -r _hw_url; HEADWIND_URL="${_hw_url:-http://localhost:8083}"
+      ask "  Headwind admin login [admin]:"
+      read -r _hw_login; HEADWIND_LOGIN="${_hw_login:-admin}"
+      ask "  Headwind admin password:"
+      read -r HEADWIND_PASSWORD
+    fi
+  fi
+else
+  # --defaults: enable DeepFace automatically when a GPU is present
+  $GPU_FOUND && INPUT_DEEPFACE=true || true
 fi
 # ── Write .env ─────────────────────────────────────────────────────────────────
 header "Writing .env"
@@ -499,6 +553,18 @@ BLUEIRIS_PASSWORD=
 
 # CodeProject.AI (optional — enables face recognition, webcam greeting, object/plate detection)
 CODEPROJECT_AI_URL=
+
+# Gemini Key Pool (extra API keys for round-robin rotation; format: key|label|1)
+GEMINI_API_KEYS=
+
+# DeepFace local face recognition (ArcFace second-pass filter for unknown-face suppression)
+DEEPFACE_ENABLED=${INPUT_DEEPFACE}
+DEEPFACE_HOME=/mnt/data/deepface_models
+
+# Headwind MDM — parental homework gate
+HEADWIND_URL=${HEADWIND_URL}
+HEADWIND_LOGIN=${HEADWIND_LOGIN}
+HEADWIND_PASSWORD=${HEADWIND_PASSWORD}
 
 # Optional features
 SCOREBOARD_ENABLED=${INPUT_SCOREBOARD}
@@ -709,6 +775,28 @@ WhisperModel('${INPUT_WHISPER_MODEL}', device='cpu', compute_type='int8')
 print('Done.')
 " && success "Whisper model ready" || warn "Whisper model will download on first voice request."
 
+# ── DeepFace local face recognition (optional) ────────────────────────────────
+if [[ "$INPUT_DEEPFACE" == "true" ]]; then
+  header "DeepFace local face recognition"
+  # Use /mnt/data if it exists (persistent storage), otherwise fall back to data dir
+  if [[ -d /mnt/data ]]; then
+    DEEPFACE_HOME_RESOLVED="/mnt/data/deepface_models"
+  else
+    DEEPFACE_HOME_RESOLVED="${INSTALL_DIR}/data/deepface_models"
+  fi
+  mkdir -p "$DEEPFACE_HOME_RESOLVED"
+  chown "${SERVICE_USER}:${SERVICE_USER}" "$DEEPFACE_HOME_RESOLVED"
+  sed -i "s|^DEEPFACE_HOME=.*|DEEPFACE_HOME=${DEEPFACE_HOME_RESOLVED}|" "${INSTALL_DIR}/.env"
+
+  info "Installing DeepFace and dependencies (~1.5 GB — ArcFace model weights download on first run)…"
+  if sudo -u "${SERVICE_USER}" "${INSTALL_DIR}/.venv/bin/pip" install -q "deepface>=0.0.93" "tf-keras"; then
+    success "DeepFace installed — model weights will download on first recognition call"
+  else
+    warn "DeepFace install failed — run manually: ${INSTALL_DIR}/.venv/bin/pip install deepface tf-keras"
+    sed -i "s|^DEEPFACE_ENABLED=true|DEEPFACE_ENABLED=false|" "${INSTALL_DIR}/.env"
+  fi
+fi
+
 # ── Music Assistant (optional) ────────────────────────────────────────────────
 if $DOCKER_OK; then
   INSTALL_MA="n"
@@ -753,6 +841,68 @@ if $DOCKER_OK; then
     echo "    3. Search and play music from Nova's admin panel → Music"
     echo ""
   fi
+fi
+
+# ── Headwind MDM — parental controls (optional) ───────────────────────────────
+if [[ "$INSTALL_HEADWIND_DOCKER" == "true" ]]; then
+  header "Headwind MDM (parental controls)"
+
+  if docker ps -a --format '{{.Names}}' | grep -qx 'hmdm_server'; then
+    success "Headwind MDM container already running — skipping install"
+  else
+    info "Creating Docker network for Headwind MDM…"
+    docker network create hmdm_net 2>/dev/null || true
+
+    info "Starting Headwind MDM database…"
+    docker run -d --name hmdm_db \
+      --network hmdm_net \
+      --restart unless-stopped \
+      -e POSTGRES_DB=hmdm \
+      -e POSTGRES_USER=hmdm \
+      -e POSTGRES_PASSWORD=hmdm \
+      -v hmdm_db_data:/var/lib/postgresql/data \
+      postgres:15-alpine
+
+    sleep 5
+
+    info "Starting Headwind MDM server…"
+    docker run -d --name hmdm_server \
+      --network hmdm_net \
+      --restart unless-stopped \
+      -p 8083:8080 \
+      -e DB_HOST=hmdm_db \
+      -e DB_PORT=5432 \
+      -e DB_NAME=hmdm \
+      -e DB_USER=hmdm \
+      -e DB_PASSWORD=hmdm \
+      -v hmdm_data:/opt/hmdm/files \
+      headwindmdm/hmdm:latest
+
+    info "Waiting for Headwind MDM to be ready (first start may take 2–3 minutes)…"
+    for i in $(seq 1 60); do
+      if curl -sf "http://localhost:8083/rest/public/account" &>/dev/null; then
+        success "Headwind MDM is ready"
+        break
+      fi
+      sleep 3
+    done
+    if ! curl -sf "http://localhost:8083/rest/public/account" &>/dev/null; then
+      warn "Headwind MDM may still be initialising. Check: docker logs hmdm_server -f"
+    fi
+  fi
+
+  SERVER_IP_HMDM=$(hostname -I | awk '{print $1}')
+  echo ""
+  echo -e "  ${GREEN}Headwind MDM available at:${RESET}"
+  echo -e "  ${BOLD}  http://${SERVER_IP_HMDM}:8083${RESET}"
+  echo ""
+  echo -e "  ${CYAN}Next steps:${RESET}"
+  echo "    1. Open the URL above and complete the setup wizard (set admin credentials)"
+  echo "    2. Update HEADWIND_LOGIN / HEADWIND_PASSWORD in ${INSTALL_DIR}/.env"
+  echo "    3. Install the Headwind MDM app on children's Android devices"
+  echo "    4. Enrol devices via the Headwind MDM interface"
+  echo "    5. Configure homework gate policies in Nova Admin → Parental"
+  echo ""
 fi
 
 # ── Cloudflare Tunnel (optional — enables Alexa custom voice) ──────────────────

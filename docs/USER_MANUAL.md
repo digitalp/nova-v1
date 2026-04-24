@@ -24,6 +24,24 @@ Everything runs on YOUR hardware. Your conversations never leave your network un
 
 ### First-Time Setup
 
+Run the installer on a supported Ubuntu/Debian machine:
+
+```bash
+git clone https://github.com/digitalp/nova-v1
+cd nova-v1
+sudo ./install.sh
+```
+
+The installer asks three required questions (HA URL, HA token, LLM provider) then presents optional features:
+
+| Optional feature | What it installs | Recommended when |
+|-----------------|-----------------|-----------------|
+| **Scoreboard** | Family chore/task tracker | You have children or want household accountability |
+| **DeepFace** | Local ArcFace face-matching filter (~1.5 GB) | You use face recognition and want fewer false unknowns |
+| **Parental homework gate** | Headwind MDM via Docker + gate policies | You want to enforce homework before device access |
+
+Run `sudo ./install.sh --update` to update Nova without reinstalling. If `DEEPFACE_ENABLED=true` but the package is missing, the update will install it automatically.
+
 After installation, open your browser and go to:
 
 ```
