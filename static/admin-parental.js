@@ -778,10 +778,12 @@
         const devices = (p.resources || []).map(r =>
           `<code style="font-size:10px;">${_esc(r.device_number || r.id)}</code>`
         ).join(' ');
+        const bedtime = p.bedtime_tonight ? `<span style="font-size:10px;color:var(--text3);">🌙 ${_esc(p.bedtime_tonight)}${p.school_night ? '' : ' (weekend)'}</span>` : '';
         return `<div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
           <div style="min-width:90px;font-weight:600;font-size:13px;">${_esc(p.display_name)}</div>
           <span style="font-size:10px;color:var(--text3);text-transform:uppercase;">${_esc(p.role)}</span>
           ${p.role === 'child' ? `<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;${badgeStyle}">${stateName.replace('_', ' ')}${reason}</span>` : ''}
+          ${bedtime}
           <div style="flex:1;min-width:0;">${policies}${devices ? ' · ' + devices : ''}</div>
         </div>`;
       }).join('');

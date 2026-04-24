@@ -923,6 +923,11 @@ async def get_family_status(request: Request, container: AppContainer = Depends(
                     for p in fs.get_policies_for(person.id)]
         resources = [{"id": r.id, "kind": r.kind, "device_number": r.device_number}
                      for r in fs.get_resources_for(person.id)]
+        from datetime import datetime as _dt
+        _today = _dt.now().strftime("%A").lower()
+        _school_nights = [s.lower() for s in (person.school_nights or [])]
+        _is_school = _today in _school_nights
+        _bedtime = (person.bedtime_weekday if _is_school else person.bedtime_weekend) if person.role == "child" else ""
         people_out.append({
             "id": person.id,
             "display_name": person.display_name,
@@ -930,6 +935,8 @@ async def get_family_status(request: Request, container: AppContainer = Depends(
             "state": state,
             "policies": policies,
             "resources": resources,
+            "bedtime_tonight": _bedtime,
+            "school_night": _is_school if person.role == "child" else None,
         })
     return {"configured": True, "people": people_out}
 

@@ -252,6 +252,27 @@ HA_TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "get_bedtime_status",
+            "description": (
+                "Get tonight's bedtime for a household member. "
+                "Returns bedtime time, whether it is a school night, and current device state. "
+                "Use when asked about bedtimes, screen time, or device curfews."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "person_id": {
+                        "type": "string",
+                        "description": "Household member ID (e.g. jason, joel, miya).",
+                    },
+                },
+                "required": ["person_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_device_location",
             "description": (
                 "Get the latest known location for a household member or managed device. "

@@ -190,6 +190,9 @@ class HAProxy:
         if tool_call.function_name == "get_parental_status":
             return await self._get_parental_status()
 
+        if tool_call.function_name == "get_bedtime_status":
+            return await self._get_bedtime_status(tool_call.arguments)
+
         if tool_call.function_name == "get_device_location":
             return await self._get_device_location(tool_call.arguments)
 
@@ -564,6 +567,36 @@ class HAProxy:
             return ToolResult(success=True, message=msg)
         except Exception as exc:
             return ToolResult(success=False, message=f"MDM error: {exc}")
+
+    async def _get_bedtime_status(self, args: dict) -> "ToolResult":
+        from datetime import datetime as _dt
+        person_id = str(args.get("person_id") or "").strip().lower()
+        if not person_id:
+            return ToolResult(success=False, message="person_id is required.")
+        fs = getattr(self, "_family_service", None)
+        if not fs:
+            return ToolResult(success=False, message="Family service not configured.")
+        person = fs.get_person(person_id)
+        if not person:
+            return ToolResult(success=False, message=f"Unknown person '{person_id}'.")
+        if person.role != "child":
+            return ToolResult(success=True, message=f"{person.display_name} is a guardian — no bedtime enforced.")
+        now = _dt.now()
+        day = now.strftime("%A").lower()
+        school_nights = [s.lower() for s in (person.school_nights or [])]
+        is_school = day in school_nights
+        bedtime = person.bedtime_weekday if is_school else person.bedtime_weekend
+        night_type = "school night" if is_school else "weekend"
+        state = fs.get_child_state(person_id)
+        state_str = state.get("state", "allowed")
+        state_reason = state.get("reason", "")
+        if not bedtime:
+            return ToolResult(success=True, message=f"{person.display_name} has no bedtime set for tonight ({night_type}).")
+        msg = (f"{person.display_name}'s bedtime tonight is {bedtime} ({night_type}). "
+               f"Current device state: {state_str}")
+        if state_reason:
+            msg += f" — {state_reason}"
+        return ToolResult(success=True, message=msg + ".")
 
     async def _get_device_location(self, args: dict) -> "ToolResult":
         import httpx as _httpx
