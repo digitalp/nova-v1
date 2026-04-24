@@ -6,8 +6,6 @@
 
   const BRANDS = {
     sonos: { match: p => p.entity_id.includes('sonos'), logo: '<span style="font-size:16px;font-weight:800;letter-spacing:2px;text-transform:uppercase;">Sonos</span>' },
-    denon: { match: p => p.entity_id.includes('denon'), logo: '<span style="font-size:16px;font-weight:800;letter-spacing:1px;text-transform:uppercase;">DENON</span>' },
-    alexa: { match: p => p.entity_id.includes('echo') || p.entity_id.includes('alexa'), logo: '<span style="font-size:16px;font-weight:800;letter-spacing:1px;">🔵 Alexa</span>' },
   };
 
   async function loadMusicPlayers() {
@@ -101,10 +99,12 @@
       if (_sumActive) _sumActive.textContent = active.length;
       if (_sumAvail)  _sumAvail.textContent  = available.length;
 
-      if (available.length) {
-        renderMusicPlayersList(available, npEl);
+      const sonosPlayers = available.filter(p => p.entity_id.includes('sonos'));
+      const npPlayers = sonosPlayers.length ? sonosPlayers : [];
+      if (npPlayers.length) {
+        renderMusicPlayersList(npPlayers, npEl);
       } else {
-        npEl.innerHTML = '<div class="text-sm text-muted">No speakers available.</div>';
+        npEl.innerHTML = '<div class="text-sm text-muted">No Sonos speakers available.</div>';
       }
       if (!players.length) {
         allEl.innerHTML = '<div class="text-sm text-muted">No media players found.</div>';

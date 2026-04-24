@@ -85,7 +85,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         if path.startswith("/static/avatars/"):
             response.headers.setdefault("Cache-Control", "public, max-age=0, must-revalidate")
         elif path.startswith("/static/") and any(path.endswith(ext) for ext in (".js", ".css", ".svg", ".png", ".jpg", ".webp")):
-            response.headers.setdefault("Cache-Control", "public, max-age=3600")
+            response.headers.setdefault("Cache-Control", "no-cache, must-revalidate")
         if path.startswith("/admin/music-ui"):
             response.headers.pop("X-Frame-Options", None)
             response.headers.pop("Content-Security-Policy", None)

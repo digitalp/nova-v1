@@ -79,11 +79,19 @@ class FaceRecognitionService:
                     has_any = True
                     name = p.get("userid", "unknown")
                     conf = round(p.get("confidence", 0), 2)
+                    
+                    # 1. High confidence match
                     if name and name != "unknown" and conf >= min_confidence:
                         faces.append({"name": name, "confidence": conf})
                         _LOGGER.info("face.recognized", name=name, confidence=conf)
+                    
+                    # 2. Lower confidence match (dont queue, still recognize)
+                    elif name and name != "unknown" and conf >= 0.50:
+                        faces.append({"name": name, "confidence": conf})
+                        _LOGGER.info("face.recognized_low_conf", name=name, confidence=conf)
+                    
+                    # 3. Genuinely unknown or extremely low confidence
                     elif p.get("x_min") is not None:
-                        # Face detected but not confidently identified (or unrecognized) — queue for review
                         self._queue_unknown(image_bytes, p)
 
                 # Only queue an empty frame when a caller explicitly asks for that behavior.

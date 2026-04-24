@@ -44,7 +44,7 @@ HEATING DECISION RULES (apply in order — first match wins):
    → set ALL TRVs to 13°C: call_ha_service climate set_temperature on each TRV with temperature=13
    Note: "auto" mode is NOT the same as "off" — always set hvac_mode=off explicitly.
 
-2. HEATING OFF — if outdoor temp ≥ 16°C OR all rooms ≥ 21°C:
+2. HEATING OFF — if outdoor temp ≥ 16°C OR all rooms ≥ 18°C:
    → call_ha_service input_boolean turn_off input_boolean.winter_mode
    → call_ha_service climate set_hvac_mode climate.hive_receiver_climate hvac_mode=off
 

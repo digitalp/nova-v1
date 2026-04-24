@@ -64,7 +64,7 @@ async def save_config(body: ConfigUpdate, request: Request, container: AppContai
     sanitized = {
         k: v.translate(_UNSAFE_ENV_CHARS)
         for k, v in body.values.items()
-        if k in _CONFIG_FIELDS
+        if k in _CONFIG_FIELDS and v.strip() != ""
     }
     existing.update(sanitized)
     # Ensure we preserve the order of fields from _CONFIG_FIELDS or existing

@@ -494,6 +494,14 @@ async def register_face(request: Request, container: AppContainer = Depends(get_
     image_bytes = svc.get_unknown_face_bytes(face_id)
     if not image_bytes:
         return JSONResponse({"ok": False, "error": "Face not found in queue"}, status_code=404)
+    # DeepFace preprocessing on queue crops too
+    df_svc = getattr(container, "deepface_service", None)
+    if df_svc and getattr(df_svc, "_preprocess_training", False):
+        preprocessed = await asyncio.get_event_loop().run_in_executor(
+            None, df_svc.preprocess_for_training, image_bytes
+        )
+        if preprocessed:
+            image_bytes = preprocessed
     ok = await svc.register_face(name, image_bytes)
     if ok:
         svc.remove_unknown(face_id)
@@ -546,5 +554,15 @@ async def train_face(request: Request, container: AppContainer = Depends(get_con
     image_bytes = await image.read()
     if not image_bytes:
         return JSONResponse({"ok": False, "error": "image is empty"}, status_code=400)
+    # DeepFace preprocessing: align + crop before CPAI registration
+    df_svc = getattr(container, "deepface_service", None)
+    if df_svc and getattr(df_svc, "_preprocess_training", False):
+        preprocessed = await asyncio.get_event_loop().run_in_executor(
+            None, df_svc.preprocess_for_training, image_bytes
+        )
+        if preprocessed:
+            image_bytes = preprocessed
+        else:
+            return JSONResponse({"ok": False, "error": "DeepFace could not detect a face in the image. Try a clearer photo or disable DeepFace preprocessing."}, status_code=422)
     ok = await svc.register_face(clean_name, image_bytes)
     return {"ok": ok, "name": clean_name}

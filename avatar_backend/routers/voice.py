@@ -196,25 +196,59 @@ async def check_wake_word(request: Request, container: AppContainer = Depends(ge
 
 @router.post("/face/greet", dependencies=[Depends(verify_api_key)])
 async def greet_face(request: Request, container: AppContainer = Depends(get_container)):
-    """Browser sends recognized name; returns a WAV greeting to play on that device only."""
+    """Browser sends recognized name and optionally image_b64; returns a WAV greeting."""
     from datetime import datetime as _dt
-    from fastapi.responses import Response as _Resp
+    import base64 as _b64
+    import os
+    import tempfile
+    
     body = await request.json()
     name = str(body.get("name") or "").strip().title()
+    img_b64 = body.get("image_b64")
+    
     if not name:
         return JSONResponse({"error": "name required"}, status_code=400)
+    
+    # 1. Base greeting
     hour = _dt.now().hour
-    if hour < 12:
-        time_phrase = "Good morning"
-    elif hour < 18:
-        time_phrase = "Good afternoon"
+    time_phrase = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
+    msg = f"{time_phrase}, {name}!"
+    
+    # 2. Add Emotion if DeepFace enabled
+    df_svc = getattr(container, "deepface_service", None)
+    if df_svc and img_b64:
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                header, _, data = img_b64.partition(",")
+                tmp.write(_b64.b64decode(data or header))
+                tmp_path = tmp.name
+            
+            analysis = await df_svc.analyze(tmp_path)
+            os.unlink(tmp_path)
+            
+            emotion = analysis.get("emotion")
+            age = analysis.get("age")
+            if emotion:
+                if emotion in ("happy", "surprise"):
+                    msg += f" You look wonderful and {emotion} today!"
+                elif emotion == "sad":
+                    msg += " You look a bit down. Is everything alright?"
+                elif emotion == "angry":
+                    msg += " You look a little cross. Can I help with anything?"
+                else:
+                    msg += " Great to see you."
+            if age and age > 0:
+                _LOGGER.info("deepface.age_estimate", name=name, age=age)
+        except Exception as exc:
+            _LOGGER.warning("deepface.greeting_analysis_failed", exc=str(exc))
+            msg += " Great to see you."
     else:
-        time_phrase = "Good evening"
-    msg = time_phrase + ", " + name + "! Great to see you. Is there anything I can help you with?"
+        msg += " Great to see you. Is there anything I can help you with?"
+
     tts = getattr(container, "tts_service", None)
     if tts is None:
         return JSONResponse({"error": "TTS not available"}, status_code=503)
-    import base64 as _b64
+        
     wav_bytes, word_timings = await tts.synthesise_with_timing(msg)
     return JSONResponse({
         "wav_b64": _b64.b64encode(wav_bytes).decode(),
@@ -238,6 +272,6 @@ async def recognize_face(
     
     # Match the browser greeting threshold. Unknown detected faces are already queued
     # by the recognition service, so avoid queueing every empty-room frame here.
-    faces = await face_service.recognize(body, min_confidence=0.72)
+    faces = await face_service.recognize(body, min_confidence=0.65)
 
     return JSONResponse({"faces": faces})

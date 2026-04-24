@@ -75,6 +75,18 @@ _CONFIG_FIELDS = {
     "HA_POWER_ALERT_COOLDOWN_S":          ("Power alert cooldown (seconds)",                  False),
     # ── Motion vision ──
     "MOTION_VISION_PROVIDER":             ("Motion Vision Provider (gemini/ollama/ollama_remote)",  False),
+    "DEEPFACE_ENABLED":                   ("Enable DeepFace (Emotion/Age/Gender)",             False),
+    "DEEPFACE_HOME":                      ("DeepFace Model Storage Path",                      True),
+    "DEEPFACE_DETECTOR":                  ("DeepFace Detector (mtcnn/retinaface/opencv/ssd/dlib/mediapipe/yolov8/yunet/fastmtcnn/centerface)", False),
+    "DEEPFACE_MODEL":                     ("DeepFace Recognition Model (ArcFace/VGG-Face/Facenet/Facenet512/OpenFace/DeepFace/DeepID/Dlib/SFace/GhostFaceNet)", False),
+    "DEEPFACE_ACTIONS":                   ("DeepFace Analysis Actions (comma-separated: emotion,age,gender,race)", False),
+    "DEEPFACE_ALIGN":                     ("DeepFace Align Faces Before Analysis (true/false)", False),
+    "DEEPFACE_ANTI_SPOOFING":             ("DeepFace Anti-Spoofing (true/false)",               False),
+    "DEEPFACE_EXPAND_PERCENTAGE":         ("DeepFace Expand Face Region %% (0-50)",            False),
+    "DEEPFACE_ENFORCE_DETECTION":         ("DeepFace Enforce Face Detection (true/false)",      False),
+    "DEEPFACE_USE_GPU":                   ("DeepFace Use GPU (true/false; needs CUDA drivers)",  False),
+    "DEEPFACE_PREPROCESS_TRAINING":       ("DeepFace preprocess faces before CPAI training (true/false)", False),
+
     "OLLAMA_VISION_MODEL":                ("Ollama Vision Model",                              False),
     # ── Heating ──
     "HEATING_LLM_PROVIDER":               ("Heating Tool Call Provider (gemini/ollama)",       False),

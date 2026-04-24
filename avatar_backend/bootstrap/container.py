@@ -59,6 +59,7 @@ class AppContainer:
     motion_clip_service: Any = None
     speaker_service: Any = None
     energy_service: Any = None
+    deepface_service: Any = None
     music_service: Any = None
     blueiris_service: Any = None
     face_service: Any = None

@@ -16,11 +16,17 @@
         facesApi.getUnknown(),
         facesApi.getKnown(),
       ]);
+      const _sumUnknown = document.getElementById('faces-summary-unknown');
+      const _sumKnown   = document.getElementById('faces-summary-known');
       if (!unknown.available) {
         unknownEl.innerHTML = '<div class="text-sm text-muted">CodeProject.AI not configured</div>';
         knownEl.innerHTML = '';
+        if (_sumUnknown) _sumUnknown.textContent = 'Offline';
+        if (_sumKnown)   _sumKnown.textContent   = '—';
         return;
       }
+      if (_sumUnknown) _sumUnknown.textContent = unknown.faces.length;
+      if (_sumKnown)   _sumKnown.textContent   = (known.faces || []).length;
       if (!unknown.faces.length) {
         unknownEl.innerHTML = '<div class="text-sm text-muted">No unknown faces pending</div>';
       } else {
@@ -217,6 +223,85 @@
     }
   }
 
+  async function loadDeepfaceStatus() {
+    const el = document.getElementById('deepface-toggle');
+    const lbl = document.getElementById('deepface-status-label');
+    if (!el) return;
+    try {
+      const d = await window.adminApi.config.getConfig();
+      const v = d.values || {};
+      const enabled = (v.DEEPFACE_ENABLED || '').toLowerCase() === 'true';
+      el.checked = enabled;
+      if (lbl) lbl.textContent = enabled ? 'Enabled' : 'Disabled';
+      // Model & detector dropdowns
+      const modelEl = document.getElementById('deepface-model');
+      const detEl   = document.getElementById('deepface-detector');
+      const homeEl  = document.getElementById('deepface-home');
+      if (modelEl) modelEl.value = v.DEEPFACE_MODEL || 'ArcFace';
+      if (detEl)   detEl.value   = v.DEEPFACE_DETECTOR || 'mtcnn';
+      if (homeEl)  homeEl.value  = v.DEEPFACE_HOME || '/mnt/data/deepface_models';
+      // Actions checkboxes
+      const actions = (v.DEEPFACE_ACTIONS || 'emotion,age,gender').split(',').map(s => s.trim());
+      ['emotion','age','gender','race'].forEach(a => {
+        const chk = document.getElementById('deepface-action-' + a);
+        if (chk) chk.checked = actions.includes(a);
+      });
+      // Boolean toggles
+      const alignEl  = document.getElementById('deepface-align');
+      const spoofEl  = document.getElementById('deepface-anti-spoofing');
+      const enforceEl = document.getElementById('deepface-enforce-detection');
+      if (alignEl)   alignEl.checked   = (v.DEEPFACE_ALIGN   || 'true').toLowerCase() !== 'false';
+      if (spoofEl)   spoofEl.checked   = (v.DEEPFACE_ANTI_SPOOFING || 'false').toLowerCase() === 'true';
+      if (enforceEl) enforceEl.checked = (v.DEEPFACE_ENFORCE_DETECTION || 'false').toLowerCase() === 'true';
+      // GPU toggle
+      const gpuEl = document.getElementById('deepface-use-gpu');
+      if (gpuEl) gpuEl.checked = (v.DEEPFACE_USE_GPU || 'false').toLowerCase() === 'true';
+      // Preprocess training toggle
+      const ppEl = document.getElementById('deepface-preprocess-training');
+      if (ppEl) ppEl.checked = (v.DEEPFACE_PREPROCESS_TRAINING || 'true').toLowerCase() !== 'false';
+      // Expand percentage
+      const expandEl = document.getElementById('deepface-expand-pct');
+      if (expandEl) expandEl.value = v.DEEPFACE_EXPAND_PERCENTAGE || '0';
+    } catch {
+      if (lbl) lbl.textContent = 'Unknown';
+    }
+  }
+
+  async function toggleDeepface(enabled) {
+    const lbl = document.getElementById('deepface-status-label');
+    try {
+      await window.adminApi.config.saveConfig({ values: { DEEPFACE_ENABLED: enabled ? 'true' : 'false' } });
+      if (lbl) lbl.textContent = enabled ? 'Enabled' : 'Disabled';
+      toast('DeepFace ' + (enabled ? 'enabled' : 'disabled') + ' — restart to apply');
+    } catch (e) {
+      toast('Failed: ' + e.message, 'err');
+    }
+  }
+
+  async function saveDeepfaceSettings() {
+    const actions = ['emotion','age','gender','race']
+      .filter(a => document.getElementById('deepface-action-' + a)?.checked)
+      .join(',');
+    const values = {
+      DEEPFACE_MODEL:             document.getElementById('deepface-model')?.value || 'ArcFace',
+      DEEPFACE_DETECTOR:          document.getElementById('deepface-detector')?.value || 'mtcnn',
+      DEEPFACE_HOME:              document.getElementById('deepface-home')?.value || '/mnt/data/deepface_models',
+      DEEPFACE_ACTIONS:           actions || 'emotion,age,gender',
+      DEEPFACE_ALIGN:             document.getElementById('deepface-align')?.checked ? 'true' : 'false',
+      DEEPFACE_ANTI_SPOOFING:     document.getElementById('deepface-anti-spoofing')?.checked ? 'true' : 'false',
+      DEEPFACE_EXPAND_PERCENTAGE: document.getElementById('deepface-expand-pct')?.value || '0',
+      DEEPFACE_ENFORCE_DETECTION: document.getElementById('deepface-enforce-detection')?.checked ? 'true' : 'false',
+      DEEPFACE_USE_GPU:                  document.getElementById('deepface-use-gpu')?.checked ? 'true' : 'false',
+      DEEPFACE_PREPROCESS_TRAINING:      document.getElementById('deepface-preprocess-training')?.checked ? 'true' : 'false',
+    };
+    try {
+      await window.adminApi.config.saveConfig({ values });
+      toast('DeepFace settings saved — restart to apply');
+    } catch (e) {
+      toast('Failed: ' + e.message, 'err');
+    }
+  }
+
   document.getElementById('btn-refresh-faces')?.addEventListener('click', () => loadFaces());
   document.getElementById('train-face-file')?.addEventListener('change', handleTrainFaceFileChange);
   document.getElementById('btn-train-face-webcam')?.addEventListener('click', () => startTrainFaceWebcam());
@@ -227,6 +312,7 @@
   window.registerAdminSection?.('faces', {
     onEnter() {
       loadFaces();
+      loadDeepfaceStatus();
     },
     onLeave() {
       trainFaceStopCam();
@@ -238,5 +324,7 @@
     registerFace,
     dismissFace,
     deleteFace,
+    toggleDeepface,
+    saveDeepfaceSettings,
   });
 })();

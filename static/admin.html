@@ -1909,6 +1909,73 @@
           <div id="faces-known" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
         </div>
       </div>
+
+      <div class="card mt-4">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;">
+          <div>
+            <div class="card-title" style="margin:0;">DeepFace</div>
+            <p class="text-sm text-muted" style="margin:4px 0 0;">Local emotion, age, gender and race analysis. Requires a restart to apply.</p>
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <span id="deepface-status-label" class="text-sm text-muted">Loading…</span>
+            <input type="checkbox" id="deepface-toggle" onchange="toggleDeepface(this.checked)" style="width:16px;height:16px;cursor:pointer;">
+          </label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+          <div class="field">
+            <label for="deepface-model">Recognition Model</label>
+            <select id="deepface-model">
+              <option>ArcFace</option><option>VGG-Face</option><option>Facenet</option>
+              <option>Facenet512</option><option>OpenFace</option><option>DeepFace</option>
+              <option>DeepID</option><option>Dlib</option><option>SFace</option><option>GhostFaceNet</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="deepface-detector">Detector Backend</label>
+            <select id="deepface-detector">
+              <option>mtcnn</option><option>opencv</option><option>retinaface</option>
+              <option>ssd</option><option>dlib</option><option>mediapipe</option>
+              <option>yolov8</option><option>yolov11n</option><option>yolov11s</option>
+              <option>yolov11m</option><option>yunet</option><option>fastmtcnn</option><option>centerface</option>
+            </select>
+          </div>
+        </div>
+        <div class="field" style="margin-bottom:14px;">
+          <label for="deepface-home">Model Storage Path</label>
+          <input type="text" id="deepface-home" placeholder="/mnt/data/deepface_models">
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="font-size:12px;color:var(--text3);font-weight:600;letter-spacing:.04em;text-transform:uppercase;display:block;margin-bottom:8px;">Analysis Actions</label>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="deepface-action-emotion" checked style="accent-color:var(--accent);"> Emotion</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="deepface-action-age" checked style="accent-color:var(--accent);"> Age</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="deepface-action-gender" checked style="accent-color:var(--accent);"> Gender</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="deepface-action-race" style="accent-color:var(--accent);"> Race</label>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="deepface-align" checked style="accent-color:var(--accent);width:15px;height:15px;"> Align Faces
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="deepface-anti-spoofing" style="accent-color:var(--accent);width:15px;height:15px;"> Anti-Spoofing
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="deepface-enforce-detection" style="accent-color:var(--accent);width:15px;height:15px;"> Enforce Detection
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="deepface-use-gpu" style="accent-color:var(--accent);width:15px;height:15px;"> Use GPU
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;" title="Align &amp; crop face before registering with CPAI">
+            <input type="checkbox" id="deepface-preprocess-training" checked style="accent-color:var(--accent);width:15px;height:15px;"> Preprocess Training Images
+          </label>
+          <div class="field" style="margin:0;">
+            <label for="deepface-expand-pct" style="font-size:12px;">Expand Region %</label>
+            <input type="number" id="deepface-expand-pct" min="0" max="100" value="0" style="width:80px;">
+          </div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="saveDeepfaceSettings()">Save DeepFace Settings</button>
+      </div>
     </div>
 
     <div id="section-scoreboard" class="section" data-admin-section="scoreboard">
@@ -2246,15 +2313,15 @@
 
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="/static/admin.js?v=1777020339"></script>
-<script src="/static/admin-config.js?v=1777020339"></script>
+<script src="/static/admin-config.js?v=1777021843"></script>
 <script src="/static/admin-avatar.js?v=1777020339"></script>
 <script src="/static/admin-parental.js?v=1777020339"></script>
 <script src="/static/admin-scoreboard.js?v=1777020339"></script>
 <script src="/static/admin-tools.js?v=1777020339"></script>
-<script src="/static/admin-energy.js?v=1777020339"></script>
-<script src="/static/admin-chat.js?v=1777020339"></script>
-<script src="/static/admin-music.js?v=1777020339"></script>
-<script src="/static/admin-faces.js?v=1777020339"></script>
+<script src="/static/admin-energy.js?v=1777021843"></script>
+<script src="/static/admin-chat.js?v=1777021843"></script>
+<script src="/static/admin-music.js?v=1777021843"></script>
+<script src="/static/admin-faces.js?v=1777024426"></script>
 <script src="/static/admin-selfheal.js?v=1777020339"></script>
 <script src="/static/admin-motion.js?v=1777020339"></script>
 

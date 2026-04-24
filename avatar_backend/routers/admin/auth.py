@@ -117,7 +117,7 @@ async def get_api_key(request: Request):
 async def admin_page(request: Request):
     if not _get_session(request):
         return RedirectResponse("/admin/login")
-    return FileResponse(str(_STATIC_DIR / "admin.html"))
+    return FileResponse(str(_STATIC_DIR / "admin.html"), headers={"Cache-Control": "no-cache, must-revalidate"})
 
 
 # ── User management (admin only) ──────────────────────────────────────────────

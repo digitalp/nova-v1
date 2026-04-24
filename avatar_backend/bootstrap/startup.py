@@ -191,6 +191,13 @@ async def bootstrap(app: FastAPI, settings, system_prompt: str) -> AppContainer:
         c.deepface_service = DeepFaceService(deepface_home=settings.deepface_home)
         c.deepface_service._model_name = settings.deepface_model
         c.deepface_service._detector_backend = settings.deepface_detector
+        c.deepface_service._actions = [a.strip() for a in settings.deepface_actions.split(',') if a.strip()]
+        c.deepface_service._align = settings.deepface_align
+        c.deepface_service._anti_spoofing = settings.deepface_anti_spoofing
+        c.deepface_service._expand_percentage = settings.deepface_expand_percentage
+        c.deepface_service._enforce_detection = settings.deepface_enforce_detection
+        c.deepface_service._use_gpu = settings.deepface_use_gpu
+        c.deepface_service._preprocess_training = settings.deepface_preprocess_training
         c.deepface_service.warmup()
 
 

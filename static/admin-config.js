@@ -174,10 +174,14 @@
           ? '<span style="color:var(--green,#10b981);font-weight:600;">● Active</span>'
           : '<span style="color:var(--danger,#ef4444);font-weight:600;">● Cooldown ' + k.cooldown_remaining_s + 's</span>';
         const pins = k.pinned_cameras.length ? '<span class="text-sm text-muted"> · 📷 ' + k.pinned_cameras.join(', ') + '</span>' : '';
+        const chk = k.enabled ? 'checked' : '';
         return '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">'
+          + '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;" title="Enable / disable this key">'
+          + '<input type="checkbox" ' + chk + ' onchange="toggleGeminiKey(' + i + ', this.checked)" style="width:15px;height:15px;cursor:pointer;">'
+          + '</label>'
           + '<div style="flex:1;">'
-          + '<div style="font-weight:600;font-size:13px;">' + _esc(k.label) + ' <span class="text-muted" style="font-weight:400;">' + _esc(k.masked_key) + '</span></div>'
-          + '<div class="text-sm text-muted">' + status + ' · ' + k.total_calls + ' calls · ' + k.total_429s + ' 429s' + pins + '</div>'
+          + '<div style="font-weight:600;font-size:13px;' + (!k.enabled ? 'opacity:.45;' : '') + '">' + _esc(k.label) + ' <span class="text-muted" style="font-weight:400;">' + _esc(k.masked_key) + '</span></div>'
+          + '<div class="text-sm text-muted">' + (k.enabled ? status : '<span style="color:var(--text3);">Disabled</span>') + ' · ' + k.total_calls + ' calls · ' + k.total_429s + ' 429s' + pins + '</div>'
           + '</div>'
           + '<button class="btn btn-outline btn-sm" style="font-size:11px;" onclick="removeGeminiKey(' + i + ')">Remove</button>'
           + '</div>';
@@ -212,6 +216,15 @@
     try {
       await configApi.removeGeminiKey(index);
       toast('Key removed');
+      loadGeminiPool();
+    } catch (e) {
+      toast('Failed: ' + e.message, 'err');
+    }
+  }
+
+  async function toggleGeminiKey(index, enabled) {
+    try {
+      await configApi.toggleGeminiKey({ index, enabled });
       loadGeminiPool();
     } catch (e) {
       toast('Failed: ' + e.message, 'err');
@@ -449,6 +462,7 @@
     loadGeminiPool,
     addGeminiKey,
     removeGeminiKey,
+    toggleGeminiKey,
     loadConfig,
     saveConfig,
   });

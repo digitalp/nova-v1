@@ -1,5 +1,6 @@
 import os
 from functools import lru_cache
+from typing import Any
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -76,6 +77,18 @@ class Settings(BaseSettings):
     motion_clip_retention_days: int = 30
     motion_vision_provider: str = "gemini"
     shared_memory_db_path: str = ""
+    deepface_enabled: bool = False
+    deepface_home: str = "/mnt/data/deepface_models"
+    deepface_detector: str = "mtcnn"
+    deepface_model: str = "ArcFace"
+    deepface_actions: str = "emotion,age,gender"
+    deepface_align: bool = True
+    deepface_anti_spoofing: bool = False
+    deepface_expand_percentage: int = 0
+    deepface_enforce_detection: bool = False
+    deepface_use_gpu: bool = False
+    deepface_preprocess_training: bool = True
+
 
     # ── Heating ────────────────────────────────────────────────────────────
     heating_llm_provider: str = "gemini"
@@ -111,6 +124,15 @@ class Settings(BaseSettings):
 
     # ── Cross-field validators ─────────────────────────────────────────────
 
+    
+    @model_validator(mode="before")
+    @classmethod
+    def _handle_empty_strings(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Remove empty strings so pydantic uses the class defaults instead of crashing
+            return {k: v for k, v in data.items() if v != ""}
+        return data
+
     @model_validator(mode="after")
     def _validate_llm_provider(self):
         p = self.llm_provider.lower()
@@ -120,6 +142,15 @@ class Settings(BaseSettings):
         if p != "ollama" and not key_map.get(p):
             raise ValueError(f"LLM_PROVIDER={p} requires {p.upper()}_API_KEY to be set")
         return self
+
+    
+    @model_validator(mode="before")
+    @classmethod
+    def _handle_empty_strings(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Remove empty strings so pydantic uses the class defaults instead of crashing
+            return {k: v for k, v in data.items() if v != ""}
+        return data
 
     @model_validator(mode="after")
     def _validate_tts_provider(self):
@@ -131,12 +162,30 @@ class Settings(BaseSettings):
             raise ValueError("TTS_PROVIDER=elevenlabs requires ELEVENLABS_API_KEY")
         return self
 
+    
+    @model_validator(mode="before")
+    @classmethod
+    def _handle_empty_strings(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Remove empty strings so pydantic uses the class defaults instead of crashing
+            return {k: v for k, v in data.items() if v != ""}
+        return data
+
     @model_validator(mode="after")
     def _validate_motion_vision(self):
         p = (self.motion_vision_provider or "").lower()
         if p and p not in ("gemini", "ollama", "ollama_remote"):
             raise ValueError(f"MOTION_VISION_PROVIDER must be gemini/ollama/ollama_remote, got '{p}'")
         return self
+
+    
+    @model_validator(mode="before")
+    @classmethod
+    def _handle_empty_strings(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Remove empty strings so pydantic uses the class defaults instead of crashing
+            return {k: v for k, v in data.items() if v != ""}
+        return data
 
     @model_validator(mode="after")
     def _validate_proactive_timing(self):
