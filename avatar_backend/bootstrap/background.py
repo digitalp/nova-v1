@@ -3,9 +3,28 @@
 from __future__ import annotations
 
 import asyncio
+import traceback as _traceback
 
 import structlog
 from fastapi import FastAPI
+
+
+def _supervised(coro, name: str):
+    """Wrap a coroutine so unhandled exceptions are logged with full traceback.
+    Prevents silent task death — the crash is always visible in structured logs.
+    """
+    async def _wrapper():
+        try:
+            await coro
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            structlog.get_logger().error(
+                "background_task.crashed",
+                task=name,
+                traceback=_traceback.format_exc()[-1200:],
+            )
+    return _wrapper()
 
 
 async def _session_cleanup_loop(sm, interval: int = 300) -> None:
@@ -818,11 +837,11 @@ async def _doc_update_loop(nova_path: str) -> None:
 
 def schedule_background_tasks(app: FastAPI, container) -> None:
     """Schedule all background asyncio tasks. Called after service creation."""
-    container._background_tasks.append(asyncio.create_task(_restart_fully_kiosk_after_startup(app), name="kiosk_restart"))
-    container._background_tasks.append(asyncio.create_task(_session_cleanup_loop(container.session_manager), name="session_cleanup"))
-    container._background_tasks.append(asyncio.create_task(_clip_cleanup_loop(container.motion_clip_service), name="clip_cleanup"))
-    container._background_tasks.append(asyncio.create_task(_audit_cleanup_loop(container.metrics_db), name="audit_cleanup"))
-    container._background_tasks.append(asyncio.create_task(_backfill_thumbs(container.motion_clip_service), name="thumb_backfill"))
+    container._background_tasks.append(asyncio.create_task(_supervised(_restart_fully_kiosk_after_startup(app), "kiosk_restart"), name="kiosk_restart"))
+    container._background_tasks.append(asyncio.create_task(_supervised(_session_cleanup_loop(container.session_manager), "session_cleanup"), name="session_cleanup"))
+    container._background_tasks.append(asyncio.create_task(_supervised(_clip_cleanup_loop(container.motion_clip_service), "clip_cleanup"), name="clip_cleanup"))
+    container._background_tasks.append(asyncio.create_task(_supervised(_audit_cleanup_loop(container.metrics_db), "audit_cleanup"), name="audit_cleanup"))
+    container._background_tasks.append(asyncio.create_task(_supervised(_backfill_thumbs(container.motion_clip_service), "thumb_backfill"), name="thumb_backfill"))
     if getattr(container, 'scoreboard_service', None) is not None:
         container._background_tasks.append(asyncio.create_task(
             _chore_reminder_loop(container._proactive_announce, container.scoreboard_service),

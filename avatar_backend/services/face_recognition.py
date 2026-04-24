@@ -1,5 +1,6 @@
 """FaceRecognitionService — face ID, object detection, and ALPR via CodeProject.AI."""
 from __future__ import annotations
+import traceback
 
 import base64
 import sqlite3
@@ -122,7 +123,7 @@ class FaceRecognitionService:
                     self._queue_full_frame(image_bytes)
                 return faces
         except Exception as exc:
-            _LOGGER.warning("face.recognize_error", exc=str(exc)[:100])
+            _LOGGER.warning("face.recognize_error", exc=str(exc)[:100], traceback=traceback.format_exc()[-600:])
             return []
 
     def _queue_unknown(self, image_bytes: bytes, prediction: dict) -> None:
@@ -223,7 +224,7 @@ class FaceRecognitionService:
                         _LOGGER.info("alpr.plate_read", plate=plate, confidence=round(p.get("confidence", 0), 2))
                         return plate
         except Exception as exc:
-            _LOGGER.warning("alpr.error", exc=str(exc)[:100])
+            _LOGGER.warning("alpr.error", exc=str(exc)[:100], traceback=traceback.format_exc()[-600:])
         return None
 
     # ── YOLOv5 Object Detection ───────────────────────────────────────────
@@ -245,7 +246,7 @@ class FaceRecognitionService:
                     return []
                 return [{"label": p["label"], "confidence": round(p.get("confidence", 0), 2)} for p in data.get("predictions", [])]
         except Exception as exc:
-            _LOGGER.warning("yolo.detect_error", exc=str(exc)[:100])
+            _LOGGER.warning("yolo.detect_error", exc=str(exc)[:100], traceback=traceback.format_exc()[-600:])
             return []
 
     # ── Admin helpers ─────────────────────────────────────────────────────

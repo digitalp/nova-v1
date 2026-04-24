@@ -17,6 +17,7 @@ Flow:
     → mark entities on cooldown (10 min) to avoid spam
 """
 from __future__ import annotations
+import traceback
 
 import asyncio
 import datetime
@@ -1394,6 +1395,10 @@ class ProactiveService:
                     and "no change" not in text.lower()
                 ):
                     _LOGGER.info("heating.eval_announce", message=text[:120])
+                    # Suppress announcements during quiet hours (23:00-07:00)
+                    import datetime as _dt
+                    _hour = _dt.datetime.now().hour
+                    _quiet = _hour >= 23 or _hour < 7
                     if self._decision_log:
                         self._decision_log.record(
                             "heating_action",
@@ -1401,7 +1406,10 @@ class ProactiveService:
                             tool_calls=all_tool_calls,
                             **_heating_fields,
                         )
-                    await self._announce(text.strip(), "normal")
+                    if not _quiet:
+                        await self._announce(text.strip(), "normal")
+                    else:
+                        _LOGGER.info("heating.eval_quiet_hours_suppressed")
                 else:
                     _LOGGER.info("heating.eval_silent")
                     if self._decision_log:

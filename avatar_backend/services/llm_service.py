@@ -17,6 +17,22 @@ from typing import Any
 import httpx
 import structlog
 
+# Shared HTTP client — avoids per-request SSL handshakes and TCP setup.
+# timeout=None means each caller specifies its own timeout per request.
+_SHARED_HTTP: httpx.AsyncClient | None = None
+
+def _http_client() -> httpx.AsyncClient:
+    global _SHARED_HTTP
+    if _SHARED_HTTP is None or _SHARED_HTTP.is_closed:
+        _SHARED_HTTP = httpx.AsyncClient(
+            limits=httpx.Limits(
+                max_connections=20,
+                max_keepalive_connections=10,
+                keepalive_expiry=30,
+            ),
+        )
+    return _SHARED_HTTP
+
 from avatar_backend.config import get_settings
 from avatar_backend.models.messages import ToolCall
 from avatar_backend.services.cost_log import CostLog as _CostLog
@@ -34,12 +50,9 @@ _FAST_LOCAL_TEXT_MODEL_PREFERENCES: tuple[str, ...] = (
 
 
 def _build_operational_backend(settings) -> tuple[Any | None, str | None]:
+    # Always build Gemini backend if key exists — used when per-task toggle is on
     if settings.google_api_key:
         return _GeminiBackend(settings), "google"
-    if settings.openai_api_key:
-        return _OpenAICompatBackend(settings), "openai"
-    if settings.anthropic_api_key:
-        return _AnthropicBackend(settings), "anthropic"
     return None, None
 
 
@@ -366,7 +379,7 @@ HA_TOOLS: list[dict] = [
                 "properties": {
                     "device_number": {
                         "type": "string",
-                        "description": "The device number from get_enrolled_devices, e.g. '0001'.",
+                        "description": "The device number/ID from get_enrolled_devices (often the child name, e.g. 'Jason').",
                     },
                     "package": {
                         "type": "string",
@@ -711,9 +724,8 @@ class _OllamaBackend:
         _GPU_GATE.chat_started()
         t0 = time.monotonic()
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(90.0)) as client:
-                resp = await client.post(f"{self._base_url}/api/chat", json=payload)
-                resp.raise_for_status()
+            resp = await _http_client().post(f"{self._base_url}/api/chat", json=payload, timeout=httpx.Timeout(90.0))
+            resp.raise_for_status()
         finally:
             _GPU_GATE.chat_finished()
 
@@ -741,9 +753,8 @@ class _OllamaBackend:
             "options": {"temperature": 0.2, "num_ctx": 8192},
         }
         t0 = time.monotonic()
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
-            resp = await client.post(f"{self._base_url}/api/chat", json=payload)
-            resp.raise_for_status()
+        resp = await _http_client().post(f"{self._base_url}/api/chat", json=payload, timeout=httpx.Timeout(timeout_s))
+        resp.raise_for_status()
         _d = resp.json()
         text = (_d.get("message", {}).get("content") or "").strip()
         _log("ollama", self._model, t0, text, [],
@@ -780,12 +791,12 @@ class _OpenAICompatBackend:
         }
 
         t0 = time.monotonic()
-        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
-            resp = await client.post(
-                f"{self._base_url}/chat/completions",
-                json=payload, headers=headers,
-            )
-            resp.raise_for_status()
+        resp = await _http_client().post(
+            f"{self._base_url}/chat/completions",
+            json=payload, headers=headers,
+            timeout=httpx.Timeout(60.0),
+        )
+        resp.raise_for_status()
 
         data    = resp.json()
         choice  = data.get("choices", [{}])[0]
@@ -806,9 +817,8 @@ class _OpenAICompatBackend:
         }
         headers = {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
         t0 = time.monotonic()
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
-            resp = await client.post(f"{self._base_url}/chat/completions", json=payload, headers=headers)
-            resp.raise_for_status()
+        resp = await _http_client().post(f"{self._base_url}/chat/completions", json=payload, headers=headers, timeout=httpx.Timeout(timeout_s))
+        resp.raise_for_status()
         _d = resp.json()
         text = (_d.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
         _u = _d.get("usage", {})
@@ -911,11 +921,12 @@ class _GeminiBackend:
             if not api_key:
                 raise httpx.HTTPStatusError("All Gemini keys exhausted", request=None, response=type("R", (), {"status_code": 429})())
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
-                    resp = await client.post(url, json=payload,
-                                             headers={"Content-Type": "application/json",
-                                                      "X-goog-api-key": api_key})
-                    resp.raise_for_status()
+                resp = await _http_client().post(
+                    url, json=payload,
+                    headers={"Content-Type": "application/json", "X-goog-api-key": api_key},
+                    timeout=httpx.Timeout(60.0),
+                )
+                resp.raise_for_status()
                 data = resp.json()
                 _cands = data.get("candidates") or []
                 _cand0 = _cands[0] if _cands else {}
@@ -980,11 +991,12 @@ class _GeminiBackend:
             if not api_key:
                 raise httpx.HTTPStatusError("All Gemini keys exhausted", request=None, response=type("R", (), {"status_code": 429})())
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
-                    resp = await client.post(url, json=payload,
-                                             headers={"Content-Type": "application/json",
-                                                      "X-goog-api-key": api_key})
-                    resp.raise_for_status()
+                resp = await _http_client().post(
+                    url, json=payload,
+                    headers={"Content-Type": "application/json", "X-goog-api-key": api_key},
+                    timeout=httpx.Timeout(timeout_s),
+                )
+                resp.raise_for_status()
                 _d = resp.json()
                 parts = (_d.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
                 text = " ".join(p.get("text", "") for p in parts if "text" in p).strip()
@@ -1024,11 +1036,12 @@ class _GeminiBackend:
             if not api_key:
                 raise httpx.HTTPStatusError("All Gemini keys exhausted", request=None, response=type("R", (), {"status_code": 429})())
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
-                    resp = await client.post(url, json=payload,
-                                             headers={"Content-Type": "application/json",
-                                                      "X-goog-api-key": api_key})
-                    resp.raise_for_status()
+                resp = await _http_client().post(
+                    url, json=payload,
+                    headers={"Content-Type": "application/json", "X-goog-api-key": api_key},
+                    timeout=httpx.Timeout(timeout_s),
+                )
+                resp.raise_for_status()
                 _d = resp.json()
                 parts = (_d.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
                 text = " ".join(p.get("text", "") for p in parts if "text" in p).strip()
@@ -1082,12 +1095,12 @@ class _AnthropicBackend:
         }
 
         t0 = time.monotonic()
-        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                json=payload, headers=headers,
-            )
-            resp.raise_for_status()
+        resp = await _http_client().post(
+            "https://api.anthropic.com/v1/messages",
+            json=payload, headers=headers,
+            timeout=httpx.Timeout(60.0),
+        )
+        resp.raise_for_status()
 
         data    = resp.json()
         content = data.get("content", [])
@@ -1113,9 +1126,8 @@ class _AnthropicBackend:
             "content-type":      "application/json",
         }
         t0 = time.monotonic()
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
-            resp = await client.post("https://api.anthropic.com/v1/messages", json=payload, headers=headers)
-            resp.raise_for_status()
+        resp = await _http_client().post("https://api.anthropic.com/v1/messages", json=payload, headers=headers, timeout=httpx.Timeout(timeout_s))
+        resp.raise_for_status()
         _d = resp.json()
         content = _d.get("content", [])
         text = " ".join(b.get("text", "") for b in content if b.get("type") == "text").strip()
@@ -1274,9 +1286,8 @@ async def _ollama_describe_image(image_bytes: bytes, base_url: str, model: str, 
             }],
             "stream": False,
         }
-        async with httpx.AsyncClient(timeout=httpx.Timeout(180.0)) as client:
-            resp = await client.post(f"{base_url}/api/chat", json=payload)
-            resp.raise_for_status()
+        resp = await _http_client().post(f"{base_url}/api/chat", json=payload, timeout=httpx.Timeout(180.0))
+        resp.raise_for_status()
         return resp.json()["message"]["content"].strip()
     finally:
         if not _vision_is_remote():
@@ -1298,11 +1309,12 @@ async def _gemini_describe_image(image_bytes: bytes, api_key: str, model: str, p
     if system_instruction:
         payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    async with httpx.AsyncClient(timeout=httpx.Timeout(8.0)) as client:
-        resp = await client.post(url, json=payload,
-                                 headers={"Content-Type": "application/json",
-                                          "X-goog-api-key": api_key})
-        resp.raise_for_status()
+    resp = await _http_client().post(
+        url, json=payload,
+        headers={"Content-Type": "application/json", "X-goog-api-key": api_key},
+        timeout=httpx.Timeout(8.0),
+    )
+    resp.raise_for_status()
     data = resp.json()
     parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
     return " ".join(p.get("text", "") for p in parts if "text" in p).strip()
@@ -1322,11 +1334,13 @@ async def _openai_describe_image(image_bytes: bytes, api_key: str, model: str, p
         }],
         "max_tokens": 300,
     }
-    async with httpx.AsyncClient(timeout=httpx.Timeout(8.0)) as client:
-        resp = await client.post("https://api.openai.com/v1/chat/completions",
-                                  json=payload,
-                                  headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
-        resp.raise_for_status()
+    resp = await _http_client().post(
+        "https://api.openai.com/v1/chat/completions",
+        json=payload,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        timeout=httpx.Timeout(8.0),
+    )
+    resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"].strip()
 
 
@@ -1354,9 +1368,8 @@ class _OllamaFallbackBackend:
         t0 = time.monotonic()
         _GPU_GATE.chat_started()
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(180.0)) as client:
-                resp = await client.post(f"{self._base_url}/api/chat", json=payload)
-                resp.raise_for_status()
+            resp = await _http_client().post(f"{self._base_url}/api/chat", json=payload, timeout=httpx.Timeout(180.0))
+            resp.raise_for_status()
         finally:
             _GPU_GATE.chat_finished()
 
@@ -1377,9 +1390,8 @@ class _OllamaFallbackBackend:
             "options":  {"temperature": 0.2, "num_ctx": 8192},
         }
         t0 = time.monotonic()
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
-            resp = await client.post(f"{self._base_url}/api/chat", json=payload)
-            resp.raise_for_status()
+        resp = await _http_client().post(f"{self._base_url}/api/chat", json=payload, timeout=httpx.Timeout(timeout_s))
+        resp.raise_for_status()
         _d = resp.json()
         text = (_d.get("message", {}).get("content") or "").strip()
         _log("ollama_fallback", self._model, t0, text, [],
@@ -1488,7 +1500,11 @@ class LLMService:
         use_tools: bool = True,
     ) -> tuple[str, list[ToolCall]]:
         try:
-            return await self._backend.chat(messages, use_tools)
+            # Check runtime toggle for Gemini chat
+            from avatar_backend.services.home_runtime import load_home_runtime_config
+            _rt = load_home_runtime_config()
+            backend = self._operational_backend if (_rt.use_gemini_chat and self._operational_backend) else self._backend
+            return await backend.chat(messages, use_tools)
         except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
             if self._fallback is None:
                 _reason = str(exc)[:120]
@@ -1516,8 +1532,9 @@ class LLMService:
         messages: list[dict[str, Any]],
         use_tools: bool = True,
         purpose: str = "operational_chat",
+        use_gemini: bool = False,
     ) -> tuple[str, list[ToolCall]]:
-        backend = self._operational_backend
+        backend = self._operational_backend if use_gemini else None
         if backend is None:
             return await self.chat(messages, use_tools=use_tools)
         if backend is self._backend:
@@ -1541,13 +1558,12 @@ class LLMService:
     async def is_ready(self) -> bool:
         if isinstance(self._backend, _OllamaBackend):
             try:
-                async with httpx.AsyncClient(timeout=3.0) as client:
-                    resp = await client.get(f"{self._backend._base_url}/api/tags")
-                    if resp.status_code != 200:
-                        return False
-                    models = [m["name"] for m in resp.json().get("models", [])]
-                    family = self._backend._model.split(":")[0]
-                    return any(family in m for m in models)
+                resp = await _http_client().get(f"{self._backend._base_url}/api/tags", timeout=3.0)
+                if resp.status_code != 200:
+                    return False
+                models = [m["name"] for m in resp.json().get("models", [])]
+                family = self._backend._model.split(":")[0]
+                return any(family in m for m in models)
             except Exception:
                 return False
         # Cloud providers - assume ready if API key is set

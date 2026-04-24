@@ -12,7 +12,16 @@ set -euo pipefail
 
 INSTALL_DIR="/opt/avatar-server"
 SERVICE_NAME="avatar-backend"
-SERVICE_USER="${SUDO_USER:-$(whoami)}"
+# Determine the real user — SUDO_USER is correct when running "sudo ./install.sh".
+# Falls back to logname (works for "sudo su - root") then whoami.
+if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+  SERVICE_USER="$SUDO_USER"
+else
+  SERVICE_USER="$(logname 2>/dev/null || whoami)"
+  if [[ "$SERVICE_USER" == "root" ]]; then
+    warn "Could not determine real user — service will run as root (not recommended)."
+  fi
+fi
 PIPER_RELEASE_URL="https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz"
 HF_VOICES_BASE="https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0"
 
