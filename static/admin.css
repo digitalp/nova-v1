@@ -528,7 +528,7 @@ textarea:focus {
   transition: color .15s;
 }
 .input-reveal button:hover { color: var(--text); }
-.config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); }
+.config-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--sp-4); }
 
 /* ── Badges / Chips ──────────────────────────────────────────────────────────── */
 .badge {
@@ -916,7 +916,6 @@ tr:hover td { background: var(--accent-dim); color: var(--text); }
 }
 @media (max-width: 720px) {
   .stat-grid   { grid-template-columns: 1fr 1fr; }
-  .config-grid { grid-template-columns: 1fr; }
   .metric-row  { grid-template-columns: 1fr 1fr; }
   .dash-quick-grid { grid-template-columns: 1fr !important; }
 }
