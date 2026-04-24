@@ -687,6 +687,75 @@ async def _daily_chore_summary_loop(announce_fn, scoreboard_service, llm_service
             structlog.get_logger().warning("daily_summary.error", exc=str(exc)[:120])
         await asyncio.sleep(30)
 
+
+async def _bedtime_loop(announce_fn, family_service, mdm_client) -> None:
+    """Check every 60s: enforce bedtime block and 07:00 morning unblock."""
+    from datetime import datetime as _dt
+    await asyncio.sleep(180)
+    logger = structlog.get_logger()
+
+    while True:
+        try:
+            now = _dt.now()
+            day_name = now.strftime("%A").lower()
+            hm = (now.hour, now.minute)
+            is_morning = (7, 0) <= hm < (7, 6)
+
+            children = family_service.get_children()
+            for person in children:
+                try:
+                    mdm_res = [r for r in family_service.get_resources_for(person.id)
+                               if r.kind == "mdm_device" and r.device_number]
+                    if not mdm_res:
+                        continue
+                    resource = mdm_res[0]
+                    cs = family_service.get_child_state(person.id)
+                    current = cs.get("state", "allowed")
+                    reason = cs.get("reason", "")
+
+                    # Morning unblock — only lift bedtime restrictions
+                    if is_morning and "bedtime" in reason.lower():
+                        try:
+                            await mdm_client.set_app_action(resource.device_number, package="", action=1)
+                        except Exception:
+                            pass
+                        family_service.set_child_state(person.id, "allowed", reason="Morning — bedtime lifted")
+                        await announce_fn(f"Good morning {person.display_name}! Your device has been unlocked. Have a great day!", "normal")
+                        logger.info("bedtime.morning_unblock", person=person.id)
+                        continue
+
+                    # Determine tonight's bedtime
+                    school_nights = [s.lower() for s in (person.school_nights or [])]
+                    is_school_night = day_name in school_nights
+                    bedtime_str = person.bedtime_weekday if is_school_night else person.bedtime_weekend
+                    if not bedtime_str:
+                        continue
+                    bt_h, bt_m = (int(x) for x in bedtime_str.split(":"))
+
+                    past_bedtime = hm >= (bt_h, bt_m)
+                    past_7am = hm >= (7, 0)
+
+                    if past_bedtime and not past_7am and current != "overridden" and "bedtime" not in reason.lower():
+                        try:
+                            await mdm_client.set_app_action(resource.device_number, package="", action=0)
+                        except Exception:
+                            pass
+                        family_service.set_child_state(
+                            person.id, "restricted",
+                            reason=f"Bedtime ({bedtime_str}) — device locked until 07:00",
+                        )
+                        await announce_fn(
+                            f"{person.display_name}, it's bedtime! Your device has been locked. Goodnight!", "normal"
+                        )
+                        logger.info("bedtime.restricted", person=person.id, bedtime=bedtime_str)
+
+                except Exception as exc:
+                    logger.warning("bedtime.person_error", person=getattr(person, "id", "?"), exc=str(exc)[:80])
+
+        except Exception as exc:
+            structlog.get_logger().warning("bedtime.loop_error", exc=str(exc)[:120])
+        await asyncio.sleep(60)
+
 def schedule_background_tasks(app: FastAPI, container) -> None:
     """Schedule all background asyncio tasks. Called after service creation."""
     container._background_tasks.append(asyncio.create_task(_restart_fully_kiosk_after_startup(app), name="kiosk_restart"))
@@ -716,6 +785,17 @@ def schedule_background_tasks(app: FastAPI, container) -> None:
             name="morning_digest",
         ))
     # Homework gate (only if family_service + mdm_client available)
+    # Bedtime enforcement loop
+    _fs = getattr(container, 'family_service', None)
+    if _fs is not None and getattr(container, 'mdm_client', None) is not None:
+        container._background_tasks.append(asyncio.create_task(
+            _bedtime_loop(
+                container._proactive_announce,
+                _fs,
+                container.mdm_client,
+            ),
+            name='bedtime_enforce',
+        ))
     _fs = getattr(container, 'family_service', None)
     _mdm = getattr(container, 'mdm_client', None)
     if _fs is not None and getattr(container, 'scoreboard_service', None) is not None:
