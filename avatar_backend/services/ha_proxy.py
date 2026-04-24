@@ -190,6 +190,9 @@ class HAProxy:
         if tool_call.function_name == "get_parental_status":
             return await self._get_parental_status()
 
+        if tool_call.function_name == "simulate_household_at":
+            return await self._simulate_household_at(tool_call.arguments)
+
         if tool_call.function_name == "get_household_forecast":
             return await self._get_household_forecast(tool_call.arguments)
 
@@ -570,6 +573,64 @@ class HAProxy:
             return ToolResult(success=True, message=msg)
         except Exception as exc:
             return ToolResult(success=False, message=f"MDM error: {exc}")
+
+    async def _simulate_household_at(self, args: dict) -> "ToolResult":
+        from datetime import datetime as _dt
+        time_str = str(args.get("time") or "").strip()
+        day_str = str(args.get("day") or "").strip().lower()
+        if not time_str:
+            return ToolResult(success=False, message="time is required (HH:MM).")
+        try:
+            sim_h, sim_m = (int(x) for x in time_str.split(":"))
+        except Exception:
+            return ToolResult(success=False, message=f"Invalid time {time_str!r}.")
+        if not day_str:
+            day_str = _dt.now().strftime("%A").lower()
+        fs = getattr(self, "_family_service", None)
+        if not fs:
+            return ToolResult(success=False, message="Family service not configured.")
+        hm = (sim_h, sim_m)
+        lines = []
+        for person in fs.get_children():
+            school_nights = [s.lower() for s in (person.school_nights or [])]
+            is_school = day_str in school_nights
+            bedtime_str = person.bedtime_weekday if is_school else person.bedtime_weekend
+            night_type = "school night" if is_school else "weekend"
+            parts = []
+            if bedtime_str:
+                bt_h, bt_m = (int(x) for x in bedtime_str.split(":"))
+                if hm >= (bt_h, bt_m):
+                    parts.append(f"past bedtime ({bedtime_str}, {night_type}) — device LOCKED")
+                else:
+                    mins = (bt_h * 60 + bt_m) - (sim_h * 60 + sim_m)
+                    h, m = divmod(mins, 60)
+                    t = f"{h}h {m}m" if h else f"{m}m"
+                    parts.append(f"bedtime {bedtime_str} in {t} ({night_type})")
+            else:
+                parts.append(f"no bedtime for {night_type}")
+            for pol in fs.get_homework_gate_policies():
+                if pol.subject_id != person.id or not pol.active:
+                    continue
+                if pol.enforce_from and pol.enforce_until:
+                    fh, fm = (int(x) for x in pol.enforce_from.split(":"))
+                    uh, um = (int(x) for x in pol.enforce_until.split(":"))
+                    in_w = (fh, fm) <= hm < (uh, um)
+                    tasks = ", ".join(pol.required_task_ids) or "assigned tasks"
+                    if in_w:
+                        parts.append(f"homework gate ACTIVE until {pol.enforce_until} (needs: {tasks})")
+                    elif hm < (fh, fm):
+                        mins2 = (fh * 60 + fm) - (sim_h * 60 + sim_m)
+                        h2, m2 = divmod(mins2, 60)
+                        t2 = f"{h2}h {m2}m" if h2 else f"{m2}m"
+                        parts.append(f"homework gate opens in {t2} (at {pol.enforce_from})")
+                    else:
+                        parts.append("homework gate closed")
+            lines.append(f"{person.display_name}: " + "; ".join(parts))
+        if not lines:
+            return ToolResult(success=True, message="No children in family model.")
+        return ToolResult(success=True, message=
+            f"Simulation for {day_str.title()} at {time_str}:\n" +
+            "\n".join(f"  {chr(8226)} {l}" for l in lines))
 
     async def _get_household_forecast(self, args: dict) -> "ToolResult":
         from datetime import datetime as _dt, timedelta as _td

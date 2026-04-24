@@ -252,6 +252,24 @@ HA_TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "simulate_household_at",
+            "description": (
+                "Simulate what household rules would do at a specific time and day, without enforcing. "
+                "Use when asked what happens at a given time, e.g. will Jason be locked at 9 PM Saturday."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "time": {"type": "string", "description": "Time in HH:MM (24h), e.g. 21:30."},
+                    "day":  {"type": "string", "description": "Day name e.g. monday, saturday. Defaults to today."},
+                },
+                "required": ["time"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_household_forecast",
             "description": (
                 "Show what is coming up for the household in the next few hours: "
