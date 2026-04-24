@@ -1558,7 +1558,6 @@ tr:hover td { background: var(--accent-dim); color: var(--text); }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   margin-bottom: var(--sp-3);
-  overflow: hidden;
 }
 .collapsible-header {
   display: flex;
