@@ -756,6 +756,66 @@ async def _bedtime_loop(announce_fn, family_service, mdm_client) -> None:
             structlog.get_logger().warning("bedtime.loop_error", exc=str(exc)[:120])
         await asyncio.sleep(60)
 
+async def _doc_update_loop(nova_path: str) -> None:
+    """Check for new git commits every 10 min; call Claude to update USER_MANUAL.md."""
+    import asyncio as _asyncio
+    import subprocess as _subprocess
+    from pathlib import Path as _Path
+    _logger = structlog.get_logger()
+    state_file = _Path(nova_path) / ".doc_update_state"
+    manual_path = _Path(nova_path) / "docs" / "USER_MANUAL.md"
+    (_Path(nova_path) / "docs" / "generated").mkdir(exist_ok=True)
+
+    def _git(*args):
+        r = _subprocess.run(["git", "-C", nova_path] + list(args),
+                            capture_output=True, text=True, timeout=30)
+        return r.stdout.strip()
+
+    await _asyncio.sleep(90)
+
+    while True:
+        try:
+            current_head = _git("rev-parse", "HEAD")
+            last_seen = state_file.read_text().strip() if state_file.exists() else ""
+            if current_head and current_head != last_seen:
+                diff = _git("diff", last_seen, current_head, "--", "avatar_backend/", "static/") if last_seen else ""
+                commits = _git("log", "--oneline", f"{last_seen}..{current_head}") if last_seen else _git("log", "--oneline", "-3")
+                if diff and len(diff) > 150:
+                    diff_trunc = diff[:12000] + ("\n(truncated)" if len(diff) > 12000 else "")
+                    manual = manual_path.read_text(encoding="utf-8") if manual_path.exists() else ""
+                    prompt = (
+                        "You maintain the Nova smart-home assistant user manual.\n\n"
+                        f"New commits:\n{commits}\n\nDiff:\n```diff\n{diff_trunc}\n```\n\n"
+                        f"Current manual (first 8000 chars):\n{manual[:8000]}\n\n"
+                        "If this diff introduces user-visible features, return the COMPLETE updated USER_MANUAL.md "
+                        "(start exactly with \'# Nova\', same polished tone, no code fences). "
+                        "If only internal/infra changes, reply exactly: SKIP"
+                    )
+                    try:
+                        result = _subprocess.run(
+                            ["/usr/local/bin/claude", "--print", "--no-markdown", prompt],
+                            capture_output=True, text=True, timeout=180, cwd=nova_path,
+                        )
+                        output = (result.stdout or "").strip()
+                        if output and output != "SKIP" and output.startswith("# Nova"):
+                            manual_path.write_text(output, encoding="utf-8")
+                            _subprocess.run(["git", "-C", nova_path, "add", "docs/USER_MANUAL.md"], capture_output=True)
+                            _subprocess.run(["git", "-C", nova_path, "commit", "-m",
+                                             "docs: auto-update USER_MANUAL.md [doc-bot]"], capture_output=True)
+                            _subprocess.run(["git", "-C", nova_path, "push"], capture_output=True, timeout=30)
+                            _logger.info("doc_updater.manual_updated", commits=commits[:100])
+                        elif output == "SKIP":
+                            _logger.info("doc_updater.skipped")
+                        else:
+                            _logger.warning("doc_updater.unexpected_output", preview=(output or "")[:80])
+                    except Exception as exc:
+                        _logger.warning("doc_updater.claude_failed", exc=str(exc)[:120])
+                state_file.write_text(current_head)
+        except Exception as exc:
+            _logger.warning("doc_updater.loop_error", exc=str(exc)[:120])
+        await _asyncio.sleep(600)
+
+
 def schedule_background_tasks(app: FastAPI, container) -> None:
     """Schedule all background asyncio tasks. Called after service creation."""
     container._background_tasks.append(asyncio.create_task(_restart_fully_kiosk_after_startup(app), name="kiosk_restart"))
