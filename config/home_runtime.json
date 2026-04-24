@@ -192,8 +192,7 @@
     }
   },
   "vision_enabled_cameras": [
-    "camera.outdoor2_profile000_mainstream",
-    "camera.tangu_home_door_bell"
+    "camera.outdoor2_profile000_mainstream"
   ],
   "weather_entity": "weather.met_office_ince_in_makerfield"
 }
