@@ -566,24 +566,64 @@ class HAProxy:
             return ToolResult(success=False, message=f"MDM error: {exc}")
 
     async def _get_device_location(self, args: dict) -> "ToolResult":
+        import httpx as _httpx
+        person_id = str(args.get("person_id") or "").strip().lower()
         device_number = str(args.get("device_number") or "").strip()
+        display_name = person_id or device_number
+
+        # Resolve person_id → device_number via family_service
+        if person_id and not device_number:
+            fs = getattr(self, "_family_service", None)
+            if fs:
+                for res in fs.get_resources_for(person_id):
+                    if res.kind == "mdm_device" and res.device_number:
+                        device_number = res.device_number
+                        person = fs.get_person(person_id)
+                        if person:
+                            display_name = person.display_name
+                        break
         if not device_number:
-            return ToolResult(success=False, message="device_number is required.")
+            return ToolResult(success=False, message=f"No MDM device found for '{person_id or 'unknown'}'. Check family_state.json or provide device_number directly.")
+
         try:
             device = await _mdm.get_device(device_number)
             location = await _mdm.get_device_location(device_number)
-            name = device.get("description") or device.get("name") or device.get("model") or device_number
+            dev_name = device.get("description") or device.get("name") or device.get("model") or device_number
             if not location:
-                return ToolResult(success=True, message=f"No recent location is available for {name} ({device_number}).")
+                return ToolResult(success=True, message=f"No recent location is available for {display_name} — their device ({device_number}) may have location disabled or has not checked in recently.")
             lat = location.get("lat")
             lon = location.get("lon")
-            ts = location.get("ts") or "unknown time"
+            ts = str(location.get("ts") or "unknown time")[:16]
+
+            # Reverse geocode via Nominatim
+            address = None
+            try:
+                async with _httpx.AsyncClient(timeout=5.0) as _hc:
+                    r = await _hc.get(
+                        "https://nominatim.openstreetmap.org/reverse",
+                        params={"lat": lat, "lon": lon, "format": "json", "zoom": 16},
+                        headers={"User-Agent": "Nova-HomeAssistant/1.0"},
+                    )
+                    if r.status_code == 200:
+                        geo = r.json()
+                        addr = geo.get("address", {})
+                        parts = []
+                        for key in ("road", "suburb", "city", "town", "village", "county"):
+                            v = addr.get(key)
+                            if v and v not in parts:
+                                parts.append(v)
+                        if parts:
+                            address = ", ".join(parts[:3])
+            except Exception:
+                pass
+
+            loc_str = address if address else f"{lat}, {lon}"
             return ToolResult(
                 success=True,
-                message=f"{name} ({device_number}) last reported location: {lat}, {lon} at {ts}.",
+                message=f"{display_name} was last seen near {loc_str} at {ts} (device: {dev_name}).",
             )
         except Exception as exc:
-            return ToolResult(success=False, message=f"MDM error: {exc}")
+            return ToolResult(success=False, message=f"MDM location error: {exc}")
 
     async def _search_apps(self, args: dict) -> "ToolResult":
         query = str(args.get("query") or "").strip()

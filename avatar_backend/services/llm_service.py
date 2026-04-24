@@ -254,18 +254,23 @@ HA_TOOLS: list[dict] = [
         "function": {
             "name": "get_device_location",
             "description": (
-                "Get the latest known location for a managed Android device. "
-                "Use get_enrolled_devices first to find the device_number."
+                "Get the latest known location for a household member or managed device. "
+                "Provide person_id (e.g. jason, joel, miya) to look up by name — no need to "
+                "call get_enrolled_devices first. Returns a human-readable address when available."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "person_id": {
+                        "type": "string",
+                        "description": "The person's ID from the household roster (e.g. jason, joel, miya).",
+                    },
                     "device_number": {
                         "type": "string",
-                        "description": "The device number from get_enrolled_devices.",
+                        "description": "Direct MDM device number — only needed if person_id is unknown.",
                     },
                 },
-                "required": ["device_number"],
+                "required": [],
             },
         },
     },
