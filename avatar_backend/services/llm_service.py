@@ -907,7 +907,9 @@ class _GeminiBackend:
         last_exc = None
         _empty_retried = False
         for _attempt in range(_gemini_attempt_budget()):
-            api_key = _get_gemini_key() or self._api_key
+            api_key = _get_gemini_key()
+            if not api_key:
+                raise httpx.HTTPStatusError("All Gemini keys exhausted", request=None, response=type("R", (), {"status_code": 429})())
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
                     resp = await client.post(url, json=payload,
@@ -943,6 +945,11 @@ class _GeminiBackend:
                 _log("google", self._model, t0, text, tools,
                      input_tokens=_um.get("promptTokenCount", 0),
                      output_tokens=_um.get("candidatesTokenCount", 0))
+                _report_gemini_success(
+                    api_key,
+                    latency_ms=int((time.monotonic() - t0) * 1000),
+                    tokens=_um.get("totalTokenCount", 0),
+                )
                 return text, tools
             except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
                 last_exc = exc
@@ -969,7 +976,9 @@ class _GeminiBackend:
         t0 = time.monotonic()
         last_exc = None
         for _attempt in range(_gemini_attempt_budget()):
-            api_key = _get_gemini_key() or self._api_key
+            api_key = _get_gemini_key()
+            if not api_key:
+                raise httpx.HTTPStatusError("All Gemini keys exhausted", request=None, response=type("R", (), {"status_code": 429})())
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
                     resp = await client.post(url, json=payload,
@@ -1011,7 +1020,9 @@ class _GeminiBackend:
         t0 = time.monotonic()
         last_exc = None
         for _attempt in range(_gemini_attempt_budget()):
-            api_key = _get_gemini_key() or self._api_key
+            api_key = _get_gemini_key()
+            if not api_key:
+                raise httpx.HTTPStatusError("All Gemini keys exhausted", request=None, response=type("R", (), {"status_code": 429})())
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
                     resp = await client.post(url, json=payload,
@@ -1152,6 +1163,14 @@ def _report_gemini_429(key: str) -> None:
         _gemini_key_pool.report_429(key)
 
 
+def _report_gemini_success(key: str, latency_ms: float = 0, tokens: int = 0) -> None:
+    if _gemini_key_pool:
+        _gemini_key_pool.report_success(key, latency_ms=latency_ms, tokens=tokens)
+
+
+def _report_gemini_error(key: str) -> None:
+    if _gemini_key_pool:
+        _gemini_key_pool.report_error(key)
 
 
 def _vision_ollama_url() -> str:
@@ -1479,7 +1498,16 @@ class LLMService:
                            fallback=self._FALLBACK_MODEL,
                            reason=str(exc)[:120])
             try:
-                return await self._fallback.chat(messages, use_tools)
+                # Sanitize messages for Ollama — strip tool_calls and tool role messages
+                clean = []
+                for m in messages:
+                    if m.get("role") == "tool":
+                        clean.append({"role": "user", "content": "[Tool result]: " + str(m.get("content", ""))})
+                    elif "tool_calls" in m:
+                        clean.append({"role": m.get("role", "assistant"), "content": m.get("content", "") or "(tool call)"})
+                    else:
+                        clean.append(m)
+                return await self._fallback.chat(clean, use_tools=False)
             except Exception as fb_exc:
                 raise RuntimeError(f"LLM fallback also failed: {fb_exc}") from fb_exc
 
@@ -1773,12 +1801,15 @@ class LLMService:
             _prompt = prompt or _DEFAULT_IMAGE_PROMPT
 
             # Try each configured key at most once before falling back.
+            _vision_t0 = time.monotonic()
             for _attempt in range(_gemini_attempt_budget()):
                 api_key = _get_gemini_key(camera_id)
                 if not api_key:
                     break
                 try:
-                    return await _gemini_describe_image(image_bytes, api_key, model, _prompt, system_instruction)
+                    result = await _gemini_describe_image(image_bytes, api_key, model, _prompt, system_instruction)
+                    _report_gemini_success(api_key, latency_ms=int((time.monotonic() - _vision_t0) * 1000))
+                    return result
                 except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
                         last_exc = exc
                         if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (429, 503):

@@ -164,7 +164,7 @@
       const d = await configApi.getGeminiPool();
       const keys = d.keys || [];
       const stats = d.stats || {};
-      statsEl.textContent = `${stats.pool_size || 0} keys · ${stats.available || 0} available · ${stats.total_calls || 0} calls · ${stats.total_429s || 0} rate limits`;
+      statsEl.innerHTML = `${stats.pool_size || 0} keys · ${stats.available || 0} available · ${stats.total_calls || 0} calls · ${stats.total_429s || 0} rate limits` + (stats.rpm ? ` · <strong>${stats.rpm}</strong> req/min` : "") + (stats.keys_in_cooldown ? ` · <span style="color:var(--danger)">${stats.keys_in_cooldown} in cooldown</span>` : "") + (stats.total_tokens ? ` · ${stats.total_tokens} tokens` : "");
       if (!keys.length) {
         keysEl.innerHTML = '<div class="text-sm text-muted">No keys configured. Add your Gemini API keys below.</div>';
         return;
@@ -181,7 +181,7 @@
           + '</label>'
           + '<div style="flex:1;">'
           + '<div style="font-weight:600;font-size:13px;' + (!k.enabled ? 'opacity:.45;' : '') + '">' + _esc(k.label) + ' <span class="text-muted" style="font-weight:400;">' + _esc(k.masked_key) + '</span></div>'
-          + '<div class="text-sm text-muted">' + (k.enabled ? status : '<span style="color:var(--text3);">Disabled</span>') + ' · ' + k.total_calls + ' calls · ' + k.total_429s + ' 429s' + pins + '</div>'
+          + '<div class="text-sm text-muted">' + (k.enabled ? status : '<span style="color:var(--text3);">Disabled</span>') + ' · ' + k.total_calls + ' calls · ' + k.total_429s + ' 429s' + (k.rpm ? ' \xb7 ' + k.rpm + ' rpm' : '') + (k.avg_latency_ms ? ' \xb7 ' + k.avg_latency_ms + 'ms' : '') + (k.consecutive_429s > 0 ? ' \xb7 <span style="color:var(--danger)">backoff x' + k.consecutive_429s + '</span>' : '') + (k.tokens_used ? ' \xb7 ' + k.tokens_used + ' tok' : '') + pins + '</div>'
           + '</div>'
           + '<button class="btn btn-outline btn-sm" style="font-size:11px;" onclick="removeGeminiKey(' + i + ')">Remove</button>'
           + '</div>';

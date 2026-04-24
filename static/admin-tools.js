@@ -314,6 +314,9 @@
   document.getElementById('btn-force-heating-spring')?.addEventListener('click', () => forceHeatingShadow('spring'));
   document.getElementById('wake-train-btn')?.addEventListener('click', () => trainWakeWord());
   document.getElementById('wake-install-compiler-btn')?.addEventListener('click', () => installEdgeTPUCompiler());
+  document.getElementById('announce-log-toggle')?.addEventListener('click', () => {
+    _toggleCollapsibleSection('announce-log-body', 'announce-log-chevron', loadAnnouncementLog);
+  });
   document.getElementById('audit-toggle')?.addEventListener('click', () => {
     _toggleCollapsibleSection('audit-body', 'audit-chevron', loadConversationAudit);
   });

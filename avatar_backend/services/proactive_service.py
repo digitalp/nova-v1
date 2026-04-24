@@ -1251,11 +1251,78 @@ class ProactiveService:
                 _LOGGER.warning("heating.eval_error", exc=str(exc))
             await asyncio.sleep(self._HEATING_INTERVAL_S)
 
+    _ALL_TRVS = [
+        "climate.living_room_thermostat",
+        "climate.living_room_1_thermostat",
+        "climate.living_room_2_better_thermostat",
+        "climate.main_room_thermo",
+        "climate.main_room_thermo_2",
+        "climate.bedroom_1_thermostat",
+        "climate.bedroom_1_thermo",
+        "climate.tse_s_bedroom_thermostat",
+        "climate.tse_room_thermostat",
+        "climate.hallway",
+        "climate.hallway_thermostat",
+        "climate.dinning_section_trv",
+    ]
+
+    async def _heating_safety_guard(self) -> bool:
+        """Pre-flight check before LLM heating evaluation.
+
+        Reads outdoor temp directly from HA (no LLM). If outdoor >= 16 °C,
+        enforces heating off + eco TRV setback (13 °C) and returns True so
+        _evaluate_heating can skip the LLM loop entirely.
+        """
+        from avatar_backend.models.messages import ToolCall as _TC
+
+        weather = await self._ha.get_entity_state("weather.met_office_ince_in_makerfield")
+        if not weather:
+            _LOGGER.warning("heating.guard_outdoor_read_failed")
+            return False
+
+        try:
+            outdoor_temp = float(weather.get("attributes", {}).get("temperature", 99))
+        except (TypeError, ValueError):
+            _LOGGER.warning("heating.guard_outdoor_parse_failed", state=str(weather)[:120])
+            return False
+
+        if outdoor_temp < 16.0:
+            return False  # within range where LLM should decide
+
+        _LOGGER.info(
+            "heating.safety_guard_triggered",
+            outdoor_temp=outdoor_temp,
+            action="force_off_eco_setback",
+        )
+
+        async def _act(args: dict) -> None:
+            await self._ha.execute_tool_call(_TC(function_name="call_ha_service", arguments=args))
+
+        # Turn off boiler and winter_mode
+        await _act({"domain": "input_boolean", "service": "turn_off",
+                    "entity_id": "input_boolean.winter_mode"})
+        await _act({"domain": "climate", "service": "set_hvac_mode",
+                    "entity_id": "climate.hive_receiver_climate",
+                    "service_data": {"hvac_mode": "off"}})
+
+        # Eco setback — all TRVs to 13 °C
+        for trv in self._ALL_TRVS:
+            await _act({"domain": "climate", "service": "set_temperature",
+                        "entity_id": trv, "service_data": {"temperature": 13}})
+
+        return True
+
+
     async def _evaluate_heating(self) -> None:
         """
         Runs a full agentic loop (LLM + tool execution) to evaluate and
         adjust heating. The system prompt contains the decision rules.
         """
+        # Pre-flight: if outdoor >= 16°C enforce off + eco setback without LLM
+        if await self._heating_safety_guard():
+            _LOGGER.info("heating.guard_handled", reason="outdoor>=16C")
+            return
+
         import datetime as _dt
         now_str = _dt.datetime.now().strftime("%A, %d %B %Y %H:%M")
         month = _dt.datetime.now().month

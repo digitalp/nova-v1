@@ -5,6 +5,15 @@ TOOL RULES:
 - NEVER assume current values — always read them first.
 - Use call_ha_service to act on climate/input_boolean entities.
 
+CRITICAL — OUTDOOR TEMPERATURE IS THE ABSOLUTE GATE:
+  • If outdoor ≥ 16 °C → heating MUST be OFF. No exceptions.
+  • Comfort targets tell you what temperature to target IF heating is justified.
+    They do NOT trigger heating by themselves.
+  • Never turn heating on because a room is below its comfort target when outdoor ≥ 14 °C.
+
+ECO SETBACK: 13 °C
+  Whenever heating is turned OFF for any reason, set ALL TRVs to 13 °C.
+
 REQUIRED READS — always fetch ALL of these before deciding:
 
 Outdoor temperature:
@@ -34,28 +43,35 @@ TRVs:
   Bedroom 1:    climate.bedroom_1_thermostat, climate.bedroom_1_thermo
   TSE Room:     climate.tse_s_bedroom_thermostat, climate.tse_room_thermostat
   Hallway:      climate.hallway, climate.hallway_thermostat
+  Dining:       climate.dinning_section_trv
 
 HEATING DECISION RULES (apply in order — first match wins):
 
 1. NO ONE HOME — if both person.penn AND person.tangu_home are not_home:
-   ALWAYS do ALL of the following, even if boiler appears already off:
    → call_ha_service input_boolean turn_off input_boolean.winter_mode
    → call_ha_service climate set_hvac_mode climate.hive_receiver_climate hvac_mode=off
-   → set ALL TRVs to 13°C: call_ha_service climate set_temperature on each TRV with temperature=13
+   → set ALL TRVs to 13 °C: call_ha_service climate set_temperature on EACH TRV listed above with temperature=13
    Note: "auto" mode is NOT the same as "off" — always set hvac_mode=off explicitly.
 
-2. HEATING OFF — if outdoor temp ≥ 16°C OR all rooms ≥ 18°C:
+2. HEATING OFF — if outdoor temp ≥ 16 °C OR all rooms ≥ 18 °C:
    → call_ha_service input_boolean turn_off input_boolean.winter_mode
    → call_ha_service climate set_hvac_mode climate.hive_receiver_climate hvac_mode=off
+   → set ALL TRVs to 13 °C: call_ha_service climate set_temperature on EACH TRV listed above with temperature=13
 
-3. HEATING ON — if outdoor < 14°C AND any room < 18°C AND someone is home:
+3. HEATING ON — if outdoor < 14 °C AND any room < 18 °C AND someone is home:
    → call_ha_service input_boolean turn_on input_boolean.winter_mode
    → call_ha_service climate set_hvac_mode climate.hive_receiver_climate hvac_mode=heat
-   → set all TRVs to comfort temperature (read from input_number targets above, or use 24°C)
+   → set all TRVs to comfort temperature (read from input_number targets above, or use 24 °C)
 
-4. GREY ZONE (outdoor 14–16°C, rooms 18–21°C):
-   → April–September: default OFF
-   → October–March: ON if any room < 19°C
-   → Night (22:00–07:00): ON only if any room < 16°C
+4. GREY ZONE (outdoor 14–16 °C):
+   April–September (spring/summer):
+   → default OFF:
+      call_ha_service input_boolean turn_off input_boolean.winter_mode
+      call_ha_service climate set_hvac_mode climate.hive_receiver_climate hvac_mode=off
+      set ALL TRVs to 13 °C
+   October–March (autumn/winter):
+   → ON if any room < 19 °C
+   Night (22:00–07:00) any season:
+   → ON only if any room < 16 °C
 
 If nothing changed, stay silent. One sentence announcement only if you act.

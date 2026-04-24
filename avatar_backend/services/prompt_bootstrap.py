@@ -807,7 +807,7 @@ def _infer_sensor_exclusions(states: list[dict], extra_notes: list[str]) -> tupl
             continue
         if any(keyword in haystack for keyword in ("awtrix", "uptime", "signal", "linkquality", "firmware", "version")):
             snapshot_excludes.add(_entity_prefix(entity_id))
-        if any(keyword in haystack for keyword in ("device temperature", "thermo valve", "thermo idle", "thermo closing")):
+        if any(keyword in haystack for keyword in ("device temperature", "device_temperature", "thermo valve", "thermo idle", "thermo closing")):
             snapshot_excludes.add(_entity_prefix(entity_id))
             temp_excludes.add(_entity_prefix(entity_id))
     for note in extra_notes:

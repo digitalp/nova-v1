@@ -52,10 +52,18 @@ class FaceRecognitionService:
 
     # ── Face Recognition ──────────────────────────────────────────────────
 
+    # Minimum confidence sent to the API — low enough that weak matches come back
+    # with the actual name rather than "unknown". Application-level thresholds
+    # below determine whether the match is announced or silently accepted.
+    _API_MIN_CONF = 0.3
+    # Minimum confidence to include a face in the returned list (used by callers
+    # to decide whether to announce / act on the recognition).
+    _ANNOUNCE_MIN_CONF = 0.55
+
     async def recognize(
         self,
         image_bytes: bytes,
-        min_confidence: float = 0.5,
+        min_confidence: float = _ANNOUNCE_MIN_CONF,
         queue_full_frame_on_empty: bool = False,
     ) -> list[dict]:
         if not self._url or not image_bytes:
@@ -65,7 +73,10 @@ class FaceRecognitionService:
                 resp = await client.post(
                     f"{self._url}/v1/vision/face/recognize",
                     files={"image": ("frame.jpg", image_bytes, "image/jpeg")},
-                    data={"min_confidence": str(min_confidence)},
+                    # Use a low API threshold so the model returns the best-match
+                    # name even for weaker detections. We apply our own thresholds
+                    # below rather than relying on the API to suppress known faces.
+                    data={"min_confidence": str(self._API_MIN_CONF)},
                 )
                 if resp.status_code != 200:
                     return []
@@ -79,19 +90,18 @@ class FaceRecognitionService:
                     has_any = True
                     name = p.get("userid", "unknown")
                     conf = round(p.get("confidence", 0), 2)
-                    
-                    # 1. High confidence match
-                    if name and name != "unknown" and conf >= min_confidence:
-                        faces.append({"name": name, "confidence": conf})
-                        _LOGGER.info("face.recognized", name=name, confidence=conf)
-                    
-                    # 2. Lower confidence match (dont queue, still recognize)
-                    elif name and name != "unknown" and conf >= 0.50:
-                        faces.append({"name": name, "confidence": conf})
-                        _LOGGER.info("face.recognized_low_conf", name=name, confidence=conf)
-                    
-                    # 3. Genuinely unknown or extremely low confidence
+
+                    if name and name != "unknown":
+                        # Known person — never queue as unknown regardless of confidence.
+                        # Only include in results if confidence meets the announce threshold.
+                        if conf >= min_confidence:
+                            faces.append({"name": name, "confidence": conf})
+                            _LOGGER.info("face.recognized", name=name, confidence=conf)
+                        else:
+                            # Weak match for a known person: log silently, skip announcement.
+                            _LOGGER.info("face.recognized_low_conf", name=name, confidence=conf)
                     elif p.get("x_min") is not None:
+                        # Genuinely unknown face — queue for review.
                         self._queue_unknown(image_bytes, p)
 
                 # Only queue an empty frame when a caller explicitly asks for that behavior.

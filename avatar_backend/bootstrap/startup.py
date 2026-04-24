@@ -45,8 +45,12 @@ async def bootstrap(app: FastAPI, settings, system_prompt: str) -> AppContainer:
 
     # Gemini API key pool for vision rotation
     from avatar_backend.services.gemini_key_pool import GeminiKeyPool, load_pool_from_settings
+    from pathlib import Path as _Path
     c.gemini_key_pool = GeminiKeyPool()
     load_pool_from_settings(c.gemini_key_pool, settings)
+    _pool_state_path = _Path("/opt/avatar-server/data/gemini_pool_state.json")
+    c.gemini_key_pool.set_state_path(_pool_state_path)
+    c.gemini_key_pool.load_state()
     if c.gemini_key_pool.size:
         logger.info("gemini_key_pool.configured", pool_size=c.gemini_key_pool.size)
     from avatar_backend.services.llm_service import set_gemini_key_pool

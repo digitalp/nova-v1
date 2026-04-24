@@ -7,9 +7,11 @@ Optionally pin specific cameras to specific keys for guaranteed quota.
 """
 from __future__ import annotations
 
+import json
 import time
 import threading
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import structlog
 
@@ -24,9 +26,15 @@ class KeyState:
     cooldown_until: float = 0.0
     total_calls: int = 0
     total_429s: int = 0
+    total_errors: int = 0
     last_used: float = 0.0
+    consecutive_429s: int = 0
     pinned_cameras: list[str] = field(default_factory=list)
     enabled: bool = True
+    # Observability
+    _call_timestamps: list[float] = field(default_factory=list)
+    _latencies: list[float] = field(default_factory=list)
+    _tokens_used: int = 0
 
     @property
     def is_available(self) -> bool:
@@ -38,6 +46,34 @@ class KeyState:
             return "****"
         return self.key[:4] + "…" + self.key[-4:]
 
+    @property
+    def rpm(self) -> float:
+        """Requests per minute over the last 60 seconds."""
+        now = time.monotonic()
+        cutoff = now - 60
+        self._call_timestamps = [t for t in self._call_timestamps if t > cutoff]
+        return len(self._call_timestamps)
+
+    @property
+    def avg_latency_ms(self) -> float:
+        if not self._latencies:
+            return 0
+        recent = self._latencies[-20:]
+        return round(sum(recent) / len(recent))
+
+    def record_call(self) -> None:
+        self.total_calls += 1
+        self.last_used = time.monotonic()
+        self._call_timestamps.append(time.monotonic())
+
+    def record_latency(self, ms: float) -> None:
+        self._latencies.append(ms)
+        if len(self._latencies) > 100:
+            self._latencies = self._latencies[-50:]
+
+    def record_tokens(self, count: int) -> None:
+        self._tokens_used += count
+
     def to_dict(self) -> dict:
         return {
             "label": self.label,
@@ -46,20 +82,105 @@ class KeyState:
             "cooldown_remaining_s": max(0, round(self.cooldown_until - time.monotonic())),
             "total_calls": self.total_calls,
             "total_429s": self.total_429s,
+            "total_errors": self.total_errors,
+            "consecutive_429s": self.consecutive_429s,
             "last_used": self.last_used,
             "pinned_cameras": self.pinned_cameras,
             "enabled": self.enabled,
+            "rpm": self.rpm,
+            "avg_latency_ms": self.avg_latency_ms,
+            "tokens_used": self._tokens_used,
         }
 
 
 class GeminiKeyPool:
     """Round-robin Gemini API key pool with 429 cooldown and camera pinning."""
 
+    _SAVE_DEBOUNCE_S = 60  # minimum seconds between debounced saves
+
     def __init__(self, cooldown_s: float = _DEFAULT_COOLDOWN_S) -> None:
         self._keys: list[KeyState] = []
         self._lock = threading.Lock()
         self._robin_idx = 0
         self._cooldown_s = cooldown_s
+        self._state_path: Path | None = None
+        self._last_save: float = 0.0
+
+
+    def set_state_path(self, path: Path) -> None:
+        """Set the file path used for metric persistence and start the flush thread."""
+        self._state_path = path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Background thread: flush every 5 minutes so total_calls persists even
+        # when there are no 429s or explicit report_success calls.
+        t = threading.Thread(target=self._flush_loop, daemon=True, name="gemini-pool-flush")
+        t.start()
+
+    def _flush_loop(self) -> None:
+        while True:
+            time.sleep(300)
+            self._save_state(force=True)
+
+    def _save_state(self, *, force: bool = False) -> None:
+        """Write per-key metrics to disk. Debounced unless force=True."""
+        if not self._state_path:
+            return
+        now = time.time()
+        if not force and (now - self._last_save) < self._SAVE_DEBOUNCE_S:
+            return
+        self._last_save = now
+        payload: dict = {"v": 1, "saved_at": now, "keys": {}}
+        with self._lock:
+            for k in self._keys:
+                remaining = k.cooldown_until - time.monotonic()
+                payload["keys"][k.key] = {
+                    "label": k.label,
+                    "total_calls": k.total_calls,
+                    "total_429s": k.total_429s,
+                    "total_errors": k.total_errors,
+                    "consecutive_429s": k.consecutive_429s,
+                    "tokens_used": k._tokens_used,
+                    # Convert monotonic deadline → absolute wall-clock expiry
+                    "cooldown_wall": (now + remaining) if remaining > 0 else 0.0,
+                }
+        try:
+            tmp = self._state_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(payload, indent=2))
+            tmp.replace(self._state_path)
+        except Exception as exc:
+            _LOGGER.warning("gemini_pool.state_save_failed", exc=str(exc)[:120])
+
+    def load_state(self) -> None:
+        """Restore per-key metrics from disk. Called once after keys are loaded."""
+        if not self._state_path or not self._state_path.exists():
+            return
+        try:
+            payload = json.loads(self._state_path.read_text())
+        except Exception as exc:
+            _LOGGER.warning("gemini_pool.state_load_failed", exc=str(exc)[:120])
+            return
+        stored = payload.get("keys", {})
+        now_wall = time.time()
+        now_mono = time.monotonic()
+        restored = 0
+        with self._lock:
+            for k in self._keys:
+                entry = stored.get(k.key)
+                if not entry:
+                    continue
+                k.total_calls = int(entry.get("total_calls", 0))
+                k.total_429s = int(entry.get("total_429s", 0))
+                k.total_errors = int(entry.get("total_errors", 0))
+                k.consecutive_429s = int(entry.get("consecutive_429s", 0))
+                k._tokens_used = int(entry.get("tokens_used", 0))
+                cooldown_wall = float(entry.get("cooldown_wall", 0.0))
+                remaining = cooldown_wall - now_wall
+                k.cooldown_until = (now_mono + remaining) if remaining > 0 else 0.0
+                restored += 1
+        _LOGGER.info("gemini_pool.state_loaded",
+                     restored=restored,
+                     path=str(self._state_path),
+                     saved_at=payload.get("saved_at", 0))
 
     def clear(self) -> None:
         """Remove all keys from the pool."""
@@ -157,8 +278,7 @@ class GeminiKeyPool:
             if camera_id:
                 for k in self._keys:
                     if camera_id in k.pinned_cameras and k.is_available:
-                        k.total_calls += 1
-                        k.last_used = time.monotonic()
+                        k.record_call()
                         return k.key
 
             # Round-robin across available keys
@@ -167,27 +287,48 @@ class GeminiKeyPool:
                 k = self._keys[self._robin_idx]
                 self._robin_idx = (self._robin_idx + 1) % n
                 if k.is_available:
-                    k.total_calls += 1
-                    k.last_used = time.monotonic()
+                    k.record_call()
                     return k.key
 
         return None
 
     def report_429(self, key: str) -> None:
-        """Mark a key as rate-limited. Enters cooldown."""
+        """Mark a key as rate-limited. Exponential backoff: 60s, 120s, 240s, max 600s."""
         with self._lock:
             for k in self._keys:
                 if k.key == key:
-                    k.cooldown_until = time.monotonic() + self._cooldown_s
+                    k.consecutive_429s += 1
                     k.total_429s += 1
+                    backoff = min(self._cooldown_s * (2 ** (k.consecutive_429s - 1)), 600)
+                    k.cooldown_until = time.monotonic() + backoff
                     _LOGGER.warning("gemini_pool.key_rate_limited",
-                                    label=k.label, cooldown_s=self._cooldown_s,
+                                    label=k.label, cooldown_s=round(backoff),
+                                    consecutive=k.consecutive_429s,
                                     available=sum(1 for k2 in self._keys if k2.is_available))
-                    return
+                    break
+        self._save_state(force=True)
 
-    def report_success(self, key: str) -> None:
-        """Mark a successful call (clears any residual state)."""
-        pass  # No action needed — cooldown expires naturally
+    def report_success(self, key: str, latency_ms: float = 0, tokens: int = 0) -> None:
+        """Record a successful call — resets backoff and tracks metrics."""
+        with self._lock:
+            for k in self._keys:
+                if k.key == key:
+                    k.consecutive_429s = 0
+                    if latency_ms > 0:
+                        k.record_latency(latency_ms)
+                    if tokens > 0:
+                        k.record_tokens(tokens)
+                    break
+        self._save_state()  # debounced
+
+    def report_error(self, key: str) -> None:
+        """Record a non-429 error."""
+        with self._lock:
+            for k in self._keys:
+                if k.key == key:
+                    k.total_errors += 1
+                    break
+        self._save_state(force=True)
 
     def get_status(self) -> list[dict]:
         """Return status of all keys for the admin UI."""
@@ -195,13 +336,18 @@ class GeminiKeyPool:
             return [k.to_dict() for k in self._keys]
 
     def get_stats(self) -> dict:
-        """Return pool-level stats."""
+        """Return pool-level stats with observability metrics."""
         with self._lock:
+            total_rpm = sum(k.rpm for k in self._keys)
             return {
                 "pool_size": len(self._keys),
                 "available": sum(1 for k in self._keys if k.is_available),
                 "total_calls": sum(k.total_calls for k in self._keys),
                 "total_429s": sum(k.total_429s for k in self._keys),
+                "total_errors": sum(k.total_errors for k in self._keys),
+                "total_tokens": sum(k._tokens_used for k in self._keys),
+                "rpm": round(total_rpm, 1),
+                "keys_in_cooldown": sum(1 for k in self._keys if k.enabled and not k.is_available),
             }
 
 
