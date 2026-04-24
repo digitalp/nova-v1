@@ -145,6 +145,11 @@ if $UPDATE_ONLY; then
       info "Updating Headwind MDM…"
       docker pull headwindmdm/hmdm:latest 2>/dev/null && docker restart hmdm_server || warn "Could not update Headwind MDM"
     fi
+    if docker ps -a --format '{{.Names}}' | grep -qx 'cpai'; then
+      info "Updating CodeProject.AI…"
+      CPAI_IMG=$(docker inspect --format='{{.Config.Image}}' cpai 2>/dev/null || echo 'codeproject/ai-server:latest')
+      docker pull "$CPAI_IMG" 2>/dev/null && docker restart cpai || warn "Could not update CPAI"
+    fi
   fi
   # DeepFace — install package if enabled in .env but not yet installed
   if grep -q "^DEEPFACE_ENABLED=true" "${INSTALL_DIR}/.env" 2>/dev/null; then
@@ -448,6 +453,9 @@ INSTALL_HEADWIND_DOCKER=false
 HEADWIND_URL="http://localhost:8083"
 HEADWIND_LOGIN="admin"
 HEADWIND_PASSWORD=""
+INPUT_CPAI=false
+INSTALL_CPAI_DOCKER=false
+CPAI_URL=""
 
 if ! $USE_DEFAULTS; then
   echo ""
@@ -482,6 +490,26 @@ if ! $USE_DEFAULTS; then
       read -r _hw_login; HEADWIND_LOGIN="${_hw_login:-admin}"
       ask "  Headwind admin password:"
       read -r HEADWIND_PASSWORD
+    fi
+  fi
+
+  echo ""
+  ask "  Enable CodeProject.AI? (face recognition, object detection, license plate reading) [y/N]:"
+  read -r _cpai_ans
+  if [[ "${_cpai_ans,,}" == y* ]]; then
+    INPUT_CPAI=true
+    if $DOCKER_OK && ! docker ps -a --format '{{.Names}}' | grep -qx 'cpai'; then
+      ask "    Install CPAI via Docker on this machine? [Y/n]:"
+      read -r _cpai_local; [[ "${_cpai_local,,}" == n* ]] && _cpai_local="n" || _cpai_local="y"
+    else
+      _cpai_local="n"
+    fi
+    if [[ "$_cpai_local" == "y" ]]; then
+      INSTALL_CPAI_DOCKER=true
+      CPAI_URL="http://localhost:32168"
+    else
+      ask "    CodeProject.AI URL [http://192.168.0.33:32168]:"
+      read -r _cpai_url; CPAI_URL="${_cpai_url:-http://192.168.0.33:32168}"
     fi
   fi
 else
@@ -552,7 +580,7 @@ BLUEIRIS_USER=
 BLUEIRIS_PASSWORD=
 
 # CodeProject.AI (optional — enables face recognition, webcam greeting, object/plate detection)
-CODEPROJECT_AI_URL=
+CODEPROJECT_AI_URL=${CPAI_URL}
 
 # Gemini Key Pool (extra API keys for round-robin rotation; format: key|label|1)
 GEMINI_API_KEYS=
@@ -774,6 +802,64 @@ print('Downloading Whisper model — please wait…')
 WhisperModel('${INPUT_WHISPER_MODEL}', device='cpu', compute_type='int8')
 print('Done.')
 " && success "Whisper model ready" || warn "Whisper model will download on first voice request."
+
+# ── CodeProject.AI (optional) ───────────────────────────────────────────────
+if [[ "$INSTALL_CPAI_DOCKER" == "true" ]]; then
+  header "CodeProject.AI (face recognition, object detection, ALPR)"
+
+  if docker ps -a --format '{{.Names}}' | grep -qx 'cpai'; then
+    success "CPAI container already exists — skipping install"
+  else
+    CPAI_IMAGE="codeproject/ai-server:latest"
+    if $GPU_FOUND; then
+      info "GPU detected — using CUDA-accelerated CPAI image…"
+      CPAI_IMAGE="codeproject/ai-server:cuda12_7"
+    fi
+
+    info "Pulling CodeProject.AI image (${CPAI_IMAGE}) — this may take a few minutes…"
+    docker pull "$CPAI_IMAGE" || { warn "Could not pull CPAI image — check Docker Hub connectivity"; INSTALL_CPAI_DOCKER=false; }
+
+    if [[ "$INSTALL_CPAI_DOCKER" == "true" ]]; then
+      if $GPU_FOUND; then
+        docker run -d --name cpai \
+          --restart unless-stopped \
+          --gpus all \
+          -p 32168:32168 \
+          -v cpai_data:/etc/codeproject/ai \
+          "$CPAI_IMAGE"
+      else
+        docker run -d --name cpai \
+          --restart unless-stopped \
+          -p 32168:32168 \
+          -v cpai_data:/etc/codeproject/ai \
+          "$CPAI_IMAGE"
+      fi
+
+      info "Waiting for CodeProject.AI to be ready…"
+      for i in $(seq 1 30); do
+        if curl -sf "http://localhost:32168/v1/status" &>/dev/null; then
+          success "CodeProject.AI is running"
+          break
+        fi
+        sleep 3
+      done
+      if ! curl -sf "http://localhost:32168/v1/status" &>/dev/null; then
+        warn "CPAI may still be starting. Check: docker logs cpai -f"
+      fi
+
+      SERVER_IP_CPAI=$(hostname -I | awk '{print $1}')
+      echo ""
+      echo -e "  ${GREEN}CodeProject.AI dashboard:${RESET}"
+      echo -e "  ${BOLD}  http://${SERVER_IP_CPAI}:32168${RESET}"
+      echo ""
+      echo -e "  ${CYAN}Install these modules from the dashboard:${RESET}"
+      echo "    • Face Processing  — face registration and recognition"
+      echo "    • License Plate Reader (ALPR)  — vehicle plate reading"
+      echo "    • Object Detection (YOLOv5 6.2)  — person/vehicle detection"
+      echo ""
+    fi
+  fi
+fi
 
 # ── DeepFace local face recognition (optional) ────────────────────────────────
 if [[ "$INPUT_DEEPFACE" == "true" ]]; then
@@ -1055,6 +1141,12 @@ echo -e "  ${GREEN}Nova is running at:${RESET}"
 echo -e "  ${BOLD}  Avatar:      http://${SERVER_IP}:${INPUT_PORT}/avatar?api_key=${INPUT_API_KEY}${RESET}"
 echo -e "  ${BOLD}  Admin panel: http://${SERVER_IP}:${INPUT_PORT}/admin${RESET}"
 echo -e "  ${BOLD}  Health:      http://${SERVER_IP}:${INPUT_PORT}/health/public${RESET}"
+if [[ "$INSTALL_CPAI_DOCKER" == "true" ]]; then
+echo -e "  ${BOLD}  CPAI:        http://${SERVER_IP}:32168${RESET}"
+fi
+if [[ "$INSTALL_HEADWIND_DOCKER" == "true" ]]; then
+echo -e "  ${BOLD}  Headwind:    http://${SERVER_IP}:8083${RESET}"
+fi
 echo ""
 echo -e "  ${CYAN}Useful commands:${RESET}"
 echo "    journalctl -u ${SERVICE_NAME} -f        # live logs"
