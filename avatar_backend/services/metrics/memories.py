@@ -85,6 +85,14 @@ class MemoriesMixin:
             )
             return cur.rowcount > 0
 
+    def restore_memory(self, memory_id: int) -> bool:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE long_term_memories SET stale=0, superseded_by=NULL, updated_ts=? WHERE id=?",
+                (datetime.utcnow().isoformat(), memory_id),
+            )
+            return conn.execute("SELECT changes()").fetchone()[0] > 0
+
     def expire_stale_memories(self) -> int:
         """Mark expired memories as stale. Called on startup and periodically."""
         now = datetime.now(timezone.utc).isoformat()

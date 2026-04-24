@@ -163,7 +163,7 @@ function navigate(el) {
   if (sec === 'prompts-tuning') loadPromptsTuning();
   if (sec === 'acl')       loadAcl();
   if (sec === 'sessions')  loadSessions();
-  if (sec === 'memory')    loadMemory();
+  if (sec === 'memory')    { loadMemory(); loadStaleMemories(); }
   if (sec === 'dashboard') loadDashboard();
   if (sec === 'users')     loadUsers();
   if (sec === 'speakers')  loadSpeakerConfig();
@@ -948,6 +948,7 @@ async function loadMemory() {
         <td style="color:var(--text2);font-size:12px;">${_fmtMemoryTs(m.updated_ts || m.created_ts)}</td>
         <td><div style="display:flex;gap:6px;white-space:nowrap;">
           <button class="btn btn-outline" onclick="editMemory(${m.id})">Edit</button>
+          <button class="btn btn-outline" onclick="markMemoryStale(${m.id})">Stale</button>
           <button class="btn btn-outline" onclick="deleteMemory(${m.id})">Delete</button>
         </div></td>
       </tr>
@@ -1014,6 +1015,60 @@ async function deleteMemory(id) {
     toast('Memory deleted', 'ok');
   } catch(e) {
     toast('Delete failed: ' + e.message, 'err');
+  }
+}
+
+
+async function loadStaleMemories() {
+  const el = document.getElementById('memory-stale-list');
+  const countEl = document.getElementById('memory-summary-stale');
+  if (!el) return;
+  el.innerHTML = '<tr><td colspan="5" class="text-muted">Loading…</td></tr>';
+  try {
+    const d = await api('GET', '/admin/memory/stale');
+    const items = d.memories || [];
+    if (countEl) countEl.textContent = String(items.length);
+    if (!items.length) {
+      el.innerHTML = '<tr><td colspan="5" class="text-muted" style="padding:12px 0;">No stale memories — everything is current.</td></tr>';
+      return;
+    }
+    el.innerHTML = items.map(m => `
+      <tr>
+        <td><div style="font-weight:500;color:var(--text1);white-space:pre-wrap;">${_escapeHtml(m.summary)}</div></td>
+        <td><span class="badge">${_escapeHtml(m.category || 'general')}</span></td>
+        <td style="color:var(--text2);font-size:12px;">${_fmtMemoryTs(m.updated_ts || m.created_ts)}</td>
+        <td style="font-size:12px;color:var(--text3);">${m.expires_ts ? _fmtMemoryTs(m.expires_ts) : '—'}</td>
+        <td><div style="display:flex;gap:6px;white-space:nowrap;">
+          <button class="btn btn-outline" onclick="restoreMemory(${m.id})">Restore</button>
+          <button class="btn btn-outline" onclick="deleteMemory(${m.id})">Delete</button>
+        </div></td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    el.innerHTML = '<tr><td colspan="5" style="color:#fca5a5;">Failed to load stale memories.</td></tr>';
+  }
+}
+
+async function markMemoryStale(id) {
+  if (!confirm('Mark this memory as stale? It will be hidden from Nova but kept for review.')) return;
+  try {
+    await api('POST', '/admin/memory/' + id + '/mark-stale');
+    await loadMemory();
+    await loadStaleMemories();
+    toast('Memory marked stale', 'ok');
+  } catch(e) {
+    toast('Failed: ' + e.message, 'err');
+  }
+}
+
+async function restoreMemory(id) {
+  try {
+    await api('POST', '/admin/memory/' + id + '/restore');
+    await loadMemory();
+    await loadStaleMemories();
+    toast('Memory restored', 'ok');
+  } catch(e) {
+    toast('Failed: ' + e.message, 'err');
   }
 }
 
@@ -2391,7 +2446,7 @@ document.getElementById('btn-clear-pylog')?.addEventListener('click', () => clea
 
 // -- Memory --
 document.getElementById('memory-save-btn')?.addEventListener('click', () => saveMemory());
-document.getElementById('btn-load-memory')?.addEventListener('click', () => loadMemory());
+document.getElementById('btn-load-memory')?.addEventListener('click', () => { loadMemory(); loadStaleMemories(); });
 document.getElementById('btn-clear-memory-form')?.addEventListener('click', () => clearMemoryForm());
 document.getElementById('btn-clear-all-memory')?.addEventListener('click', () => clearAllMemory());
 

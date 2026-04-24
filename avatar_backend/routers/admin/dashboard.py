@@ -90,6 +90,33 @@ async def delete_memory(memory_id: int, request: Request, container: AppContaine
     return {"deleted": memory_id}
 
 
+@router.get("/memory/stale")
+async def list_stale_memory(request: Request, container: AppContainer = Depends(get_container)):
+    _require_session(request, min_role="viewer")
+    svc = container.memory_service
+    return {"memories": svc.list_stale_memories(limit=200)}
+
+
+@router.post("/memory/{memory_id}/mark-stale")
+async def mark_memory_stale(memory_id: int, request: Request, container: AppContainer = Depends(get_container)):
+    _require_session(request, min_role="admin")
+    svc = container.memory_service
+    ok = svc.mark_stale(memory_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"ok": True, "memory_id": memory_id}
+
+
+@router.post("/memory/{memory_id}/restore")
+async def restore_memory(memory_id: int, request: Request, container: AppContainer = Depends(get_container)):
+    _require_session(request, min_role="admin")
+    svc = container.memory_service
+    ok = svc.restore_memory(memory_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"ok": True, "memory_id": memory_id}
+
+
 # ── Avatar settings ───────────────────────────────────────────────────────────
 
 _AVATAR_SETTINGS_FILE = _CONFIG_DIR / "avatar_settings.json"

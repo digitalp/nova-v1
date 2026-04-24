@@ -1077,6 +1077,10 @@
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:4px;">Last Update</div>
           <div id="memory-summary-updated" style="font-size:15px;font-weight:700;">Loading…</div>
         </div>
+        <div class="card mb-0" style="padding:14px 16px;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:4px;">Stale / Expired</div>
+          <div id="memory-summary-stale" style="font-size:15px;font-weight:700;">—</div>
+        </div>
       </div>
       <div class="card" class="mb-4">
         <div class="card-title">Capture Memory</div>
@@ -1130,6 +1134,28 @@
         </table>
       </div>
     </div>
+
+      <div class="card card-flush" style="margin-top:16px;">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <div>
+            <div class="card-title-lg">Stale Memory Review</div>
+            <div class="text-sm text-muted" style="margin-top:4px;">Memories Nova has marked outdated or that have expired. Restore to make them active again, or delete permanently.</div>
+          </div>
+          <button class="btn btn-outline" style="font-size:12px;" onclick="loadStaleMemories()">Refresh</button>
+        </div>
+        <table style="min-width:700px;">
+          <thead>
+            <tr>
+              <th style="min-width:200px;">Summary</th>
+              <th style="width:90px;">Category</th>
+              <th style="width:130px;">Staled</th>
+              <th style="width:130px;">Expires</th>
+              <th style="width:130px;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="memory-stale-list"><tr><td colspan="5" class="text-muted">Loading…</td></tr></tbody>
+        </table>
+      </div>
 
     <!-- ══════════════ AI DECISIONS ══════════════ -->
     <div id="section-decisions" class="section">
@@ -2327,7 +2353,7 @@
 
 
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/admin.js?v=1777020340"></script>
+<script src="/static/admin.js?v=1777020341"></script>
 <script src="/static/admin-config.js?v=1777021843"></script>
 <script src="/static/admin-avatar.js?v=1777020339"></script>
 <script src="/static/admin-parental.js?v=1777020340"></script>

@@ -78,6 +78,9 @@ class PersistentMemoryService:
             self.invalidate_embedding_cache(memory_id)
         return ok
 
+    def restore_memory(self, memory_id: int) -> bool:
+        return self._db.restore_memory(memory_id)
+
     def list_stale_memories(self, limit: int = 100) -> list[dict]:
         """Return stale memories for admin review."""
         mems = self._db.list_memories(limit=limit, include_stale=True)
