@@ -214,6 +214,9 @@ async def bootstrap(app: FastAPI, settings, system_prompt: str) -> AppContainer:
         c.deepface_service._use_gpu = settings.deepface_use_gpu
         c.deepface_service._preprocess_training = settings.deepface_preprocess_training
         c.deepface_service.warmup()
+        # Wire DeepFace as unknown-face pre-filter in the face recognition service
+        if c.face_service:
+            c.face_service._deepface_svc = c.deepface_service
 
 
     from avatar_backend.services.music_service import MusicService

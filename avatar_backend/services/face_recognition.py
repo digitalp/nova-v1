@@ -40,6 +40,7 @@ class FaceRecognitionService:
     def __init__(self, cpai_url: str = "") -> None:
         self._url = cpai_url.rstrip("/")
         self._db: sqlite3.Connection | None = None
+        self._deepface_svc = None  # injected at startup if deepface_enabled
 
     def _get_db(self) -> sqlite3.Connection:
         if self._db is None:
@@ -101,8 +102,20 @@ class FaceRecognitionService:
                             # Weak match for a known person: log silently, skip announcement.
                             _LOGGER.info("face.recognized_low_conf", name=name, confidence=conf)
                     elif p.get("x_min") is not None:
-                        # Genuinely unknown face — queue for review.
-                        self._queue_unknown(image_bytes, p)
+                        # Genuinely unknown face — run local DeepFace check before queueing.
+                        if self._deepface_svc is not None:
+                            matched = await self._deepface_svc.find_match(
+                                image_bytes, self._face_photo_dir()
+                            )
+                            if matched:
+                                _LOGGER.info(
+                                    "face.deepface_suppressed_unknown",
+                                    matched=matched, cpai_conf=conf,
+                                )
+                            else:
+                                self._queue_unknown(image_bytes, p)
+                        else:
+                            self._queue_unknown(image_bytes, p)
 
                 # Only queue an empty frame when a caller explicitly asks for that behavior.
                 if not has_any and queue_full_frame_on_empty:
@@ -156,6 +169,10 @@ class FaceRecognitionService:
         d = data_dir() / "face_photos"
         d.mkdir(parents=True, exist_ok=True)
         return d / f"{name.strip().lower()}.jpg"
+
+    def _face_photo_dir(self) -> str:
+        from avatar_backend.runtime_paths import data_dir
+        return str(data_dir() / "face_photos")
 
     def save_face_photo(self, name: str, image_bytes: bytes) -> None:
         try:

@@ -262,6 +262,9 @@ When a camera detects a person:
 - Faces are only *announced* when confidence ≥ 0.55
 - Known faces are **never** queued in the Unknown Faces list regardless of confidence — only genuinely unrecognised faces appear there
 
+**DeepFace second-pass filter:**
+When CodeProject.AI returns a face as "unknown", Nova runs a local DeepFace check (ArcFace model) against the registered face photos before queuing the face for review. If DeepFace recognises the person with cosine distance ≤ 0.55, the queue entry is suppressed — `face.deepface_suppressed_unknown` is logged instead. This catches faces that CPAI misses due to lighting or angle changes. DeepFace must be enabled (`DEEPFACE_ENABLED=true`) and face photos must exist in `data/face_photos/` (they are saved there automatically on every face registration).
+
 ### Managing Faces
 
 Go to **Admin Panel → Faces**:
@@ -473,11 +476,17 @@ Nova has a Python-level safety guard that reads outdoor temperature directly bef
 
 ### Known face appearing in Unknown Faces
 
-Nova queries CodeProject.AI with a low confidence threshold (0.3) and treats any returned name as a known person — they will never be queued as unknown regardless of confidence level. If a known person still appears in the Unknown Faces list:
+Nova applies two layers of protection:
+1. CodeProject.AI — any face returned with a name (even low confidence) is never queued as unknown
+2. DeepFace — if CPAI returns "unknown", a local ArcFace check runs against registered face photos before queuing
 
-1. Re-register their face with more training photos (different angles, lighting)
-2. Check CodeProject.AI is reachable at the configured URL
-3. Check logs for `face.recognized_low_conf` — this means the face was identified but below the announce threshold (0.55), not queued
+If a known person still appears in the Unknown Faces list:
+
+1. Check logs for `face.deepface_suppressed_unknown` — if present, the DeepFace filter is working; CPAI just needs retraining
+2. Re-register their face with more training photos (different angles, lighting)
+3. Check CodeProject.AI is reachable at the configured URL
+4. Check logs for `face.recognized_low_conf` — the face was identified by CPAI but below the announce threshold (0.55); this is normal and the face will not be queued
+5. If DeepFace is not enabled (`DEEPFACE_ENABLED=true`), only layer 1 applies
 
 ### Service won't start
 
@@ -600,6 +609,7 @@ automation:
 | **ECO Setback** | Setting all TRVs to 13 °C when heating is off |
 | **Heating Shadow** | Local model that validates cloud heating decisions without acting |
 | **CodeProject.AI** | Local AI server for face recognition, object detection, and ALPR |
+| **DeepFace** | Python face recognition library using ArcFace model — runs locally as a second-pass filter to suppress false unknown-face entries |
 | **MDM** | Mobile Device Management — used to block/allow children's devices |
 
 ---

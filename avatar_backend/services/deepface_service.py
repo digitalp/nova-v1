@@ -114,6 +114,58 @@ class DeepFaceService:
         else:
             os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
+
+    async def find_match(
+        self, image_bytes: bytes, db_path: str, threshold: float = 0.55
+    ) -> str | None:
+        """Check image_bytes against a folder of face JPEGs.
+
+        Returns the matched person's name (filename stem) or None if no confident match.
+        threshold is cosine distance — lower means stricter (0 = identical, 1 = opposite).
+        ArcFace default is 0.68; 0.55 is conservative to avoid false suppressions.
+        """
+        import os
+        if not os.path.isdir(db_path):
+            return None
+        imgs = [f for f in os.listdir(db_path) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        if not imgs:
+            return None
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self._executor, self._sync_find, image_bytes, db_path, threshold
+        )
+
+    def _sync_find(self, image_bytes: bytes, db_path: str, threshold: float) -> str | None:
+        import io
+        import os
+        try:
+            from deepface import DeepFace
+            df_list = DeepFace.find(
+                img_path=io.BytesIO(image_bytes),
+                db_path=db_path,
+                model_name=self._model_name,
+                detector_backend=self._detector_backend,
+                enforce_detection=False,
+                align=self._align,
+                silent=True,
+                distance_metric="cosine",
+            )
+            if not df_list or df_list[0].empty:
+                return None
+            top = df_list[0].iloc[0]
+            dist_col = f"{self._model_name}_cosine"
+            distance = float(top.get(dist_col, 1.0))
+            if distance > threshold:
+                _LOGGER.debug("deepface.find_no_match", distance=round(distance, 3), threshold=threshold)
+                return None
+            identity = str(top.get("identity", ""))
+            name = os.path.splitext(os.path.basename(identity))[0]
+            _LOGGER.info("deepface.find_match", name=name, distance=round(distance, 3))
+            return name
+        except Exception as exc:
+            _LOGGER.warning("deepface.find_failed", exc=str(exc)[:120])
+            return None
+
     def warmup(self):
         """Pre-load models."""
         self._apply_device()
