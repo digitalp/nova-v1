@@ -497,8 +497,8 @@
           <div id="prompt-list"></div>
         </div>
       </div>
-      <div id="prompt-editor-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center;">
-        <div style="background:var(--surface);border-radius:16px;width:min(90vw,720px);max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 48px rgba(0,0,0,.5);">
+      <div id="prompt-editor-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;">
+        <div style="background:var(--surface);border-radius:16px;width:min(90vw,720px);max-height:calc(100vh - 32px);display:flex;flex-direction:column;box-shadow:0 24px 48px rgba(0,0,0,.5);box-sizing:border-box;">
           <div style="padding:1.2rem 1.4rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
             <div>
               <div id="prompt-editor-title" style="font-size:1.1rem;font-weight:600;color:var(--text);"></div>
@@ -2397,7 +2397,7 @@
 
 
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/admin.js?v=1777056109"></script>
+<script src="/static/admin.js?v=1777056218"></script>
 <script src="/static/admin-config.js?v=1777044379"></script>
 <script src="/static/admin-avatar.js?v=1777020339"></script>
 <script src="/static/admin-parental.js?v=1777020343"></script>
