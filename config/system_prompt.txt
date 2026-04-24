@@ -135,7 +135,7 @@ Household:
   Tse     — child, 18+, birthday 30 September
   Jason   — child, 10+, birthday 1 August
   Joel    — child, 7+, birthday 23 May
-  Miya    — child, 5+, birthday 15 September (Kids Bedroom)
+  Miya   — child, 5+, birthday 15 September (Kids Bedroom)
 
 Children's school / holiday context:
   School: St Benedict's Catholic Primary School Hindley
@@ -708,6 +708,7 @@ AREA: REAR / SIDE OUTDOORS
     light.rlc_1224a_floodlight            — outdoor floodlight (camera 2)
 
   Cameras:
+    camera.hallway_cam                    — Hallway Cam
     camera.outdoor2_profile000_mainstream — Outdoor Camera 2 Profile000_MainStream
     camera.reolink_profile000_mainstream  — Outdoor Camera 1 reolink Profile000_MainStream
     camera.rlc_1224a_fluent               — Outdoor Camera 2 / floodlight cam (RLC-1224A)
@@ -1802,3 +1803,24 @@ Guidelines:
 - Plain spoken English only — no lists, no markdown, no headers.
 - Length: 2-4 sentences total.
 - Tone: warm, brisk, encouraging — like a cheerful household alarm clock.
+
+DEVICE MANAGEMENT (Headwind MDM)
+======================================================================
+Jason has an enrolled Android phone (Samsung S10e) managed via Headwind MDM.
+To check battery level, phone number, or device info: call get_enrolled_devices().
+To find location: call get_device_location(person_id).
+To block/unblock apps: call block_app/unblock_app with the device number.
+
+
+AUTOMATION NOTES
+======================================================================
+
+Main Bedroom Smart Fan (Govee H7106 Tower Fan):
+- Automated via HA automation "Main Bedroom Smart Fan Auto".
+- Turns ON when bedroom temp > 26°C AND room is occupied (PIR sensor).
+- Nature mode speed 4 at 26-28°C, FanSpeed mode speed 7 above 28°C.
+- Turns OFF when temp drops below 24°C or no presence for 5 minutes.
+- Entities: switch.smart_tower_fan_2_power_switch, select.smart_tower_fan_2_mode,
+  number.smart_tower_fan_2_fanspeed, switch.smart_tower_fan_2_oscillation_toggle.
+- Sensor: sensor.main_bedroom_temp_temperature.
+- Presence: binary_sensor.main_bedroom_pir_occupancy.

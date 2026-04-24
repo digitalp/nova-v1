@@ -448,6 +448,22 @@
       ],
       "reminders": [],
       "keywords": []
+    },
+    {
+      "id": "dojo_champion",
+      "label": "Dojo Champion",
+      "points": 50,
+      "cooldown_hours": 16,
+      "verification": "honour",
+      "camera_entity_id": null,
+      "requires_approval": false,
+      "assigned_to": [
+        "jason",
+        "joel",
+        "miya"
+      ],
+      "reminders": [],
+      "keywords": []
     }
   ],
   "show_widget": true,
