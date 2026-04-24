@@ -13,13 +13,17 @@
     if (!el) return;
     try {
       const d = await configApi.getVisionCameras();
-      el.innerHTML = (d.cameras || []).map(c =>
+      const _cameras = d.cameras || [];
+      el.innerHTML = _cameras.map(c =>
         `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface2);border-radius:8px;cursor:pointer;">
           <input type="checkbox" class="vision-cam-check" value="${_escapeHtml(c.entity_id)}" ${c.vision_enabled ? 'checked' : ''}>
           <span style="font-size:13px;">${_escapeHtml(c.label)}</span>
           <span class="text-sm text-muted" style="margin-left:auto;">${_escapeHtml(c.entity_id)}</span>
         </label>`
       ).join('');
+      const _visionEnabled = _cameras.filter(c => c.vision_enabled).length;
+      const _visionEl = document.getElementById('cfg-summary-vision');
+      if (_visionEl) _visionEl.textContent = _visionEnabled + ' / ' + _cameras.length;
     } catch (e) {
       el.innerHTML = '<div class="text-sm" style="color:var(--danger);">Failed to load cameras: ' + (e.message || e) + '</div>';
     }
@@ -222,6 +226,13 @@
       const grid = document.getElementById('config-fields');
       if (!grid) return;
       grid.innerHTML = '';
+      const _vals = d.values || {};
+      const _llmProv = _vals.LLM_PROVIDER || 'ollama';
+      const _llmModel = _llmProv === 'ollama' ? (_vals.OLLAMA_MODEL || '').split(':')[0] : (_vals.CLOUD_MODEL || '');
+      const _llmEl = document.getElementById('cfg-summary-llm');
+      if (_llmEl) _llmEl.textContent = _llmProv + (_llmModel ? ' / ' + _llmModel : '');
+      const _ttsEl = document.getElementById('cfg-summary-tts');
+      if (_ttsEl) _ttsEl.textContent = _vals.TTS_PROVIDER || 'piper';
 
       const fieldToCategory = {};
       for (const [cat, keys] of Object.entries(_CONFIG_CATEGORIES)) {

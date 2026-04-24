@@ -85,6 +85,8 @@
       }
     } catch (e) {
       npEl.innerHTML = `<div class="text-sm" style="color:var(--danger);">Failed: ${_esc(e.message)}</div>`;
+      const _sel = document.getElementById('music-target-players');
+      if (_sel && _sel.textContent.includes('Loading')) _sel.innerHTML = '<span class="text-sm text-muted">Unavailable</span>';
     }
   }
 

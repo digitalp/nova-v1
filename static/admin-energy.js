@@ -67,6 +67,11 @@
         `;
       }
 
+      const _topDev = [...devices].sort((a, b) => (b.watts || 0) - (a.watts || 0))[0];
+      const _topEl = document.getElementById('energy-top-device');
+      if (_topEl) _topEl.textContent = _topDev ? _topDev.name + ' (' + _topDev.watts + ' W)' : '—';
+      const _cntEl = document.getElementById('energy-device-count');
+      if (_cntEl) _cntEl.textContent = devices.length ? String(devices.length) : '—';
       const devEl = document.getElementById('energy-devices');
       if (devEl) {
         const maxW = Math.max(...devices.map(d => d.watts), 1);

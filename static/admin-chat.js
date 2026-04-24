@@ -9,11 +9,20 @@
   let chatLastText = '';
 
   async function ensureChatApiKey() {
-    if (chatApiKey) return;
+    const _authEl = document.getElementById('chat-summary-auth');
+    const _sessEl = document.getElementById('chat-summary-session');
+    if (_sessEl) _sessEl.textContent = chatSessionId.replace('admin_chat_', '#') ;
+    if (chatApiKey) {
+      if (_authEl) _authEl.textContent = 'Key loaded';
+      return;
+    }
     try {
       const result = await chatApi.getApiKey();
       chatApiKey = result.api_key || '';
-    } catch {}
+      if (_authEl) _authEl.textContent = chatApiKey ? 'Key loaded' : 'No key set';
+    } catch {
+      if (_authEl) _authEl.textContent = 'Error';
+    }
   }
 
   function chatTs() {
