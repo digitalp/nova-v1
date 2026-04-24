@@ -79,7 +79,22 @@ CREATE TABLE IF NOT EXISTS long_term_memories (
     confidence         REAL NOT NULL DEFAULT 0.5,
     times_seen         INTEGER NOT NULL DEFAULT 1,
     pinned             INTEGER NOT NULL DEFAULT 0,
-    fingerprint        TEXT NOT NULL UNIQUE
+    fingerprint        TEXT NOT NULL UNIQUE,
+    stale              INTEGER NOT NULL DEFAULT 0,
+    expires_ts         TEXT,
+    superseded_by      INTEGER REFERENCES long_term_memories(id)
+);
+CREATE TABLE IF NOT EXISTS parental_overrides (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_ts  TEXT NOT NULL,
+    updated_ts  TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    subject     TEXT NOT NULL,
+    resource    TEXT NOT NULL DEFAULT '',
+    reason      TEXT NOT NULL DEFAULT '',
+    duration_m  INTEGER NOT NULL DEFAULT 30,
+    requested_by TEXT NOT NULL DEFAULT 'nova',
+    resolved_by  TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_mem_updated   ON long_term_memories(updated_ts);
 CREATE INDEX IF NOT EXISTS idx_mem_category  ON long_term_memories(category);
@@ -228,6 +243,7 @@ class MetricsDBBase:
         self._write_lock = threading.Lock()
 
         self._init_db()
+        self.ensure_overrides_table()
 
     def _conn(self) -> sqlite3.Connection:
         """Return a connection for read operations. WAL allows concurrent reads."""

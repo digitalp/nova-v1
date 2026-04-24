@@ -630,8 +630,69 @@
     parentalRefreshDeviceLocations();
   });
 
+
+  // ── Override / Exception Queue ────────────────────────────────────────────
+
+  async function parentalLoadOverrides(status = 'pending') {
+    const el = document.getElementById('parental-overrides-list');
+    if (!el) return;
+    el.textContent = 'Loading…';
+    try {
+      const data = await window.adminApi.parental.getOverrides(status);
+      const items = data.overrides || [];
+      if (!items.length) {
+        el.innerHTML = '<span class="text-muted">No override requests' + (status ? ' with status: ' + _esc(status) : '') + '.</span>';
+        return;
+      }
+      el.innerHTML = items.map(r => {
+        const isPending = r.status === 'pending';
+        const badge = r.status === 'approved'
+          ? '<span class="badge badge-green" style="font-size:11px;">approved</span>'
+          : r.status === 'denied'
+          ? '<span class="badge" style="font-size:11px;background:var(--danger);color:#fff;">denied</span>'
+          : '<span class="badge" style="font-size:11px;background:var(--warn,#f59e0b);color:#000;">pending</span>';
+        return `<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;font-weight:600;">${_esc(r.subject || '—')} ${r.resource ? '→ ' + _esc(r.resource) : ''} ${badge}</div>
+            <div class="text-sm text-muted" style="margin-top:2px;">${_esc(r.reason || '')}</div>
+            ${r.duration_m ? '<div class="text-sm text-muted">Duration: ' + _esc(String(r.duration_m)) + ' min</div>' : ''}
+            <div class="text-sm text-muted">Requested by: ${_esc(r.requested_by || '—')} · ${_esc((r.created_ts || '').replace('T', ' ').slice(0, 16))}</div>
+            ${r.resolved_by ? '<div class="text-sm text-muted">Resolved by: ' + _esc(r.resolved_by) + '</div>' : ''}
+          </div>
+          ${isPending ? `<div style="display:flex;gap:6px;flex-shrink:0;">
+            <button class="btn btn-primary" style="font-size:12px;" onclick="parentalApproveOverride(${r.id})">Approve</button>
+            <button class="btn btn-danger" style="font-size:12px;" onclick="parentalDenyOverride(${r.id})">Deny</button>
+          </div>` : ''}
+        </div>`;
+      }).join('');
+    } catch (e) {
+      el.innerHTML = '<span style="color:var(--danger);">Failed: ' + _esc(e.message) + '</span>';
+    }
+  }
+
+  async function parentalApproveOverride(id) {
+    try {
+      await window.adminApi.parental.approveOverride(id);
+      toast('Override approved', 'ok');
+      parentalLoadOverrides('pending');
+    } catch (e) {
+      toast('Failed: ' + e.message, 'err');
+    }
+  }
+
+  async function parentalDenyOverride(id) {
+    try {
+      await window.adminApi.parental.denyOverride(id);
+      toast('Override denied', 'ok');
+      parentalLoadOverrides('pending');
+    } catch (e) {
+      toast('Failed: ' + e.message, 'err');
+    }
+  }
+
   window.registerAdminSection('parental', {
     onEnter() {
+      parentalLoadOverrides('pending');
       return loadParentalSection();
     },
     onLeave() {
@@ -674,5 +735,8 @@
     parentalQuickBlock,
     parentalShowEnroll,
     parentalShowProvisioningQr,
+    parentalLoadOverrides,
+    parentalApproveOverride,
+    parentalDenyOverride,
   });
 })();

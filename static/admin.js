@@ -285,6 +285,9 @@ const adminApi = {
     deployApp: (payload) => api('POST', '/admin/parental/apps/deploy', payload),
     getEnrollQr: (configId) => api('GET', `/admin/parental/enroll/${encodeURIComponent(configId)}`),
     getProvisioningQr: (configId) => api('GET', `/admin/parental/provisioning-qr?config_id=${encodeURIComponent(configId)}`),
+    getOverrides: (status='') => api('GET', `/admin/parental/overrides${status ? '?status=' + encodeURIComponent(status) : ''}`),
+    approveOverride: (id) => api('POST', `/admin/parental/overrides/${encodeURIComponent(id)}/approve`),
+    denyOverride: (id) => api('POST', `/admin/parental/overrides/${encodeURIComponent(id)}/deny`),
   },
   scoreboard: {
     getOverview: () => api('GET', '/admin/scoreboard'),

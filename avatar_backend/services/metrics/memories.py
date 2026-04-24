@@ -21,6 +21,7 @@ class MemoriesMixin:
         source: str = "chat",
         confidence: float = 0.5,
         pinned: bool = False,
+        expires_ts: str | None = None,
     ) -> dict:
         summary = " ".join(summary.split()).strip()
         category = (category or "general").strip().lower()[:40] or "general"
@@ -53,10 +54,10 @@ class MemoriesMixin:
                     """
                     INSERT INTO long_term_memories
                     (created_ts, updated_ts, last_referenced_ts, category, summary, source,
-                     confidence, times_seen, pinned, fingerprint)
-                    VALUES (?, ?, NULL, ?, ?, ?, ?, 1, ?, ?)
+                     confidence, times_seen, pinned, fingerprint, expires_ts)
+                    VALUES (?, ?, NULL, ?, ?, ?, ?, 1, ?, ?, ?)
                     """,
-                    (now, now, category, summary, source, confidence, 1 if pinned else 0, fp),
+                    (now, now, category, summary, source, confidence, 1 if pinned else 0, fp, expires_ts),
                 )
             out = conn.execute(
                 "SELECT * FROM long_term_memories WHERE fingerprint = ?",
@@ -64,14 +65,45 @@ class MemoriesMixin:
             ).fetchone()
         return dict(out) if out else {}
 
-    def list_memories(self, limit: int = 200) -> list[dict]:
+    def ensure_memory_columns(self) -> None:
+        """Idempotent migration: add stale/expires_ts/superseded_by if missing."""
+        with self._write_lock, self._write_conn as conn:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(long_term_memories)").fetchall()}
+            if 'stale' not in cols:
+                conn.execute("ALTER TABLE long_term_memories ADD COLUMN stale INTEGER NOT NULL DEFAULT 0")
+            if 'expires_ts' not in cols:
+                conn.execute("ALTER TABLE long_term_memories ADD COLUMN expires_ts TEXT")
+            if 'superseded_by' not in cols:
+                conn.execute("ALTER TABLE long_term_memories ADD COLUMN superseded_by INTEGER")
+
+    def mark_stale(self, memory_id: int, superseded_by: int | None = None) -> bool:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._write_lock, self._write_conn as conn:
+            cur = conn.execute(
+                "UPDATE long_term_memories SET stale=1, updated_ts=?, superseded_by=COALESCE(?,superseded_by) WHERE id=?",
+                (now, superseded_by, int(memory_id)),
+            )
+            return cur.rowcount > 0
+
+    def expire_stale_memories(self) -> int:
+        """Mark expired memories as stale. Called on startup and periodically."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._write_lock, self._write_conn as conn:
+            cur = conn.execute(
+                "UPDATE long_term_memories SET stale=1 WHERE expires_ts IS NOT NULL AND expires_ts < ? AND stale=0",
+                (now,),
+            )
+            return cur.rowcount
+
+    def list_memories(self, limit: int = 200, include_stale: bool = False) -> list[dict]:
         sql = """
         SELECT * FROM long_term_memories
+        WHERE (? OR stale = 0)
         ORDER BY pinned DESC, updated_ts DESC, id DESC
         LIMIT ?
         """
         with self._conn() as conn:
-            return [dict(r) for r in conn.execute(sql, (limit,)).fetchall()]
+            return [dict(r) for r in conn.execute(sql, (1 if include_stale else 0, limit)).fetchall()]
 
     def update_memory(
         self,

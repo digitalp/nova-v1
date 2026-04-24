@@ -205,6 +205,26 @@ class HAProxy:
         if tool_call.function_name == "deploy_app":
             return await self._deploy_app(tool_call.arguments)
 
+        if tool_call.function_name == "request_exception":
+            args = tool_call.arguments
+            subject = str(args.get("subject") or "").strip()
+            resource = str(args.get("resource") or "").strip()
+            reason = str(args.get("reason") or "").strip()
+            duration_m = int(args.get("duration_minutes") or 30)
+            db = getattr(self._container, "metrics_db", None)
+            if not db:
+                return "Override queue unavailable — please ask a parent directly."
+            row = db.add_override_request(
+                subject=subject, resource=resource, reason=reason,
+                duration_m=duration_m, requested_by="nova"
+            )
+            _LOGGER.info("parental.override_requested", subject=subject, resource=resource, id=row.get("id"))
+            return (
+                f"I've submitted a request for {subject} to have {duration_m} minutes of "
+                f"{resource or 'the requested activity'}. Reason: {reason}. "
+                "A parent can approve or deny this in the admin panel under Parental → Override Queue."
+            )
+
         if tool_call.function_name == "send_device_message":
             return await self._send_device_message(tool_call.arguments)
 
@@ -459,8 +479,19 @@ class HAProxy:
             for d in devices:
                 number = d.get("number", "?")
                 name = d.get("description") or d.get("name") or d.get("model") or "Unknown"
-                online = "online" if d.get("online") else "offline"
-                last_seen = (d.get("lastUpdate") or "")[:10]
+                is_online = d.get("online")
+                last_upd_raw = d.get("lastUpdate")
+                if not is_online and last_upd_raw:
+                    # If flag is missing or false, check if update was in last 10 mins
+                    if abs((time.time() * 1000) - last_upd_raw) < 600000:
+                        is_online = True
+                online = "online" if is_online else "offline"
+                raw_upd = d.get("lastUpdate")
+                if raw_upd and isinstance(raw_upd, int):
+                    try: last_seen = datetime.fromtimestamp(raw_upd / 1000).strftime("%Y-%m-%d")
+                    except Exception: last_seen = str(raw_upd)[:10]
+                else:
+                    last_seen = str(raw_upd or "never")[:10]
                 lines.append(f"{number}: {name} — {online} (last seen {last_seen})")
             return ToolResult(success=True, message=chr(10).join(lines))
         except Exception as exc:

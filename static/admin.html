@@ -2157,6 +2157,21 @@
         </div>
       </div>
 
+      <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin:12px 0 8px;">Override Requests</div>
+
+      <div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+          <div class="card-title" style="margin:0;">Exception Queue</div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-outline" style="font-size:12px;" onclick="parentalLoadOverrides('pending')">Pending</button>
+            <button class="btn btn-outline" style="font-size:12px;" onclick="parentalLoadOverrides('approved')">Approved</button>
+            <button class="btn btn-outline" style="font-size:12px;" onclick="parentalLoadOverrides('denied')">Denied</button>
+            <button class="btn btn-outline" style="font-size:12px;" onclick="parentalLoadOverrides('')">All</button>
+          </div>
+        </div>
+        <div id="parental-overrides-list" class="text-sm text-muted">Loading…</div>
+      </div>
+
       <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin:12px 0 8px;">Enrollment</div>
 
       <div class="card" style="margin-bottom:12px;">
@@ -2315,7 +2330,7 @@
 <script src="/static/admin.js?v=1777020339"></script>
 <script src="/static/admin-config.js?v=1777021843"></script>
 <script src="/static/admin-avatar.js?v=1777020339"></script>
-<script src="/static/admin-parental.js?v=1777020339"></script>
+<script src="/static/admin-parental.js?v=1777020340"></script>
 <script src="/static/admin-scoreboard.js?v=1777020339"></script>
 <script src="/static/admin-tools.js?v=1777020339"></script>
 <script src="/static/admin-energy.js?v=1777021843"></script>

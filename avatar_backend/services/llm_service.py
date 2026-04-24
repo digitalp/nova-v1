@@ -374,6 +374,28 @@ HA_TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "request_exception",
+            "description": (
+                "Submit a parental exception request — extra screen time, a bedtime extension, "
+                "or temporary access to a blocked resource. The request is queued for a parent "
+                "to approve or deny in the admin panel. Use when a child asks for something "
+                "that needs parental approval."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subject": {"type": "string", "description": "Name of the person requesting (e.g. Joel)"},
+                    "resource": {"type": "string", "description": "What they want (e.g. Xbox, iPad, YouTube)"},
+                    "reason": {"type": "string", "description": "Their reason for the exception"},
+                    "duration_minutes": {"type": "integer", "description": "How long they are asking for (minutes)", "default": 30}
+                },
+                "required": ["subject", "reason"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "send_device_message",
             "description": (
                 "Send a full-screen push notification to a child's Android device. "
@@ -834,9 +856,12 @@ class _GeminiBackend:
                      input_tokens=_um.get("promptTokenCount", 0),
                      output_tokens=_um.get("candidatesTokenCount", 0))
                 return text, tools
-            except httpx.HTTPStatusError as exc:
+            except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
                 last_exc = exc
-                if exc.response.status_code == 429:
+                if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (429, 503):
+                    _report_gemini_429(api_key)
+                    continue
+                if isinstance(exc, (httpx.ConnectError, httpx.TimeoutException)):
                     _report_gemini_429(api_key)
                     continue
                 raise
@@ -872,9 +897,12 @@ class _GeminiBackend:
                      output_tokens=_um.get("candidatesTokenCount", 0),
                      purpose="proactive")
                 return text
-            except httpx.HTTPStatusError as exc:
+            except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
                 last_exc = exc
-                if exc.response.status_code == 429:
+                if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (429, 503):
+                    _report_gemini_429(api_key)
+                    continue
+                if isinstance(exc, (httpx.ConnectError, httpx.TimeoutException)):
                     _report_gemini_429(api_key)
                     continue
                 raise
@@ -911,9 +939,12 @@ class _GeminiBackend:
                      output_tokens=_um.get("candidatesTokenCount", 0),
                      purpose="grounded")
                 return text
-            except httpx.HTTPStatusError as exc:
+            except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
                 last_exc = exc
-                if exc.response.status_code == 429:
+                if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (429, 503):
+                    _report_gemini_429(api_key)
+                    continue
+                if isinstance(exc, (httpx.ConnectError, httpx.TimeoutException)):
                     _report_gemini_429(api_key)
                     continue
                 raise
@@ -1660,12 +1691,15 @@ class LLMService:
                     break
                 try:
                     return await _gemini_describe_image(image_bytes, api_key, model, _prompt, system_instruction)
-                except httpx.HTTPStatusError as exc:
-                    if exc.response.status_code == 429:
-                        _report_gemini_429(api_key)
-                        structlog.get_logger().warning("gemini_pool.retrying_next_key", attempt=_attempt + 1)
-                        continue
-                    raise
+                except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
+                        last_exc = exc
+                        if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (429, 503):
+                            _report_gemini_429(api_key)
+                            continue
+                        if isinstance(exc, (httpx.ConnectError, httpx.TimeoutException)):
+                            _report_gemini_429(api_key)
+                            continue
+                        raise
 
             # All keys exhausted - fall back to Ollama
             return await self._fallback_to_ollama_vision(image_bytes, prompt)

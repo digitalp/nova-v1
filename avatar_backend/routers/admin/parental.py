@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 import structlog
 from fastapi import APIRouter, Depends, Request
+from avatar_backend.bootstrap.container import AppContainer, get_container
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -866,3 +867,43 @@ async def apk_qr():
     img.save(buf, format="PNG")
     qr_b64 = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
     return {"qr_image_url": qr_b64, "download_url": url}
+
+
+# ── Parental Override Queue ───────────────────────────────────────────────────
+
+@router.get("/parental/overrides")
+async def list_overrides(request: Request, status: str = "", container: AppContainer = Depends(get_container)):
+    """List parental override requests."""
+    _require_session(request, min_role="viewer")
+    db = getattr(container, "metrics_db", None)
+    if not db:
+        return {"overrides": []}
+    return {"overrides": db.list_overrides(status=status or None, limit=100)}
+
+
+@router.post("/parental/overrides/{override_id}/approve")
+async def approve_override(override_id: int, request: Request, container: AppContainer = Depends(get_container)):
+    """Approve a pending override request."""
+    _require_session(request, min_role="admin")
+    db = getattr(container, "metrics_db", None)
+    if not db:
+        return {"ok": False, "error": "DB not available"}
+    result = db.resolve_override(override_id, status="approved", resolved_by="admin")
+    if not result:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"ok": False, "error": "Override not found"}, status_code=404)
+    return {"ok": True, "override": result}
+
+
+@router.post("/parental/overrides/{override_id}/deny")
+async def deny_override(override_id: int, request: Request, container: AppContainer = Depends(get_container)):
+    """Deny a pending override request."""
+    _require_session(request, min_role="admin")
+    db = getattr(container, "metrics_db", None)
+    if not db:
+        return {"ok": False, "error": "DB not available"}
+    result = db.resolve_override(override_id, status="denied", resolved_by="admin")
+    if not result:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"ok": False, "error": "Override not found"}, status_code=404)
+    return {"ok": True, "override": result}

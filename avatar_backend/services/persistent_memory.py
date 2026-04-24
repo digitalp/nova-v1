@@ -37,6 +37,8 @@ class PersistentMemoryService:
         self._db = db
         self._ollama_url = ollama_url.rstrip("/")
         self._embedding_cache: dict[tuple[int, str], list[float]] = {}
+        self._db.ensure_memory_columns()
+        self._db.expire_stale_memories()
         _LOGGER.info("persistent_memory.initialized")
 
     async def _get_embedding(self, text: str) -> list[float] | None:
@@ -70,6 +72,39 @@ class PersistentMemoryService:
     def clear_memories(self) -> int:
         return self._db.clear_memories()
 
+    def mark_stale(self, memory_id: int, superseded_by: int | None = None) -> bool:
+        ok = self._db.mark_stale(memory_id, superseded_by)
+        if ok:
+            self.invalidate_embedding_cache(memory_id)
+        return ok
+
+    def list_stale_memories(self, limit: int = 100) -> list[dict]:
+        """Return stale memories for admin review."""
+        mems = self._db.list_memories(limit=limit, include_stale=True)
+        return [m for m in mems if m.get('stale')]
+
+    def add_memory(
+        self,
+        *,
+        summary: str,
+        category: str = "general",
+        source: str = "manual",
+        confidence: float = 0.9,
+        pinned: bool = False,
+        expires_ts: str | None = None,
+    ) -> dict:
+        result = self._db.upsert_memory(
+            summary=summary,
+            category=category,
+            source=source,
+            confidence=confidence,
+            pinned=pinned,
+            expires_ts=expires_ts,
+        )
+        if result and result.get("id"):
+            self.invalidate_embedding_cache(int(result["id"]))
+        return result
+
     def delete_memory(self, memory_id: int) -> bool:
         return self._db.delete_memory(memory_id)
 
@@ -90,25 +125,6 @@ class PersistentMemoryService:
             pinned=pinned,
         )
 
-    def add_memory(
-        self,
-        *,
-        summary: str,
-        category: str = "general",
-        source: str = "manual",
-        confidence: float = 0.9,
-        pinned: bool = False,
-    ) -> dict:
-        result = self._db.upsert_memory(
-            summary=summary,
-            category=category,
-            source=source,
-            confidence=confidence,
-            pinned=pinned,
-        )
-        if result and result.get("id"):
-            self.invalidate_embedding_cache(int(result["id"]))
-        return result
 
     async def build_context_async(self, query: str, limit: int = 5) -> tuple[str, list[int]]:
         memories = self._db.list_memories(limit=300)
