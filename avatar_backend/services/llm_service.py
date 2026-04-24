@@ -252,6 +252,22 @@ HA_TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "get_household_forecast",
+            "description": (
+                "Show what is coming up for the household in the next few hours: "
+                "upcoming bedtimes, homework gate windows, chore check-ins, and current device states. "
+                "Use when asked what will happen next, what is scheduled, or for a household overview."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_bedtime_status",
             "description": (
                 "Get tonight's bedtime for a household member. "
