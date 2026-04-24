@@ -70,6 +70,17 @@ async def lifespan(app: FastAPI):
     container = await bootstrap(app, settings, system_prompt)
     app.state._container = container
 
+    # Auto-sync MDM devices to family members
+    if hasattr(container, 'family_service') and container.family_service:
+        try:
+            from avatar_backend.services import mdm_client as _mdm
+            _devs = await _mdm.get_devices()
+            _n = container.family_service.sync_mdm_devices(_devs)
+            if _n:
+                logger.info("family_service.mdm_sync", new_mappings=_n)
+        except Exception as _me:
+            logger.info("family_service.mdm_sync_skipped", reason=str(_me)[:80])
+
     yield
 
     await teardown(container)

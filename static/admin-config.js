@@ -18,7 +18,7 @@
         `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface2);border-radius:8px;cursor:pointer;">
           <input type="checkbox" class="vision-cam-check" value="${_escapeHtml(c.entity_id)}" ${c.vision_enabled ? 'checked' : ''}>
           <span style="font-size:13px;">${_escapeHtml(c.label)}</span>
-          <span class="text-sm text-muted" style="margin-left:auto;">${_escapeHtml(c.entity_id)}</span>
+
         </label>`
       ).join('');
       const _visionEnabled = _cameras.filter(c => c.vision_enabled).length;
@@ -206,6 +206,7 @@
       labelEl.value = '';
       toast('Key added');
       loadGeminiPool();
+
     } catch (e) {
       toast('Failed: ' + e.message, 'err');
     }
@@ -217,6 +218,7 @@
       await configApi.removeGeminiKey(index);
       toast('Key removed');
       loadGeminiPool();
+
     } catch (e) {
       toast('Failed: ' + e.message, 'err');
     }
@@ -226,6 +228,7 @@
     try {
       await configApi.toggleGeminiKey({ index, enabled });
       loadGeminiPool();
+
     } catch (e) {
       toast('Failed: ' + e.message, 'err');
     }
@@ -416,6 +419,37 @@
     if (!idEl.dataset.manualEdit) idEl.value = slug;
   }
 
+  async function loadGeminiOpTasks() {
+    const el = document.getElementById('gemini-op-tasks');
+    if (!el) return;
+    try {
+      const d = await configApi.getGeminiOperationalTasks();
+      el.innerHTML = (d.tasks || []).map(t =>
+        '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;">'
+        + '<input type="checkbox" class="gemini-op-chk" data-task="' + t.id + '" ' + (t.use_gemini ? 'checked' : '') + ' style="width:15px;height:15px;">'
+        + '<span style="font-size:13px;">' + String(t.label).replace(/&/g,'&amp;').replace(/</g,'&lt;') + ' <span class="text-muted">(' + t.id + ')</span></span>'
+        + '</label>'
+      ).join('');
+    } catch(e) { console.error('gemini-op-tasks', e); el.innerHTML = '<span class="text-sm" style="color:var(--danger)">Failed: ' + e.message + '</span>'; }
+  }
+
+  async function saveGeminiOpTasks() {
+    const checks = document.querySelectorAll('.gemini-op-chk');
+    const enabled = [];
+    checks.forEach(c => { if (c.checked) enabled.push(c.dataset.task); });
+    await configApi.saveGeminiOperationalTasks({ enabled });
+    window._showToast?.('Saved');
+  }
+
+  async function loadGeminiChatToggle() {
+    const el = document.getElementById('gemini-chat-toggle');
+    if (!el) return;
+    try {
+      const d = await configApi.getGeminiChatToggle();
+      el.checked = d.use_gemini_chat;
+    } catch(e) { console.error('gemini-chat-toggle', e); }
+  }
+
   function bindConfigEvents() {
     document.getElementById('btn-save-config')?.addEventListener('click', () => saveConfig());
     document.getElementById('btn-load-config')?.addEventListener('click', () => loadConfig());
@@ -434,6 +468,11 @@
     document.getElementById('room-new-id')?.addEventListener('keydown', e => {
       if (e.key === 'Enter') addRoom();
     });
+    document.getElementById('btn-save-gemini-op')?.addEventListener('click', saveGeminiOpTasks);
+    document.getElementById('gemini-chat-toggle')?.addEventListener('change', async (e) => {
+      await configApi.setGeminiChatToggle({ enabled: e.target.checked });
+      window._showToast?.(e.target.checked ? 'Chat uses Gemini' : 'Chat uses Ollama');
+    });
   }
 
   async function enterConfigSection() {
@@ -442,6 +481,8 @@
       loadGeminiPool(),
       loadVisionCameras(),
       loadRooms(),
+      loadGeminiOpTasks(),
+      loadGeminiChatToggle(),
     ]);
   }
 

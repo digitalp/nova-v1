@@ -222,6 +222,10 @@ const adminApi = {
     deleteRoom: (roomId) => api('DELETE', '/admin/rooms/' + encodeURIComponent(roomId)),
     patchRoom: (roomId, payload) => api('PATCH', '/admin/rooms/' + encodeURIComponent(roomId), payload),
     getAvatars: () => api('GET', '/admin/avatars'),
+    getGeminiOperationalTasks: () => api('GET', '/admin/gemini-operational-tasks'),
+    saveGeminiOperationalTasks: (payload) => api('POST', '/admin/gemini-operational-tasks', payload),
+    getGeminiChatToggle: () => api('GET', '/admin/gemini-chat-toggle'),
+    setGeminiChatToggle: (payload) => api('POST', '/admin/gemini-chat-toggle', payload),
   },
   avatar: {
     getSettings: () => api('GET', '/admin/avatar-settings'),

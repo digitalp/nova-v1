@@ -1043,3 +1043,45 @@ async def save_vision_cameras(request: Request, container: AppContainer = Depend
     raw["vision_enabled_cameras"] = enabled
     _RUNTIME_FILE.write_text(_json.dumps(raw, indent=2, sort_keys=True) + "\n")
     return {"ok": True, "enabled": len(enabled)}
+
+
+@router.get("/gemini-operational-tasks")
+async def get_gemini_operational_tasks(request: Request, container: AppContainer = Depends(get_container)):
+    _require_session(request, min_role="viewer")
+    from avatar_backend.services.home_runtime import load_home_runtime_config
+    rt = load_home_runtime_config()
+    all_tasks = ["ha_power_alert", "ha_door_check", "ha_bedtime_house_check"]
+    enabled = set(rt.gemini_operational_tasks)
+    return {"tasks": [{"id": t, "label": t.replace("ha_", "").replace("_", " ").title(), "use_gemini": t in enabled} for t in all_tasks]}
+
+
+@router.post("/gemini-operational-tasks")
+async def save_gemini_operational_tasks(request: Request, container: AppContainer = Depends(get_container)):
+    _require_session(request, min_role="admin")
+    body = await request.json()
+    enabled = body.get("enabled", [])
+    from avatar_backend.services.home_runtime import _RUNTIME_FILE
+    import json as _json
+    raw = _json.loads(_RUNTIME_FILE.read_text()) if _RUNTIME_FILE.exists() else {}
+    raw["gemini_operational_tasks"] = enabled
+    _RUNTIME_FILE.write_text(_json.dumps(raw, indent=2, sort_keys=True) + "\n")
+    return {"ok": True, "enabled": enabled}
+
+
+@router.get("/gemini-chat-toggle")
+async def get_gemini_chat_toggle(request: Request, container: AppContainer = Depends(get_container)):
+    _require_session(request, min_role="viewer")
+    from avatar_backend.services.home_runtime import load_home_runtime_config
+    return {"use_gemini_chat": load_home_runtime_config().use_gemini_chat}
+
+
+@router.post("/gemini-chat-toggle")
+async def set_gemini_chat_toggle(request: Request, container: AppContainer = Depends(get_container)):
+    _require_session(request, min_role="admin")
+    body = await request.json()
+    from avatar_backend.services.home_runtime import _RUNTIME_FILE
+    import json as _json
+    raw = _json.loads(_RUNTIME_FILE.read_text()) if _RUNTIME_FILE.exists() else {}
+    raw["use_gemini_chat"] = bool(body.get("enabled", False))
+    _RUNTIME_FILE.write_text(_json.dumps(raw, indent=2, sort_keys=True) + "\n")
+    return {"ok": True, "use_gemini_chat": raw["use_gemini_chat"]}

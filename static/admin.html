@@ -441,6 +441,27 @@
           </div>
         </div>
 
+        <!-- Gemini Chat Toggle -->
+        <div class="card" style="margin-bottom:0;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div>
+              <div class="card-title" style="margin-bottom:4px;">Use Gemini for Chat</div>
+              <p class="text-sm text-muted" style="margin:0;">Route all conversations through Gemini instead of Ollama. Uses key pool quota.</p>
+            </div>
+            <label style="display:flex;align-items:center;cursor:pointer;">
+              <input type="checkbox" id="gemini-chat-toggle" style="width:18px;height:18px;">
+            </label>
+          </div>
+        </div>
+
+        <!-- Gemini Operational Tasks -->
+        <div class="card" style="margin-bottom:0;">
+          <div class="card-title">Gemini for Operational Tasks</div>
+          <p class="text-sm text-muted mb-4">Choose which background HA tasks use Gemini instead of Ollama. Disabled tasks use the default LLM.</p>
+          <div id="gemini-op-tasks" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;"></div>
+          <button class="btn btn-primary" id="btn-save-gemini-op">Save</button>
+        </div>
+
       </div>
     </div>
 
@@ -2428,9 +2449,9 @@
 
 
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/admin.js?v=1777057989"></script>
+<script src="/static/admin.js?v=1777072667"></script>
 <script src="/static/admin-help.js?v=1777057989"></script>
-<script src="/static/admin-config.js?v=1777044379"></script>
+<script src="/static/admin-config.js?v=1777073855"></script>
 <script src="/static/admin-avatar.js?v=1777020339"></script>
 <script src="/static/admin-parental.js?v=1777020343"></script>
 <script src="/static/admin-scoreboard.js?v=1777020339"></script>

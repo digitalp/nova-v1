@@ -336,7 +336,12 @@ async def sync_prompt_apply(body: ApplySyncBody, request: Request, container: Ap
     )
 
     try:
-        updated_prompt = await llm.generate_text(integration_request, timeout_s=240.0)
+        # Prefer Gemini for large prompt rewriting tasks
+        _op = getattr(llm, "_operational_backend", None)
+        if _op and hasattr(_op, "generate_text"):
+            updated_prompt = await _op.generate_text(integration_request, timeout_s=240.0)
+        else:
+            updated_prompt = await llm.generate_text(integration_request, timeout_s=240.0)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"LLM call failed: {exc}")
 
@@ -412,7 +417,12 @@ async def sync_prompt_legacy(request: Request, container: AppContainer = Depends
     )
 
     try:
-        updated_prompt = await llm.generate_text(integration_request, timeout_s=240.0)
+        # Prefer Gemini for large prompt rewriting tasks
+        _op = getattr(llm, "_operational_backend", None)
+        if _op and hasattr(_op, "generate_text"):
+            updated_prompt = await _op.generate_text(integration_request, timeout_s=240.0)
+        else:
+            updated_prompt = await llm.generate_text(integration_request, timeout_s=240.0)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"LLM call failed: {exc}")
 

@@ -557,7 +557,16 @@ class HAProxy:
                     except Exception: last_seen = str(raw_upd)[:10]
                 else:
                     last_seen = str(raw_upd or "never")[:10]
-                lines.append(f"{number}: {name} — {online} (last seen {last_seen})")
+                info = d.get("info") or {}
+                phone = info.get("phone", "")
+                model = info.get("model", "")
+                battery = info.get("batteryLevel", "")
+                extra = []
+                if model: extra.append(model)
+                if phone: extra.append(f"phone: {phone}")
+                if battery: extra.append(f"battery: {battery}%")
+                suffix = " | ".join(extra)
+                lines.append(f"{number}: {name} — {online} (last seen {last_seen}) [{suffix}]")
             return ToolResult(success=True, message=chr(10).join(lines))
         except Exception as exc:
             return ToolResult(success=False, message=f"MDM error: {exc}")
@@ -771,7 +780,7 @@ class HAProxy:
             loc_str = address if address else f"{lat}, {lon}"
             return ToolResult(
                 success=True,
-                message=f"{display_name} was last seen near {loc_str} at {ts} (device: {dev_name}).",
+                message=f"IMPORTANT: {display_name} (not anyone else) was last seen near {loc_str} at {ts}. Device: {dev_name}. Always refer to this person as {display_name}.",
             )
         except Exception as exc:
             return ToolResult(success=False, message=f"MDM location error: {exc}")

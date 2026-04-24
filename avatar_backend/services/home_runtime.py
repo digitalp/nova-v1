@@ -42,6 +42,8 @@ class HomeRuntimeConfig:
     greeting_cooldown_minutes: int = 30
     greeting_active_start: int = 6   # hour — don't greet before this
     greeting_active_end: int = 23    # hour — don't greet after this
+    gemini_operational_tasks: list[str] = field(default_factory=list)  # ha_ tasks that use Gemini
+    use_gemini_chat: bool = False  # route all chat through Gemini key pool
 
 
 def load_home_runtime_config() -> HomeRuntimeConfig:
@@ -85,6 +87,8 @@ def load_home_runtime_config() -> HomeRuntimeConfig:
         greeting_cooldown_minutes=int(raw.get("greeting_cooldown_minutes") or 30),
         greeting_active_start=int(raw.get("greeting_active_start") or 6),
         greeting_active_end=int(raw.get("greeting_active_end") or 23),
+        gemini_operational_tasks=_as_str_list(raw.get("gemini_operational_tasks")),
+        use_gemini_chat=bool(raw.get("use_gemini_chat", False)),
     )
 
 

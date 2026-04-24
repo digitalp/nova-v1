@@ -340,7 +340,7 @@ async def _set_application_config_action(
             }
         )
 
-    await hmdm("post", "/rest/private/applications/configurations", json=links)
+    await hmdm("post", "/rest/private/applications/configurations", json={"applicationId": app_id, "configurations": links})
     return {
         "ok": True,
         "persisted": {

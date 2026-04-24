@@ -406,7 +406,10 @@ async def _chat_for_session(
     use_tools: bool,
 ) -> tuple[str, list[ToolCall]]:
     if (session_id or "").strip().lower().startswith("ha_") and hasattr(llm, "chat_operational"):
-        return await llm.chat_operational(messages, use_tools=use_tools, purpose=session_id)
+        from avatar_backend.services.home_runtime import load_home_runtime_config
+        _rt = load_home_runtime_config()
+        use_gemini = session_id in _rt.gemini_operational_tasks
+        return await llm.chat_operational(messages, use_tools=use_tools, purpose=session_id, use_gemini=use_gemini)
     return await llm.chat(messages, use_tools=use_tools)
 
 

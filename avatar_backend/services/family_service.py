@@ -125,6 +125,53 @@ class FamilyService:
         self._policies.clear()
         self._load()
 
+    def sync_mdm_devices(self, mdm_devices: list[dict]) -> int:
+        """Auto-map MDM devices to family members by matching device number to person id/name.
+        Returns number of new mappings added."""
+        added = 0
+        existing = {r.device_number.lower() for r in self._resources.values() if r.kind == "mdm_device"}
+        for dev in mdm_devices:
+            dev_num = dev.get("number", "")
+            if not dev_num or dev_num.lower() in existing:
+                continue
+            # Match device number to a child by id or display_name
+            matched_person = None
+            for p in self._people.values():
+                if p.role != "child":
+                    continue
+                if p.id.lower() == dev_num.lower() or p.display_name.lower() == dev_num.lower():
+                    matched_person = p
+                    break
+            if not matched_person:
+                continue
+            rid = f"{matched_person.id}_device"
+            model = (dev.get("info") or {}).get("model", "")
+            resource = Resource(
+                id=rid, kind="mdm_device", owner_id=matched_person.id,
+                device_number=dev_num,
+            )
+            self._resources[rid] = resource
+            added += 1
+            _LOGGER.info("family_service.mdm_auto_mapped",
+                         person=matched_person.id, device=dev_num, model=model)
+        if added:
+            self._persist_resources()
+        return added
+
+    def _persist_resources(self) -> None:
+        """Write current resources back to family_state.json."""
+        try:
+            raw = json.loads(self._path.read_text()) if self._path.exists() else {}
+            raw["resources"] = [
+                {"id": r.id, "kind": r.kind, "owner_id": r.owner_id,
+                 "device_number": r.device_number, "entity_id": r.entity_id,
+                 "package_names": r.package_names}
+                for r in self._resources.values()
+            ]
+            self._path.write_text(json.dumps(raw, indent=2) + "\n")
+        except Exception as exc:
+            _LOGGER.warning("family_service.persist_error", exc=str(exc))
+
     # ── People ────────────────────────────────────────────────────────────────
 
     def get_children(self) -> list[Person]:

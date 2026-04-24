@@ -193,6 +193,7 @@ async def bootstrap(app: FastAPI, settings, system_prompt: str) -> AppContainer:
         c.family_service = FamilyService(_family_path, c.metrics_db)
         if hasattr(c, 'ha_proxy') and c.ha_proxy:
             c.ha_proxy._family_service = c.family_service
+
     except Exception as _fe:
         structlog.get_logger().warning('family_service.init_failed', exc=str(_fe))
     else:

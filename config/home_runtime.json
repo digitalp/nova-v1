@@ -191,6 +191,7 @@
       "unit": "%"
     }
   },
+  "use_gemini_chat": true,
   "vision_enabled_cameras": [
     "camera.outdoor2_profile000_mainstream"
   ],
