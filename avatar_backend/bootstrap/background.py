@@ -787,10 +787,10 @@ def schedule_background_tasks(app: FastAPI, container) -> None:
     # Homework gate (only if family_service + mdm_client available)
     # Doc update loop
     nova_path = str(getattr(container, "_nova_path", "/opt/avatar-server"))
-    loop.create_task(
+    container._background_tasks.append(asyncio.create_task(
         _doc_update_loop(nova_path),
         name="doc_update",
-    )
+    ))
 
     # Bedtime enforcement loop
     _fs = getattr(container, 'family_service', None)
