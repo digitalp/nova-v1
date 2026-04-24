@@ -12,18 +12,26 @@
 
   async function loadMusicPlayers() {
     const maEl = document.getElementById('music-ma-status');
-    if (maEl) {
+    const _sumStatusEl = document.getElementById('music-summary-status');
+    if (maEl || _sumStatusEl) {
       try {
         const st = await musicApi.getStatus();
+        let statusText, statusShort;
         if (!st.configured) {
-          maEl.innerHTML = '⚪ Not configured — add <code>MUSIC_ASSISTANT_URL</code> to .env';
+          statusText = '⚪ Not configured — add <code>MUSIC_ASSISTANT_URL</code> to .env';
+          statusShort = 'Not configured';
         } else if (st.available) {
-          maEl.innerHTML = '<span style="color:var(--green);">● Connected</span> — search and play available';
+          statusText = '<span style="color:var(--green);">● Connected</span> — search and play available';
+          statusShort = '● Connected';
         } else {
-          maEl.innerHTML = '<span style="color:var(--red);">● Offline</span> — start with: <code>docker compose up -d music-assistant</code>';
+          statusText = '<span style="color:var(--red);">● Offline</span> — start with: <code>docker compose up -d music-assistant</code>';
+          statusShort = '● Offline';
         }
+        if (maEl) maEl.innerHTML = statusText;
+        if (_sumStatusEl) _sumStatusEl.innerHTML = statusShort;
       } catch {
-        maEl.innerHTML = '⚪ Status unknown';
+        if (maEl) maEl.innerHTML = '⚪ Status unknown';
+        if (_sumStatusEl) _sumStatusEl.textContent = 'Unknown';
       }
     }
 
@@ -71,10 +79,34 @@
           html += '</div></div>';
         }
         sel.innerHTML = html || '<span class="text-sm text-muted">No speakers available</span>';
+        // Update selected-speaker count badge
+        const _cntEl = document.getElementById('music-target-count');
+        if (_cntEl) {
+          const _chk = document.querySelectorAll('.music-speaker-chk:checked').length;
+          _cntEl.textContent = _chk ? _chk + ' selected' : 'No speakers selected';
+          document.querySelectorAll('.music-speaker-chk').forEach(c => {
+            c.addEventListener('change', () => {
+              const n = document.querySelectorAll('.music-speaker-chk:checked').length;
+              _cntEl.textContent = n ? n + ' selected' : 'No speakers selected';
+            });
+          });
+        }
       }
 
+      // Populate summary cards
+      const _sumStatus = document.getElementById('music-summary-status');
+      const _sumActive = document.getElementById('music-summary-active');
+      const _sumAvail  = document.getElementById('music-summary-available');
+      if (_sumActive) _sumActive.textContent = active.length;
+      if (_sumAvail)  _sumAvail.textContent  = available.length;
+
       if (!active.length) {
-        npEl.innerHTML = '<div class="text-sm text-muted">Nothing playing.</div>';
+        // Nothing actively playing — show all available speakers so they don't disappear
+        if (available.length) {
+          renderMusicPlayersList(available, npEl);
+        } else {
+          npEl.innerHTML = '<div class="text-sm text-muted">Nothing playing.</div>';
+        }
       } else {
         renderMusicPlayersList(active, npEl);
       }
@@ -84,9 +116,7 @@
         renderMusicPlayersList(players, allEl);
       }
     } catch (e) {
-      npEl.innerHTML = `<div class="text-sm" style="color:var(--danger);">Failed: ${_esc(e.message)}</div>`;
-      const _sel = document.getElementById('music-target-players');
-      if (_sel && _sel.textContent.includes('Loading')) _sel.innerHTML = '<span class="text-sm text-muted">Unavailable</span>';
+      if (npEl) npEl.innerHTML = `<div class="text-sm" style="color:var(--danger);">Failed to load speakers: ${_esc(e.message)}</div>`;
     }
   }
 
