@@ -457,6 +457,7 @@ async def test_announce(body: AnnounceBody, request: Request):
     return await announce_handler(
         AnnounceRequest(message=body.message, priority=body.priority),  # type: ignore[arg-type]
         request,
+        container=request.app.state._container,
     )
 
 # ── Face Recognition ──────────────────────────────────────────────────────────

@@ -185,6 +185,14 @@ async def bootstrap(app: FastAPI, settings, system_prompt: str) -> AppContainer:
 
     from avatar_backend.services.energy_service import EnergyService
     c.energy_service = EnergyService(ha_proxy=c.ha_proxy)
+    # -- DeepFace --
+    if settings.deepface_enabled:
+        from avatar_backend.services.deepface_service import DeepFaceService
+        c.deepface_service = DeepFaceService(deepface_home=settings.deepface_home)
+        c.deepface_service._model_name = settings.deepface_model
+        c.deepface_service._detector_backend = settings.deepface_detector
+        c.deepface_service.warmup()
+
 
     from avatar_backend.services.music_service import MusicService
     c.music_service = MusicService(ha_proxy=c.ha_proxy, music_assistant_url=settings.music_assistant_url)
@@ -234,6 +242,7 @@ async def _bootstrap_phase3(app, settings, system_prompt, c, logger):
                 room_id=room_id,
             ),
             fake_request,
+            container=app.state._container,
         )
 
     from avatar_backend.services.ha_ws_manager import HAWebSocketManager

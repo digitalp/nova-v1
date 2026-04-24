@@ -378,7 +378,7 @@ async def _daily_chore_summary_loop(announce_fn, scoreboard_service, llm_service
     from datetime import datetime as _dt
     from collections import defaultdict
     from pathlib import Path
-    from avatar_backend.config import config_dir
+    from avatar_backend.runtime_paths import config_dir
     await asyncio.sleep(60)
     logger = structlog.get_logger()
     last_fired_date: str = ""
