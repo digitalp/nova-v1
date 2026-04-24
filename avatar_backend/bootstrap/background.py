@@ -373,6 +373,111 @@ async def _blind_check_loop(announce_fn, blueiris_service, llm_service, ha_proxy
 
 
 
+
+async def _morning_digest_loop(announce_fn, scoreboard_service, llm_service) -> None:
+    """Every day at 07:30 announce a morning digest: yesterday recap + today outlook."""
+    from datetime import datetime as _dt, timedelta as _td
+    from collections import defaultdict
+    from pathlib import Path
+    from avatar_backend.runtime_paths import config_dir
+    await asyncio.sleep(90)
+    logger = structlog.get_logger()
+    last_fired_date: str = ""
+    _NL = chr(10)
+
+    while True:
+        try:
+            now = _dt.now()
+            date_str = now.strftime("%Y-%m-%d")
+            if now.hour == 7 and now.minute == 30 and last_fired_date != date_str:
+                last_fired_date = date_str
+                yesterday = now - _td(days=1)
+                midnight_yesterday = yesterday.replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                ).timestamp()
+                midnight_today = now.replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                ).timestamp()
+
+                logs = scoreboard_service.all_logs(days=2)
+                yest_logs = [l for l in logs if midnight_yesterday <= l["ts"] < midnight_today]
+                by_person: dict = defaultdict(lambda: {"net": 0, "chores": [], "penalties": []})
+                for log in yest_logs:
+                    p = log["person"].title()
+                    pts = log["points"]
+                    by_person[p]["net"] += pts
+                    if pts >= 0:
+                        by_person[p]["chores"].append(log["task_label"])
+                    else:
+                        by_person[p]["penalties"].append(log["task_label"])
+
+                day_name = now.strftime("%A").lower()
+                cfg = scoreboard_service.get_config()
+                today_tasks: list[str] = []
+                for task in cfg.get("tasks", []):
+                    for reminder in task.get("reminders", []):
+                        r_day = reminder.get("day", "")
+                        if not r_day or r_day == day_name:
+                            today_tasks.append(task.get("label", task.get("id", "")))
+                            break
+
+                if not by_person:
+                    yest_block = "No activity was logged yesterday."
+                else:
+                    lines = []
+                    for person, d in sorted(by_person.items(), key=lambda x: -x[1]["net"]):
+                        chores = ", ".join(d["chores"]) or "none"
+                        pens   = ", ".join(d["penalties"]) or "none"
+                        lines.append(
+                            f"{person}: chores={chores}; penalties={pens}; net={d['net']:+d} pts"
+                        )
+                    yest_block = "YESTERDAY'S SUMMARY:" + _NL + _NL.join(lines)
+
+                today_block = (
+                    "TODAY'S SCHEDULED TASKS: "
+                    + (", ".join(today_tasks) if today_tasks else "none scheduled")
+                )
+                data_block = yest_block + _NL + _NL + today_block
+
+                sys_prompt_path = Path(config_dir()) / "system_prompt.txt"
+                try:
+                    system_prompt = sys_prompt_path.read_text()
+                except Exception:
+                    system_prompt = "You are Nova, a home assistant."
+
+                user_msg = (
+                    "It is 7:30 AM. Give the morning household digest as a brief, "
+                    "warm spoken announcement (2-4 sentences). Recap yesterday's "
+                    "highlights for each child (praise good behaviour, acknowledge "
+                    "any penalties constructively in one short sentence), then mention "
+                    "what tasks are on today so the family is prepared. Keep it "
+                    "upbeat and energising. Plain spoken English only, no markdown."
+                    + _NL + _NL + data_block
+                )
+
+                try:
+                    messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_msg},
+                    ]
+                    msg, _ = await llm_service.chat(messages, use_tools=False)
+                except Exception as exc:
+                    logger.warning("morning_digest.llm_failed", exc=str(exc)[:80])
+                    if by_person:
+                        msg = "Good morning! Yesterday: " + "; ".join(
+                            f"{p}: net {d['net']:+d} points" for p, d in by_person.items()
+                        ) + ". Have a great day!"
+                    else:
+                        msg = "Good morning everyone! No activity logged yesterday. Let us make today count!"
+
+                await announce_fn(msg, "normal")
+                logger.info("morning_digest.announced",
+                            persons=list(by_person.keys()), today_tasks=today_tasks)
+        except Exception as exc:
+            structlog.get_logger().warning("morning_digest.error", exc=str(exc)[:120])
+        await asyncio.sleep(30)
+
+
 async def _daily_chore_summary_loop(announce_fn, scoreboard_service, llm_service) -> None:
     """Every day at 20:00 announce a behaviour summary: chores earned + penalties issued."""
     from datetime import datetime as _dt
@@ -481,4 +586,12 @@ def schedule_background_tasks(app: FastAPI, container) -> None:
                 container.llm_service,
             ),
             name="daily_behaviour_summary",
+        ))
+        container._background_tasks.append(asyncio.create_task(
+            _morning_digest_loop(
+                container._proactive_announce,
+                container.scoreboard_service,
+                container.llm_service,
+            ),
+            name="morning_digest",
         ))
