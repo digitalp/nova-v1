@@ -1,12 +1,17 @@
 """Headwind MDM — shared auth + high-level helpers used by both parental router and ha_proxy."""
 from __future__ import annotations
 import asyncio
+import base64
 import hashlib
 import json
+import subprocess
 import time
 from typing import Any
 
 import httpx
+import structlog
+
+_LOGGER = structlog.get_logger(__name__)
 
 _HMDM_BASE = "http://localhost:8083"
 _HMDM_PUBLIC = "https://mdm.nova-home.co.uk"
@@ -27,6 +32,9 @@ _jwt_token: str = ""
 _jwt_expires: float = 0.0
 _jwt_lock = asyncio.Lock()
 
+_db_location_cache: dict[str, dict[str, Any]] = {}
+_db_location_cache_expires: float = 0.0
+_db_location_cache_lock = asyncio.Lock()
 
 async def _get_jwt() -> str:
     global _jwt_token, _jwt_expires
@@ -65,6 +73,48 @@ async def hmdm(method: str, path: str, **kwargs: Any) -> Any:
             return resp.json()
         return {}
 
+def _normalize_location_payload(raw: dict[str, Any] | None, fallback_ts: Any = None) -> dict[str, Any] | None:
+    raw = raw or {}
+    try:
+        lat = float(raw.get("lat"))
+        lon = float(raw.get("lon"))
+    except (TypeError, ValueError):
+        return None
+    return {
+        "lat": lat,
+        "lon": lon,
+        "ts": raw.get("ts") or fallback_ts,
+    }
+
+async def _get_db_device_locations(force: bool = False) -> dict[str, dict[str, Any]]:
+    global _db_location_cache, _db_location_cache_expires
+    async with _db_location_cache_lock:
+        now = time.time()
+        if not force and _db_location_cache and now < _db_location_cache_expires:
+            return dict(_db_location_cache)
+
+        sql = "select number, replace(encode(convert_to(coalesce(infojson::text,'{}'),'UTF8'),'base64'), E'\\n', '') from devices;"
+        cmd = ["docker", "exec", "hmdm_db", "psql", "-U", "hmdm", "-d", "hmdm", "-At", "-F", "\t", "-c", sql]
+        locations: dict[str, dict[str, Any]] = {}
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10)
+            for line in proc.stdout.splitlines():
+                if not line.strip(): continue
+                number, _, payload_b64 = line.partition("\t")
+                if not number or not payload_b64: continue
+                try:
+                    infojson = base64.b64decode(payload_b64).decode("utf-8")
+                    payload = json.loads(infojson)
+                except Exception: continue
+                location = _normalize_location_payload(payload.get("location"), payload.get("lastUpdate"))
+                if not location: continue
+                locations[number] = location
+                locations[number.lower()] = location
+        except Exception as exc:
+            _LOGGER.warning("mdm.db_location_error", exc=str(exc))
+        _db_location_cache = locations
+        _db_location_cache_expires = now + 15
+        return dict(_db_location_cache)
 
 async def get_devices() -> list[dict]:
     data = await hmdm(
@@ -82,7 +132,7 @@ async def get_parental_status() -> dict[str, Any]:
 
 async def get_device(device_number: str) -> dict[str, Any]:
     devices = await get_devices()
-    device = next((d for d in devices if str(d.get("number") or "") == str(device_number)), None)
+    device = next((d for d in devices if str(d.get("number") or "").lower() == str(device_number).lower()), None)
     if not device:
         raise ValueError(f"Device {device_number!r} not found")
     return device
@@ -143,7 +193,13 @@ async def get_device_location(device_number: str) -> dict[str, Any] | None:
         info = await get_device_info(device_number)
     except Exception:
         info = {}
-    return _extract_location(device, info)
+    
+    api_loc = _extract_location(device, info)
+    if api_loc:
+        return api_loc
+        
+    db_locations = await _get_db_device_locations()
+    return db_locations.get(device_number) or db_locations.get(device_number.lower())
 
 
 async def get_configurations() -> list[dict[str, Any]]:
