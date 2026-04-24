@@ -1,3 +1,95 @@
+
+async function parentalLoadPolicies() {
+  const el = document.getElementById('parental-policies-list');
+  if (!el) return;
+  el.innerHTML = '<div class="text-muted">Loading…</div>';
+  try {
+    const d = await adminApi.parental.getPolicies();
+    const policies = d.policies || [];
+    const tasks = d.tasks || [];
+    if (!policies.length) {
+      el.innerHTML = '<div class="text-muted">No homework gate policies configured.</div>';
+      return;
+    }
+    el.innerHTML = policies.map(pol => {
+      const taskOptions = tasks.map(t =>
+        `<label style="display:flex;align-items:center;gap:6px;margin-bottom:4px;cursor:pointer;">
+          <input type="checkbox" data-task="${_escapeHtml(t.id)}" ${pol.required_task_ids.includes(t.id) ? 'checked' : ''}>
+          <span>${_escapeHtml(t.label)}</span>
+         </label>`
+      ).join('');
+      const noTasks = tasks.length === 0
+        ? `<div class="text-muted" style="font-size:12px;">No scoreboard tasks found. Add tasks in the Scoreboard section first.</div>`
+        : taskOptions;
+      return `
+        <div class="policy-editor" data-policy-id="${_escapeHtml(pol.id)}" style="border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <div style="font-weight:600;font-size:14px;">${_escapeHtml(pol.subject_name)}'s Homework Gate</div>
+            <span class="badge ${pol.active ? 'badge-green' : ''}">${pol.active ? 'Active' : 'Inactive'}</span>
+          </div>
+
+          <div style="margin-bottom:12px;">
+            <div class="text-sm text-muted" style="margin-bottom:6px;font-weight:500;">Required Tasks</div>
+            <div class="policy-tasks">${noTasks}</div>
+          </div>
+
+          <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;">
+            <div>
+              <label class="text-sm text-muted" style="display:block;margin-bottom:4px;">Enforce From</label>
+              <input type="time" class="policy-from" value="${_escapeHtml(pol.enforce_from || '')}"
+                style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font-size:13px;">
+            </div>
+            <div>
+              <label class="text-sm text-muted" style="display:block;margin-bottom:4px;">Enforce Until</label>
+              <input type="time" class="policy-until" value="${_escapeHtml(pol.enforce_until || '')}"
+                style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font-size:13px;">
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-primary" style="font-size:12px;" onclick="parentalSavePolicy('${_escapeHtml(pol.id)}', this)">Save Changes</button>
+            <button class="btn btn-outline" style="font-size:12px;" onclick="parentalTogglePolicy('${_escapeHtml(pol.id)}', ${!pol.active}, this)">${pol.active ? 'Disable' : 'Enable'}</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = `<div style="color:#fca5a5;">Failed to load policies: ${e.message}</div>`;
+  }
+}
+
+async function parentalSavePolicy(policyId, btn) {
+  const card = btn.closest('.policy-editor');
+  const taskCheckboxes = card.querySelectorAll('.policy-tasks input[type=checkbox]');
+  const required_task_ids = [...taskCheckboxes].filter(c => c.checked).map(c => c.dataset.task);
+  const enforce_from = card.querySelector('.policy-from').value;
+  const enforce_until = card.querySelector('.policy-until').value;
+  try {
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    await adminApi.parental.patchPolicy(policyId, { required_task_ids, enforce_from, enforce_until });
+    toast('Policy saved', 'ok');
+    btn.textContent = 'Saved!';
+    setTimeout(() => { btn.disabled = false; btn.textContent = 'Save Changes'; }, 1500);
+  } catch(e) {
+    toast('Save failed: ' + e.message, 'err');
+    btn.disabled = false;
+    btn.textContent = 'Save Changes';
+  }
+}
+
+async function parentalTogglePolicy(policyId, newActive, btn) {
+  try {
+    btn.disabled = true;
+    await adminApi.parental.patchPolicy(policyId, { active: newActive });
+    toast('Policy ' + (newActive ? 'enabled' : 'disabled'), 'ok');
+    await parentalLoadPolicies();
+  } catch(e) {
+    toast('Failed: ' + e.message, 'err');
+    btn.disabled = false;
+  }
+}
+
 (() => {
   'use strict';
 

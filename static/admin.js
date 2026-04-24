@@ -291,6 +291,8 @@ const adminApi = {
     getAudit: (limit=100) => api('GET', `/admin/parental/audit?limit=${limit}`),
     getFamily:   () => api('GET', '/admin/parental/family'),
     getTimeline: () => api('GET', '/admin/parental/timeline'),
+    getPolicies: () => api('GET', '/admin/parental/policies'),
+    patchPolicy: (id, payload) => api('PATCH', '/admin/parental/policies/' + encodeURIComponent(id), payload),
   },
   scoreboard: {
     getOverview: () => api('GET', '/admin/scoreboard'),

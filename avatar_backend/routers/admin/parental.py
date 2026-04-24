@@ -979,6 +979,81 @@ async def get_timeline(request: Request, container: AppContainer = Depends(get_c
     return {"events": events[:300]}
 
 
+class PolicyPatch(BaseModel):
+    required_task_ids: list[str] | None = None
+    enforce_from: str | None = None
+    enforce_until: str | None = None
+    active: bool | None = None
+
+
+@router.get("/parental/policies")
+async def get_parental_policies(request: Request, container: AppContainer = Depends(get_container)):
+    """Return all homework-gate policies with full editable fields."""
+    _require_session(request)
+    fs = getattr(container, "family_service", None)
+    sb = getattr(container, "scoreboard_service", None)
+    if not fs:
+        return JSONResponse({"policies": [], "tasks": []})
+    policies = []
+    for pol in fs.get_homework_gate_policies():
+        person = fs.get_person(pol.subject_id)
+        resource = fs.get_resource(pol.resource_id)
+        policies.append({
+            "id": pol.id,
+            "subject_id": pol.subject_id,
+            "subject_name": person.display_name if person else pol.subject_id,
+            "resource_id": pol.resource_id,
+            "device_number": resource.device_number if resource else "",
+            "active": pol.active,
+            "required_task_ids": pol.required_task_ids,
+            "enforce_from": pol.enforce_from,
+            "enforce_until": pol.enforce_until,
+        })
+    tasks = []
+    if sb:
+        tasks = [{"id": t["id"], "label": t.get("label", t["id"])}
+                 for t in sb.get_config().get("tasks", [])]
+    return JSONResponse({"policies": policies, "tasks": tasks})
+
+
+@router.patch("/parental/policies/{policy_id}")
+async def patch_parental_policy(
+    policy_id: str,
+    body: PolicyPatch,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+):
+    """Update required_task_ids, enforce_from, enforce_until, or active on a policy."""
+    import json as _json
+    from pathlib import Path as _Path
+    _require_session(request)
+    fs = getattr(container, "family_service", None)
+    if not fs:
+        return JSONResponse({"ok": False, "error": "family service not available"}, status_code=503)
+    state_path = fs._path
+    if not state_path.exists():
+        return JSONResponse({"ok": False, "error": "family_state.json not found"}, status_code=404)
+    data = _json.loads(state_path.read_text())
+    updated = False
+    for pol in data.get("policies", []):
+        if pol.get("id") == policy_id:
+            if body.required_task_ids is not None:
+                pol["required_task_ids"] = body.required_task_ids
+            if body.enforce_from is not None:
+                pol["enforce_from"] = body.enforce_from
+            if body.enforce_until is not None:
+                pol["enforce_until"] = body.enforce_until
+            if body.active is not None:
+                pol["active"] = body.active
+            updated = True
+            break
+    if not updated:
+        return JSONResponse({"ok": False, "error": "policy not found"}, status_code=404)
+    state_path.write_text(_json.dumps(data, indent=2))
+    fs.reload()
+    return JSONResponse({"ok": True})
+
+
 @router.get("/parental/audit")
 async def list_parental_audit(request: Request, container: AppContainer = Depends(get_container)):
     """Return recent parental LLM tool call audit log."""
