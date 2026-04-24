@@ -84,6 +84,14 @@ CREATE TABLE IF NOT EXISTS long_term_memories (
     expires_ts         TEXT,
     superseded_by      INTEGER REFERENCES long_term_memories(id)
 );
+CREATE TABLE IF NOT EXISTS parental_tool_audit (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         TEXT NOT NULL,
+    tool       TEXT NOT NULL,
+    args       TEXT,
+    success    INTEGER NOT NULL DEFAULT 1,
+    message    TEXT
+);
 CREATE TABLE IF NOT EXISTS parental_overrides (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     created_ts  TEXT NOT NULL,

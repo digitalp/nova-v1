@@ -907,3 +907,14 @@ async def deny_override(override_id: int, request: Request, container: AppContai
         from fastapi.responses import JSONResponse
         return JSONResponse({"ok": False, "error": "Override not found"}, status_code=404)
     return {"ok": True, "override": result}
+
+
+@router.get("/parental/audit")
+async def list_parental_audit(request: Request, container: AppContainer = Depends(get_container)):
+    """Return recent parental LLM tool call audit log."""
+    _require_session(request, min_role="viewer")
+    db = getattr(container, "metrics_db", None)
+    if db is None:
+        return {"audit": []}
+    return {"audit": db.list_parental_audit(limit=100)}
+

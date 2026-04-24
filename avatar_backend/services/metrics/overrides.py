@@ -59,3 +59,39 @@ class OverridesMixin:
                 "SELECT * FROM parental_overrides WHERE id = ?", (int(override_id),)
             ).fetchone()
         return dict(row) if row else None
+
+    def ensure_parental_audit_table(self) -> None:
+        with self._connect() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS parental_tool_audit (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts         TEXT NOT NULL,
+                    tool       TEXT NOT NULL,
+                    args       TEXT,
+                    success    INTEGER NOT NULL DEFAULT 1,
+                    message    TEXT
+                )
+            """)
+
+    def log_parental_tool(self, tool: str, args: dict, success: bool, message: str) -> None:
+        from datetime import datetime as _dt
+        import json as _json
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO parental_tool_audit (ts, tool, args, success, message) VALUES (?,?,?,?,?)",
+                (
+                    _dt.utcnow().isoformat(),
+                    tool,
+                    _json.dumps(args, default=str)[:500],
+                    1 if success else 0,
+                    str(message)[:400],
+                ),
+            )
+
+    def list_parental_audit(self, limit: int = 100) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM parental_tool_audit ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+

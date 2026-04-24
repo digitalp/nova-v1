@@ -690,9 +690,61 @@
     }
   }
 
+
+  // ── Parental Tool Audit Log ───────────────────────────────────────────────
+
+  const _AUDIT_TOOL_LABELS = {
+    block_app: 'Block App',
+    unblock_app: 'Unblock App',
+    deploy_app: 'Deploy App',
+    send_device_message: 'Send Message',
+    request_exception: 'Request Exception',
+  };
+
+  async function parentalLoadAudit() {
+    const el = document.getElementById('parental-audit-list');
+    if (!el) return;
+    el.textContent = 'Loading…';
+    try {
+      const data = await window.adminApi.parental.getAudit();
+      const items = data.audit || [];
+      if (!items.length) {
+        el.innerHTML = '<span class="text-muted">No parental tool calls recorded yet.</span>';
+        return;
+      }
+      el.innerHTML = '<table style="width:100%;border-collapse:collapse;">' +
+        '<thead><tr style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);">' +
+        '<th style="padding:4px 8px;text-align:left;width:140px;">Time</th>' +
+        '<th style="padding:4px 8px;text-align:left;width:130px;">Action</th>' +
+        '<th style="padding:4px 8px;text-align:left;">Details</th>' +
+        '<th style="padding:4px 8px;text-align:left;width:60px;">Result</th>' +
+        '</tr></thead><tbody>' +
+        items.map(r => {
+          let argsObj = {};
+          try { argsObj = JSON.parse(r.args || '{}'); } catch {}
+          const detail = Object.entries(argsObj)
+            .map(([k, v]) => `${k}: ${_esc(String(v))}`)
+            .join('; ') || '—';
+          const label = _AUDIT_TOOL_LABELS[r.tool] || _esc(r.tool);
+          const ok = r.success ? '<span style="color:var(--green);">OK</span>' : '<span style="color:var(--danger);">Fail</span>';
+          const ts = (r.ts || '').replace('T', ' ').slice(0, 16);
+          return `<tr style="border-top:1px solid var(--border);">
+            <td style="padding:5px 8px;font-size:11px;color:var(--text3);">${_esc(ts)}</td>
+            <td style="padding:5px 8px;font-size:12px;font-weight:600;">${label}</td>
+            <td style="padding:5px 8px;font-size:12px;color:var(--text2);">${detail}</td>
+            <td style="padding:5px 8px;">${ok}</td>
+          </tr>`;
+        }).join('') +
+        '</tbody></table>';
+    } catch (e) {
+      el.innerHTML = '<span style="color:var(--danger);">Failed: ' + _esc(e.message) + '</span>';
+    }
+  }
+
   window.registerAdminSection('parental', {
     onEnter() {
       parentalLoadOverrides('pending');
+      parentalLoadAudit();
       return loadParentalSection();
     },
     onLeave() {
@@ -738,5 +790,6 @@
     parentalLoadOverrides,
     parentalApproveOverride,
     parentalDenyOverride,
+    parentalLoadAudit,
   });
 })();
