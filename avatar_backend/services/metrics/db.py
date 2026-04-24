@@ -12,10 +12,11 @@ from avatar_backend.services.metrics.llm_costs import LLMCostsMixin
 from avatar_backend.services.metrics.system_samples import SystemSamplesMixin
 from avatar_backend.services.metrics.memories import MemoriesMixin
 from avatar_backend.services.metrics.overrides import OverridesMixin
+from avatar_backend.services.metrics.child_states import ChildStatesMixin
 from avatar_backend.services.metrics.motion_clips import MotionClipsMixin
 from avatar_backend.services.metrics.events import EventsMixin
 from avatar_backend.services.metrics.logs import LogsMixin
 
 
-class MetricsDB(MetricsDBBase, LLMCostsMixin, SystemSamplesMixin, MemoriesMixin, OverridesMixin, MotionClipsMixin, EventsMixin, LogsMixin):
+class MetricsDB(MetricsDBBase, LLMCostsMixin, SystemSamplesMixin, MemoriesMixin, OverridesMixin, MotionClipsMixin, EventsMixin, LogsMixin, ChildStatesMixin):
     pass

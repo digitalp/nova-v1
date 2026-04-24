@@ -36,3 +36,4 @@ models/coral/mobilenet_ssd/
 
 # Hypothesis test cache
 .hypothesis/
+config/family_state.json

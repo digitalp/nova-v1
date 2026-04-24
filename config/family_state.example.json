@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "people": [],
+  "resources": [],
+  "policies": [],
+  "metadata": {
+    "notes": "Per-install typed household state. Keep real household data in config/family_state.json, not in git."
+  }
+}

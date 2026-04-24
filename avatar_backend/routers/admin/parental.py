@@ -909,6 +909,31 @@ async def deny_override(override_id: int, request: Request, container: AppContai
     return {"ok": True, "override": result}
 
 
+@router.get("/parental/family")
+async def get_family_status(request: Request, container: AppContainer = Depends(get_container)):
+    """Return typed family model: people, their states, and active policies."""
+    _require_session(request, min_role="viewer")
+    fs = getattr(container, "family_service", None)
+    if fs is None:
+        return {"configured": False, "people": [], "states": []}
+    people_out = []
+    for person in fs.all_people():
+        state = fs.get_child_state(person.id) if person.role == "child" else {}
+        policies = [{"id": p.id, "rule_type": p.rule_type, "active": p.active}
+                    for p in fs.get_policies_for(person.id)]
+        resources = [{"id": r.id, "kind": r.kind, "device_number": r.device_number}
+                     for r in fs.get_resources_for(person.id)]
+        people_out.append({
+            "id": person.id,
+            "display_name": person.display_name,
+            "role": person.role,
+            "state": state,
+            "policies": policies,
+            "resources": resources,
+        })
+    return {"configured": True, "people": people_out}
+
+
 @router.get("/parental/audit")
 async def list_parental_audit(request: Request, container: AppContainer = Depends(get_container)):
     """Return recent parental LLM tool call audit log."""

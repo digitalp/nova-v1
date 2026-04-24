@@ -108,6 +108,64 @@ class PersistentMemoryService:
             self.invalidate_embedding_cache(int(result["id"]))
         return result
 
+    async def _check_contradictions(self, new_memory: dict) -> None:
+        """After inserting a memory, flag older same-category memories that contradict it."""
+        try:
+            new_id = int(new_memory.get("id", 0))
+            if not new_id:
+                return
+            new_summary = new_memory.get("summary", "")
+            new_cat = new_memory.get("category", "general")
+            new_emb = await self._get_embedding(new_summary)
+            if not new_emb:
+                return
+            # Get all active (non-stale) memories in the same category
+            all_mems = self._db.list_memories(limit=500)
+            same_cat = [m for m in all_mems
+                        if m.get("category") == new_cat and int(m.get("id", 0)) != new_id]
+            for mem in same_cat:
+                mem_id = int(mem.get("id", 0))
+                mem_summary = mem.get("summary", "")
+                cache_key = (mem_id, mem_summary)
+                if cache_key in self._embedding_cache:
+                    mem_emb = self._embedding_cache[cache_key]
+                else:
+                    mem_emb = await self._get_embedding(mem_summary)
+                    if mem_emb:
+                        self._embedding_cache[cache_key] = mem_emb
+                if not mem_emb:
+                    continue
+                sim = self._cosine_similarity(new_emb, mem_emb)
+                # High similarity (same topic) but different fingerprint = likely contradiction
+                if sim >= 0.88 and mem.get("fingerprint") != new_memory.get("fingerprint"):
+                    self._db.mark_stale(mem_id, superseded_by=new_id)
+                    self.invalidate_embedding_cache(mem_id)
+                    _LOGGER.info("memory.contradiction_detected",
+                                 old_id=mem_id, new_id=new_id,
+                                 similarity=round(sim, 3), category=new_cat)
+        except Exception as exc:
+            _LOGGER.debug("memory.contradiction_check_failed", exc=str(exc)[:80])
+
+
+    async def add_memory_async(
+        self,
+        *,
+        summary: str,
+        category: str = "general",
+        source: str = "manual",
+        confidence: float = 0.9,
+        pinned: bool = False,
+        expires_ts: str | None = None,
+    ) -> dict:
+        """Async variant of add_memory — also runs contradiction detection."""
+        result = self.add_memory(
+            summary=summary, category=category, source=source,
+            confidence=confidence, pinned=pinned, expires_ts=expires_ts,
+        )
+        if result and result.get("id"):
+            await self._check_contradictions(result)
+        return result
+
     def delete_memory(self, memory_id: int) -> bool:
         return self._db.delete_memory(memory_id)
 
@@ -361,12 +419,15 @@ class PersistentMemoryService:
             confidence = float(mem.get("confidence", 0.6) or 0.6)
             if confidence < 0.55:
                 continue
-            self._db.upsert_memory(
+            result = self._db.upsert_memory(
                 summary=summary,
                 category=category,
                 source="chat",
                 confidence=confidence,
             )
+            if result and result.get("id"):
+                self.invalidate_embedding_cache(int(result["id"]))
+                await self._check_contradictions(result)
             inserted += 1
 
         if inserted:

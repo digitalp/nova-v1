@@ -197,13 +197,20 @@ class HAProxy:
             return await self._search_apps(tool_call.arguments)
 
         if tool_call.function_name == "block_app":
-            return await self._mdm_set_app(tool_call.arguments, action=0)
+            _result = await self._mdm_set_app(tool_call.arguments, action=0)
+            self._log_parental_action("block_app", tool_call.arguments, _result)
+            return _result
 
         if tool_call.function_name == "unblock_app":
-            return await self._mdm_set_app(tool_call.arguments, action=1)
+            _result = await self._mdm_set_app(tool_call.arguments, action=1)
+            self._log_parental_action("unblock_app", tool_call.arguments, _result)
+            return _result
 
         if tool_call.function_name == "deploy_app":
             return await self._deploy_app(tool_call.arguments)
+
+        if tool_call.function_name == "check_homework_gate":
+            return self._check_homework_gate(tool_call.arguments)
 
         if tool_call.function_name == "request_exception":
             args = tool_call.arguments
@@ -226,7 +233,9 @@ class HAProxy:
             )
 
         if tool_call.function_name == "send_device_message":
-            return await self._send_device_message(tool_call.arguments)
+            _result = await self._send_device_message(tool_call.arguments)
+            self._log_parental_action("send_device_message", tool_call.arguments, _result)
+            return _result
 
         if tool_call.function_name == "get_parental_configurations":
             return await self._get_parental_configurations()
@@ -469,6 +478,53 @@ class HAProxy:
                 msg += f"\n{forecast_text}"
 
         return ToolResult(success=True, message=msg)
+
+
+    def _check_homework_gate(self, args: dict) -> str:
+        from datetime import datetime as _dt
+        person_id = str(args.get("person_id") or "").strip().lower()
+        fs = getattr(self, "_family_service", None)
+        sb = getattr(self, "_scoreboard_service", None)
+        if not fs or not person_id:
+            return "Homework gate is not configured for this household."
+        now = _dt.now()
+        midnight_ts = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+        person = fs.get_person(person_id)
+        if not person:
+            return f"I don't have {person_id} in the household roster."
+        state = fs.get_child_state(person_id)
+        policies = fs.get_policies_for(person_id)
+        hw_policies = [p for p in policies if p.rule_type == "requires_task_before_entertainment"]
+        if not hw_policies:
+            return f"{person.display_name} has no homework gate policy active."
+        lines = [f"{person.display_name}'s homework gate status:"]
+        lines.append(f"  Current state: {state.get('state', 'allowed')} — {state.get('reason', '')}")
+        if sb:
+            logs = sb.all_logs(days=1)
+            done_today = {l["task_id"] for l in logs
+                         if l["ts"] >= midnight_ts and l["person"] == person_id and l["points"] > 0}
+            for pol in hw_policies:
+                required = pol.required_task_ids or []
+                if required:
+                    done = [t for t in required if t in done_today]
+                    pending = [t for t in required if t not in done_today]
+                    lines.append(f"  Tasks done: {', '.join(done) or 'none'}")
+                    lines.append(f"  Tasks pending: {', '.join(pending) or 'none'}")
+                else:
+                    lines.append(f"  Chores logged today: {len(done_today)}")
+        return chr(10).join(lines)
+
+    def _log_parental_action(self, tool: str, args: dict, result) -> None:
+        """Fire-and-forget audit log for parental LLM tool calls."""
+        try:
+            db = getattr(self._container, "metrics_db", None)
+            if db is None:
+                return
+            success = getattr(result, "success", True)
+            msg = getattr(result, "message", str(result))
+            db.log_parental_tool(tool=tool, args=args, success=bool(success), message=msg)
+        except Exception:
+            pass
 
     async def _get_enrolled_devices(self) -> "ToolResult":
         try:

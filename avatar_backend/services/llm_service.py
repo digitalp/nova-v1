@@ -374,6 +374,20 @@ HA_TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "check_homework_gate",
+            "description": "Check whether a child has completed their required tasks and whether their device is currently locked or unlocked.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "person_id": {"type": "string", "description": "The child's ID (e.g. joel, jason, miya)"},
+                },
+                "required": ["person_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "request_exception",
             "description": (
                 "Submit a parental exception request — extra screen time, a bedtime extension, "

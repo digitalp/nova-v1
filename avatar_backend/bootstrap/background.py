@@ -374,6 +374,126 @@ async def _blind_check_loop(announce_fn, blueiris_service, llm_service, ha_proxy
 
 
 
+
+async def _homework_gate_loop(announce_fn, family_service, scoreboard_service, mdm_client) -> None:
+    """Every 30 min (during enforcement window) check homework gate policies and enforce MDM."""
+    from datetime import datetime as _dt
+    await asyncio.sleep(120)
+    logger = structlog.get_logger()
+    INTERVAL_S = 1800  # 30 minutes
+
+    while True:
+        try:
+            policies = family_service.get_homework_gate_policies()
+            if not policies:
+                await asyncio.sleep(INTERVAL_S)
+                continue
+
+            now = _dt.now()
+            midnight_ts = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+            for policy in policies:
+                try:
+                    # Respect enforce_from / enforce_until window
+                    if policy.enforce_from and policy.enforce_until:
+                        from_h, from_m = (int(x) for x in policy.enforce_from.split(":"))
+                        until_h, until_m = (int(x) for x in policy.enforce_until.split(":"))
+                        in_window = (
+                            (now.hour, now.minute) >= (from_h, from_m) and
+                            (now.hour, now.minute) < (until_h, until_m)
+                        )
+                        if not in_window:
+                            continue
+
+                    person = family_service.get_person(policy.subject_id)
+                    if not person:
+                        continue
+
+                    resource = family_service.get_resource(policy.resource_id)
+                    if not resource or resource.kind != "mdm_device" or not resource.device_number:
+                        continue
+
+                    # Check task completion for today
+                    all_done = True
+                    if policy.required_task_ids:
+                        logs = scoreboard_service.all_logs(days=1)
+                        today_logs = {l["task_id"] for l in logs
+                                      if l["ts"] >= midnight_ts
+                                      and l["person"] == policy.subject_id}
+                        all_done = all(tid in today_logs for tid in policy.required_task_ids)
+                    else:
+                        # No specific tasks — check any chore logged today
+                        logs = scoreboard_service.all_logs(days=1)
+                        today_logs = [l for l in logs
+                                      if l["ts"] >= midnight_ts
+                                      and l["person"] == policy.subject_id
+                                      and l["points"] > 0]
+                        all_done = len(today_logs) > 0
+
+                    current_state = family_service.get_child_state(policy.subject_id)
+                    current = current_state.get("state", "allowed")
+
+                    if all_done:
+                        if current == "restricted":
+                            # Unblock device
+                            try:
+                                await mdm_client.set_app_action(
+                                    resource.device_number, package="", action=1
+                                )
+                            except Exception:
+                                pass
+                            family_service.set_child_state(
+                                policy.subject_id, "allowed",
+                                reason="Homework/tasks completed — device unlocked"
+                            )
+                            await announce_fn(
+                                f"Well done {person.display_name}! Your tasks are done — "
+                                "your device has been unlocked.",
+                                "normal",
+                            )
+                            logger.info("homework_gate.unlocked", person=policy.subject_id)
+                    else:
+                        if current not in ("restricted", "warned"):
+                            # First warning
+                            family_service.set_child_state(
+                                policy.subject_id, "warned",
+                                reason="Tasks not yet completed — device access pending"
+                            )
+                            pending = ", ".join(policy.required_task_ids) or "assigned tasks"
+                            await announce_fn(
+                                f"{person.display_name}, please complete your tasks "
+                                f"({pending}) before screen time.",
+                                "normal",
+                            )
+                            logger.info("homework_gate.warned", person=policy.subject_id)
+                        elif current == "warned":
+                            # Escalate to restricted — block device
+                            try:
+                                await mdm_client.set_app_action(
+                                    resource.device_number, package="", action=0
+                                )
+                            except Exception:
+                                pass
+                            family_service.set_child_state(
+                                policy.subject_id, "restricted",
+                                reason="Tasks not completed — device locked"
+                            )
+                            await announce_fn(
+                                f"{person.display_name}, your device has been locked "
+                                "until your tasks are done.",
+                                "normal",
+                            )
+                            logger.info("homework_gate.restricted", person=policy.subject_id)
+
+                except Exception as exc:
+                    logger.warning("homework_gate.policy_error",
+                                   policy=policy.id, exc=str(exc)[:80])
+
+        except Exception as exc:
+            structlog.get_logger().warning("homework_gate.loop_error", exc=str(exc)[:120])
+        await asyncio.sleep(INTERVAL_S)
+
+
 async def _morning_digest_loop(announce_fn, scoreboard_service, llm_service) -> None:
     """Every day at 07:30 announce a morning digest: yesterday recap + today outlook."""
     from datetime import datetime as _dt, timedelta as _td
@@ -594,4 +714,17 @@ def schedule_background_tasks(app: FastAPI, container) -> None:
                 container.llm_service,
             ),
             name="morning_digest",
+        ))
+    # Homework gate (only if family_service + mdm_client available)
+    _fs = getattr(container, 'family_service', None)
+    _mdm = getattr(container, 'mdm_client', None)
+    if _fs is not None and getattr(container, 'scoreboard_service', None) is not None:
+        container._background_tasks.append(asyncio.create_task(
+            _homework_gate_loop(
+                container._proactive_announce,
+                _fs,
+                container.scoreboard_service,
+                _mdm,
+            ),
+            name='homework_gate',
         ))

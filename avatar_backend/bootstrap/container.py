@@ -65,6 +65,7 @@ class AppContainer:
     face_service: Any = None
     gemini_key_pool: Any = None
     scoreboard_service: Any = None
+    family_service: Any = None
 
     # Phase 3 — background / monitoring
     ha_ws_manager: Any = None

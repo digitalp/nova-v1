@@ -84,6 +84,13 @@ CREATE TABLE IF NOT EXISTS long_term_memories (
     expires_ts         TEXT,
     superseded_by      INTEGER REFERENCES long_term_memories(id)
 );
+CREATE TABLE IF NOT EXISTS child_states (
+    person_id  TEXT PRIMARY KEY,
+    state      TEXT NOT NULL DEFAULT 'allowed',
+    reason     TEXT NOT NULL DEFAULT '',
+    entered_ts TEXT,
+    expires_ts TEXT
+);
 CREATE TABLE IF NOT EXISTS parental_tool_audit (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     ts         TEXT NOT NULL,

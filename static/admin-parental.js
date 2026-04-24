@@ -741,8 +741,58 @@
     }
   }
 
+
+  // ── Family Model / Children Status ───────────────────────────────────────
+
+  const _STATE_BADGE = {
+    allowed:      'background:var(--green,#22c55e);color:#fff;',
+    warned:       'background:#f59e0b;color:#fff;',
+    grace_period: 'background:#f97316;color:#fff;',
+    restricted:   'background:var(--danger,#ef4444);color:#fff;',
+    overridden:   'background:#6366f1;color:#fff;',
+  };
+
+  async function parentalLoadFamily() {
+    const el = document.getElementById('parental-family-list');
+    if (!el) return;
+    el.textContent = 'Loading…';
+    try {
+      const data = await window.adminApi.parental.getFamily();
+      if (!data.configured) {
+        el.innerHTML = '<span class="text-muted">Family model not configured — add <code>config/family_state.json</code>.</span>';
+        return;
+      }
+      const people = data.people || [];
+      if (!people.length) {
+        el.innerHTML = '<span class="text-muted">No people defined in family_state.json.</span>';
+        return;
+      }
+      el.innerHTML = people.map(p => {
+        const state = p.state || {};
+        const stateName = state.state || 'allowed';
+        const badgeStyle = _STATE_BADGE[stateName] || '';
+        const reason = state.reason ? ` — ${_esc(state.reason)}` : '';
+        const policies = (p.policies || []).map(pol =>
+          `<span style="font-size:10px;background:var(--surface2);border-radius:4px;padding:1px 6px;margin-right:4px;">${_esc(pol.rule_type)}</span>`
+        ).join('');
+        const devices = (p.resources || []).map(r =>
+          `<code style="font-size:10px;">${_esc(r.device_number || r.id)}</code>`
+        ).join(' ');
+        return `<div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+          <div style="min-width:90px;font-weight:600;font-size:13px;">${_esc(p.display_name)}</div>
+          <span style="font-size:10px;color:var(--text3);text-transform:uppercase;">${_esc(p.role)}</span>
+          ${p.role === 'child' ? `<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;${badgeStyle}">${stateName.replace('_', ' ')}${reason}</span>` : ''}
+          <div style="flex:1;min-width:0;">${policies}${devices ? ' · ' + devices : ''}</div>
+        </div>`;
+      }).join('');
+    } catch (e) {
+      el.innerHTML = '<span style="color:var(--danger);">Failed: ' + _esc(e.message) + '</span>';
+    }
+  }
+
   window.registerAdminSection('parental', {
     onEnter() {
+      parentalLoadFamily();
       parentalLoadOverrides('pending');
       parentalLoadAudit();
       return loadParentalSection();
@@ -791,5 +841,6 @@
     parentalApproveOverride,
     parentalDenyOverride,
     parentalLoadAudit,
+    parentalLoadFamily,
   });
 })();

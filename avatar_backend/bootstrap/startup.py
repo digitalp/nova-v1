@@ -180,6 +180,17 @@ async def bootstrap(app: FastAPI, settings, system_prompt: str) -> AppContainer:
         )
         c.ha_proxy._scoreboard_service = c.scoreboard_service
         c.scoreboard_service._face_service = c.face_service
+
+    # Family model (graceful if family_state.json absent)
+    try:
+        from avatar_backend.services.family_service import FamilyService
+        from avatar_backend.runtime_paths import config_dir as _cfg_dir
+        _family_path = _cfg_dir() / 'family_state.json'
+        c.family_service = FamilyService(_family_path, c.metrics_db)
+        if hasattr(c, 'ha_proxy') and c.ha_proxy:
+            c.ha_proxy._family_service = c.family_service
+    except Exception as _fe:
+        structlog.get_logger().warning('family_service.init_failed', exc=str(_fe))
     else:
         logger.info("scoreboard.disabled")
 
