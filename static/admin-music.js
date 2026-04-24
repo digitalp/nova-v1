@@ -41,11 +41,12 @@
     try {
       const d = await musicApi.getPlayers();
       const players = d.players || [];
+      const available = players.filter(p => p.state !== 'unavailable');
       const active = players.filter(p => ['playing', 'paused', 'buffering', 'idle'].includes(p.state) && (p.media_title || p.state === 'paused'));
 
       const sel = document.getElementById('music-target-players');
       if (sel) {
-        const available = players.filter(p => p.state !== 'unavailable');
+        // available defined at outer scope;
         const wasChecked = new Set([...document.querySelectorAll('.music-speaker-chk:checked')].map(c => c.value));
         const brandGroups = {
           sonos: { match: id => id.includes('sonos'), label: 'SONOS', color: '#000' },
