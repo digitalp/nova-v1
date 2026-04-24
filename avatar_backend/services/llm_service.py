@@ -850,6 +850,7 @@ class _GeminiBackend:
 
         t0 = time.monotonic()
         last_exc = None
+        _empty_retried = False
         for _attempt in range(_gemini_attempt_budget()):
             api_key = _get_gemini_key() or self._api_key
             try:
@@ -859,8 +860,21 @@ class _GeminiBackend:
                                                       "X-goog-api-key": api_key})
                     resp.raise_for_status()
                 data = resp.json()
-                
-                parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+                _cands = data.get("candidates") or []
+                _cand0 = _cands[0] if _cands else {}
+                _content = _cand0.get("content") or {}
+                _parts_raw = _content.get("parts", []) if isinstance(_content, dict) else []
+
+                # Gemini 2.5 Flash sometimes returns STOP with 0 parts — retry once.
+                if not _parts_raw and _cand0.get("finishReason") == "STOP" and not _empty_retried:
+                    import structlog as _sl
+                    _sl.get_logger().warning("gemini.empty_stop_retry",
+                        usage=data.get("usageMetadata"),
+                    )
+                    _empty_retried = True
+                    continue
+
+                parts = [p for p in _parts_raw if not p.get("thought")]
 
                 text  = " ".join(p.get("text", "") for p in parts if "text" in p).strip()
                 tools = [
