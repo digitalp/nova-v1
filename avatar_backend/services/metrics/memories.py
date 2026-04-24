@@ -6,6 +6,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+_CATEGORY_CLASS: dict[str, str] = {
+    'people': 'profile', 'household': 'profile', 'location': 'profile', 'device': 'profile',
+    'preference': 'preference', 'comfort': 'preference', 'media': 'preference', 'travel': 'preference',
+    'policy': 'policy', 'security': 'policy',
+    'routine': 'episodic', 'general': 'episodic',
+}
+
 class MemoriesMixin:
 
     @staticmethod
@@ -19,6 +26,7 @@ class MemoriesMixin:
         summary: str,
         category: str = "general",
         source: str = "chat",
+        source_detail: str = "",
         confidence: float = 0.5,
         pinned: bool = False,
         expires_ts: str | None = None,
@@ -29,6 +37,7 @@ class MemoriesMixin:
         confidence = max(0.0, min(float(confidence), 1.0))
         now = datetime.now(timezone.utc).isoformat()
         fp = self._memory_fingerprint(summary, category)
+        mem_class = _CATEGORY_CLASS.get(category, 'episodic')
 
         with self._write_lock, self._write_conn as conn:
             row = conn.execute(
@@ -59,6 +68,13 @@ class MemoriesMixin:
                     """,
                     (now, now, category, summary, source, confidence, 1 if pinned else 0, fp, expires_ts),
                 )
+                # Ensure new columns exist before writing them
+                cols = {r[1] for r in conn.execute('PRAGMA table_info(long_term_memories)').fetchall()}
+                if 'source_detail' in cols:
+                    conn.execute(
+                        'UPDATE long_term_memories SET source_detail=?, mem_class=? WHERE fingerprint=?',
+                        (source_detail or '', mem_class, fp),
+                    )
             out = conn.execute(
                 "SELECT * FROM long_term_memories WHERE fingerprint = ?",
                 (fp,),
@@ -66,7 +82,7 @@ class MemoriesMixin:
         return dict(out) if out else {}
 
     def ensure_memory_columns(self) -> None:
-        """Idempotent migration: add stale/expires_ts/superseded_by if missing."""
+        """Idempotent migration: add stale/expires_ts/superseded_by/source_detail/mem_class if missing."""
         with self._write_lock, self._write_conn as conn:
             cols = {r[1] for r in conn.execute("PRAGMA table_info(long_term_memories)").fetchall()}
             if 'stale' not in cols:
@@ -75,6 +91,33 @@ class MemoriesMixin:
                 conn.execute("ALTER TABLE long_term_memories ADD COLUMN expires_ts TEXT")
             if 'superseded_by' not in cols:
                 conn.execute("ALTER TABLE long_term_memories ADD COLUMN superseded_by INTEGER")
+            if 'source_detail' not in cols:
+                conn.execute("ALTER TABLE long_term_memories ADD COLUMN source_detail TEXT NOT NULL DEFAULT ''")
+            if 'mem_class' not in cols:
+                conn.execute("ALTER TABLE long_term_memories ADD COLUMN mem_class TEXT NOT NULL DEFAULT 'episodic'")
+                # Back-fill existing rows
+                for cat, cls in _CATEGORY_CLASS.items():
+                    conn.execute("UPDATE long_term_memories SET mem_class=? WHERE category=?", (cls, cat))
+
+    def log_memory_usage(self, memory_ids: list[int], query: str, session_id: str = "") -> None:
+        if not memory_ids:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        q_excerpt = (query or "")[:120]
+        with self._write_lock, self._write_conn as conn:
+            for mid in memory_ids:
+                conn.execute(
+                    "INSERT INTO memory_usage_log (ts, memory_id, query, session_id) VALUES (?,?,?,?)",
+                    (now, int(mid), q_excerpt, session_id or ""),
+                )
+
+    def list_memory_usage(self, memory_id: int, limit: int = 10) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT ts, query, session_id FROM memory_usage_log WHERE memory_id=? ORDER BY id DESC LIMIT ?",
+                (int(memory_id), limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     def mark_stale(self, memory_id: int, superseded_by: int | None = None) -> bool:
         now = datetime.now(timezone.utc).isoformat()

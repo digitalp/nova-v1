@@ -152,7 +152,7 @@ async def run_chat(
                     phase="enforced",
                 )
         try:
-            memory_context, memory_ids = await memory_service.build_context_async(user_text)
+            memory_context, memory_ids = await memory_service.build_context_async(user_text, session_id=session_id)
         except Exception:
             memory_context, memory_ids = memory_service.build_context(user_text)
         if memory_context:

@@ -90,6 +90,15 @@ async def delete_memory(memory_id: int, request: Request, container: AppContaine
     return {"deleted": memory_id}
 
 
+@router.get("/memory/{memory_id}/usage")
+async def get_memory_usage(memory_id: int, request: Request, container: AppContainer = Depends(get_container)):
+    _require_session(request, min_role="viewer")
+    db = getattr(container, "metrics_db", None)
+    if db is None:
+        return {"usage": []}
+    return {"usage": db.list_memory_usage(memory_id)}
+
+
 @router.get("/memory/stale")
 async def list_stale_memory(request: Request, container: AppContainer = Depends(get_container)):
     _require_session(request, min_role="viewer")

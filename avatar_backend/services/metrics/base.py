@@ -91,6 +91,13 @@ CREATE TABLE IF NOT EXISTS child_states (
     entered_ts TEXT,
     expires_ts TEXT
 );
+CREATE TABLE IF NOT EXISTS memory_usage_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         TEXT NOT NULL,
+    memory_id  INTEGER NOT NULL,
+    query      TEXT NOT NULL DEFAULT '',
+    session_id TEXT
+);
 CREATE TABLE IF NOT EXISTS child_state_history (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     ts        TEXT NOT NULL,

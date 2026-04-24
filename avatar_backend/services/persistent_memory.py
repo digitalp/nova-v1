@@ -30,6 +30,27 @@ _ALLOWED_CATEGORIES = {
 }
 
 
+def _classify_query_intent(query: str) -> set:
+    """Return set of mem_class values relevant for this query."""
+    q = (query or "").lower()
+    classes: set = {"policy"}  # always inject policy memories
+    pref_words = {"prefer", "like", "dislike", "want", "enjoy", "hate",
+                  "always", "never", "usually", "favourite", "favorite"}
+    profile_words = {"who", "jason", "joel", "miya", "penn", "family",
+                     "child", "person", "birthday", "age", "room"}
+    episodic_words = {"remember", "earlier", "yesterday", "last time",
+                      "before", "recent", "did", "happened", "was"}
+    if any(w in q for w in pref_words):
+        classes.add("preference")
+    if any(w in q for w in profile_words):
+        classes.add("profile")
+    if any(w in q for w in episodic_words):
+        classes.add("episodic")
+    if len(classes) == 1:  # only policy matched — default to broad retrieval
+        classes |= {"preference", "profile"}
+    return classes
+
+
 class PersistentMemoryService:
     """Long-term household memory stored in SQLite and injected into chat context."""
 
@@ -187,8 +208,14 @@ class PersistentMemoryService:
         )
 
 
-    async def build_context_async(self, query: str, limit: int = 5) -> tuple[str, list[int]]:
-        memories = self._db.list_memories(limit=300)
+    async def build_context_async(self, query: str, limit: int = 5,
+                                  session_id: str = "") -> tuple[str, list[int]]:
+        intent_classes = _classify_query_intent(query)
+        all_memories = self._db.list_memories(limit=300)
+        # Gate: prefer memories whose class matches intent; fall back to all if too few
+        memories = [m for m in all_memories if m.get("mem_class", "episodic") in intent_classes]
+        if len(memories) < 3:
+            memories = all_memories
         if not memories:
             return "", []
 
@@ -220,6 +247,10 @@ class PersistentMemoryService:
 
             chosen = [m for score, m in sorted(scored, key=lambda x: x[0], reverse=True) if score > 0.3][:limit]
             if chosen:
+                try:
+                    self._db.log_memory_usage([m['id'] for m in chosen], query, session_id)
+                except Exception:
+                    pass
                 return self._format_context(chosen)
 
         # Fallback to keyword scoring

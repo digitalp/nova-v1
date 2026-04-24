@@ -308,6 +308,9 @@ const adminApi = {
     createPenalty: (payload) => api('POST', '/admin/scoreboard/penalties', payload),
     deletePenalty: (penaltyId) => api('DELETE', '/admin/scoreboard/penalties/' + encodeURIComponent(penaltyId)),
   },
+  memory: {
+    getUsage: (id) => api('GET', '/admin/memory/' + encodeURIComponent(id) + '/usage'),
+  },
   tools: {
     sendAnnouncementTest: (payload) => api('POST', '/admin/announce/test', payload),
     getAnnouncements: (limit=200) => api('GET', '/admin/announcements?limit=' + encodeURIComponent(limit)),
@@ -938,24 +941,31 @@ async function loadMemory() {
       tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="empty-state-icon">🧠</div><div class="empty-state-title">No memories stored yet</div><div class="empty-state-desc">Nova learns from conversations, or you can add memories manually using the form above.</div></div></td></tr>';
       return;
     }
-    tbody.innerHTML = items.map(m => `
-      <tr>
+    const _CLASS_COLOURS = {profile:'#6366f1',preference:'#f59e0b',policy:'#ef4444',episodic:'#22c55e'};
+    tbody.innerHTML = items.map(m => {
+      const cls = m.mem_class || 'episodic';
+      const clsBadge = `<span style="font-size:10px;padding:1px 5px;border-radius:4px;background:${_CLASS_COLOURS[cls]||'#888'};color:#fff;">${_escapeHtml(cls)}</span>`;
+      const expiry = m.expires_ts ? `<div class="text-xs text-muted mt-1">Expires ${_fmtMemoryTs(m.expires_ts)}</div>` : '';
+      const src = m.source_detail ? `<div class="text-xs text-muted mt-1" title="${_escapeHtml(m.source_detail)}">via ${_escapeHtml((m.source||'chat'))}</div>` : (m.source && m.source !== 'chat' ? `<div class="text-xs text-muted mt-1">${_escapeHtml(m.source)}</div>` : '');
+      return `<tr>
         <td>
           <div style="font-weight:500;color:var(--text1);white-space:pre-wrap;">${_escapeHtml(m.summary)}</div>
           ${m.last_referenced_ts ? `<div class="text-xs text-muted mt-1">Last used ${_fmtMemoryTs(m.last_referenced_ts)}</div>` : ''}
+          ${expiry}${src}
         </td>
-        <td><span class="badge">${_escapeHtml(m.category || 'general')}</span></td>
+        <td><span class="badge">${_escapeHtml(m.category || 'general')}</span> ${clsBadge}</td>
         <td>${Number(m.confidence || 0).toFixed(2)}</td>
         <td>${m.pinned ? '<span class="badge" style="background:rgba(34,197,94,.16);color:#86efac;">Pinned</span>' : '<span class="text-muted">No</span>'}</td>
         <td>${m.times_seen ?? 0}</td>
         <td style="color:var(--text2);font-size:12px;">${_fmtMemoryTs(m.updated_ts || m.created_ts)}</td>
-        <td><div style="display:flex;gap:6px;white-space:nowrap;">
+        <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
           <button class="btn btn-outline" onclick="editMemory(${m.id})">Edit</button>
+          <button class="btn btn-outline" onclick="showMemoryUsage(${m.id})">Why?</button>
           <button class="btn btn-outline" onclick="markMemoryStale(${m.id})">Stale</button>
           <button class="btn btn-outline" onclick="deleteMemory(${m.id})">Delete</button>
         </div></td>
-      </tr>
-    `).join('');
+      </tr>`;
+    }).join('');
   } catch(e) {
     renderMemorySummary([]);
     tbody.innerHTML = '<tr><td colspan="7" style="color:#fca5a5;">Failed to load memory.</td></tr>';
@@ -1018,6 +1028,19 @@ async function deleteMemory(id) {
     toast('Memory deleted', 'ok');
   } catch(e) {
     toast('Delete failed: ' + e.message, 'err');
+  }
+}
+
+
+async function showMemoryUsage(id) {
+  try {
+    const d = await adminApi.memory.getUsage(id);
+    const items = d.usage || [];
+    if (!items.length) { toast('No usage recorded for this memory yet', 'info'); return; }
+    const lines = items.map(u => `${u.triggered_at ? u.triggered_at.slice(0,16).replace('T',' ') : '?'}  — ${u.query}`);
+    alert('Recent uses of memory #' + id + ':\n\n' + lines.join('\n'));
+  } catch(e) {
+    toast('Failed to load usage: ' + e.message, 'err');
   }
 }
 
