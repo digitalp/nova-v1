@@ -35,6 +35,9 @@ ROOM TEMPERATURE:
   → Main Bedroom: get_entity_state("sensor.main_bedroom_temp_temperature")
   → Kids Bedroom: get_entity_state("sensor.bedroom_sensor_temperature")
   → Tse's Room:   get_entity_state("sensor.tchefor_temp_humidity_temperature")
+  ⚠ NEVER use climate.* current_temperature as room temperature.
+    TRV sensors sit on radiator valves and always read 10-20°C too high.
+    A climate entity showing 30°C+ is valve/pipe heat, not the room.
 
 CAR STATUS:
   → call get_entity_state("sensor.ko66ewx_lock")
