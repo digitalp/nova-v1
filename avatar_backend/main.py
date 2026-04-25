@@ -16,7 +16,7 @@ from starlette.responses import Response as StarletteResponse
 from avatar_backend.bootstrap import bootstrap, teardown
 from avatar_backend.config import get_settings
 from avatar_backend.runtime_paths import config_dir, logs_dir, static_dir
-from avatar_backend.routers import admin, announce, avatar_ws, chat, health, voice
+from avatar_backend.routers import admin, announce, announce_vision, avatar_ws, chat, health, voice
 
 _CONFIG_DIR = config_dir()
 _LOG_FILE, _LOG_MAX_BYTES, _LOG_BACKUP_COUNT = logs_dir() / "avatar-backend.log", 5 * 1024 * 1024, 2
@@ -134,6 +134,7 @@ def create_app() -> FastAPI:
     app.include_router(voice.router)
     app.include_router(avatar_ws.router)
     app.include_router(announce.router)
+    app.include_router(announce_vision.router)
     app.include_router(admin.router)
 
     _static_dir = static_dir()
