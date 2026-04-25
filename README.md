@@ -172,7 +172,13 @@ AI Server  (FastAPI, port 8001)
         |   +-- llm_backends.py   -- _OllamaBackend, _GeminiBackend, _AnthropicBackend, ...
         |   +-- llm_vision.py     -- Gemini/Ollama/OpenAI image description helpers
         +-- ProactiveService      -- HA WS monitor -> cloud LLM triage -> announce
+        |   +-- proactive_batch.py    mixin: batch triage, LLM fields, heating shadow loop
+        |   +-- proactive_motion.py   mixin: motion event handling, phone push notifications
+        |   +-- proactive_weather.py  mixin: weather alerts, daily forecast announcements
         +-- SensorWatchService    -- sensor.* monitor -> local Ollama only -> announce
+        |   +-- sensor_snapshot.py    mixin: periodic LLM snapshot review
+        +-- HAProxy               -- HA REST client, ACL enforcement, tool dispatch
+        |   +-- ha_state_mixin.py     mixin: entity reads, call_service, state cache
         +-- HeatingController     -- autonomous boiler control (cloud LLM + local shadow)
         +-- ScoreboardService     -- chore tracking, points, penalties, leaderboard
         +-- FamilyService         -- typed family model, bedtime rules, MDM policy enforcement
@@ -182,7 +188,10 @@ AI Server  (FastAPI, port 8001)
         +-- Background loops      -- chore reminders, kitchen/LR watch, blind check,
         |                            morning digest, homework gate, bedtime enforcement
         +-- MotionClipService     -- ffmpeg snapshot capture -> AI description -> archive
+        |   +-- clip_capture_mixin.py mixin: ffmpeg/polling capture, phash dedup, validity
+        |   +-- clip_manage_mixin.py  mixin: search, ranking, cleanup, thumbnail backfill
         +-- MetricsDB             -- SQLite: LLM costs, motion clips, memories, events
+        |   +-- metrics/              sub-package split by domain (llm_costs, events, logs…)
         +-- PersistentMemory      -- long-term household memory (embeddings + SQLite)
         +-- SpeakerService        -- Echo SSML + HA TTS concurrent broadcast
         +-- _shared_http.py       -- singleton httpx pool (max 20 conns, keep-alive 30s)
