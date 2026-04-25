@@ -21,3 +21,10 @@ def _http_client() -> httpx.AsyncClient:
             ),
         )
     return _SHARED_HTTP
+
+
+async def close_shared_http_client() -> None:
+    global _SHARED_HTTP
+    if _SHARED_HTTP is not None and not _SHARED_HTTP.is_closed:
+        await _SHARED_HTTP.aclose()
+        _SHARED_HTTP = None

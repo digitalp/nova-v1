@@ -7,6 +7,7 @@ import structlog
 
 from avatar_backend.bootstrap.container import AppContainer
 from avatar_backend.bootstrap.lifecycle import Lifecycle
+from avatar_backend.services._shared_http import close_shared_http_client
 
 # Services stopped in this order (reverse of startup)
 _LIFECYCLE_SERVICES = [
@@ -44,5 +45,6 @@ async def teardown(container: AppContainer) -> None:
     # Close the shared httpx client
     if container.ha_proxy:
         await container.ha_proxy.close()
+    await close_shared_http_client()
 
     logger.info("avatar_backend.stopped")
