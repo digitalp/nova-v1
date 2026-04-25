@@ -482,7 +482,18 @@ nova-v1/
 |   |   +-- coral_wake_detector.py      # Coral TPU wake word detector (CPU fallback)
 |   |   +-- gemini_key_pool.py          # Gemini API key rotation + per-camera pinning
 |   |   +-- _shared_http.py             # Singleton httpx connection pool
-|   |   +-- metrics_db.py               # SQLite: costs, clips, memories, events
+|   |   +-- metrics/                    # SQLite persistence (split by domain)
+|   |   |   +-- db.py                   # MetricsDB composition
+|   |   |   +-- base.py                 # Connection management, schema, WAL
+|   |   |   +-- llm_costs.py            # LLM invocation cost tracking
+|   |   |   +-- motion_clips.py         # Motion clip archive
+|   |   |   +-- memories.py             # Long-term household memories
+|   |   |   +-- events.py               # Decision events log
+|   |   |   +-- logs.py                 # Server log persistence
+|   |   |   +-- system_samples.py       # CPU/RAM/disk/GPU metrics
+|   |   |   +-- overrides.py            # Parental overrides
+|   |   |   +-- child_states.py         # Child state machine
+|   |   +-- metrics_db.py               # Re-export shim (backward compat)
 |   |   +-- session_manager.py          # Conversation history
 |   +-- bootstrap/
 |       +-- background.py               # Background loops
