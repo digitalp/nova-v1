@@ -142,14 +142,6 @@ class Settings(BaseSettings):
         if p != "ollama" and not key_map.get(p):
             raise ValueError(f"LLM_PROVIDER={p} requires {p.upper()}_API_KEY to be set")
         return self
-
-    
-    @model_validator(mode="before")
-    @classmethod
-    def _handle_empty_strings(cls, data: Any) -> Any:
-        if isinstance(data, dict):
-            # Remove empty strings so pydantic uses the class defaults instead of crashing
-            return {k: v for k, v in data.items() if v != ""}
         return data
 
     @model_validator(mode="after")
@@ -161,14 +153,6 @@ class Settings(BaseSettings):
         if p == "elevenlabs" and not self.elevenlabs_api_key:
             raise ValueError("TTS_PROVIDER=elevenlabs requires ELEVENLABS_API_KEY")
         return self
-
-    
-    @model_validator(mode="before")
-    @classmethod
-    def _handle_empty_strings(cls, data: Any) -> Any:
-        if isinstance(data, dict):
-            # Remove empty strings so pydantic uses the class defaults instead of crashing
-            return {k: v for k, v in data.items() if v != ""}
         return data
 
     @model_validator(mode="after")
@@ -177,14 +161,6 @@ class Settings(BaseSettings):
         if p and p not in ("gemini", "ollama", "ollama_remote"):
             raise ValueError(f"MOTION_VISION_PROVIDER must be gemini/ollama/ollama_remote, got '{p}'")
         return self
-
-    
-    @model_validator(mode="before")
-    @classmethod
-    def _handle_empty_strings(cls, data: Any) -> Any:
-        if isinstance(data, dict):
-            # Remove empty strings so pydantic uses the class defaults instead of crashing
-            return {k: v for k, v in data.items() if v != ""}
         return data
 
     @model_validator(mode="after")

@@ -209,7 +209,7 @@ class HeatingController:
         if not _use_ollama_primary and _shadow_enabled:
             try:
                 shadow_calls = await asyncio.wait_for(
-                    self._run_heating_shadow(messages, season=season, now_str=now_str),
+                    self._run_shadow(messages, season=season, now_str=now_str),
                     timeout=120.0,
                 )
             except asyncio.TimeoutError:

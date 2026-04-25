@@ -199,7 +199,7 @@ class GeminiKeyPool:
             return [
                 {
                     "key": k.key,
-                    "label": k.label, "enabled": k.enabled,
+                    "label": k.label,
                     "enabled": k.enabled,
                     "pinned_cameras": list(k.pinned_cameras),
                 }

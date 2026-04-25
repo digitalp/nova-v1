@@ -167,9 +167,7 @@ async def _kitchen_watch_loop(announce_fn, scoreboard_service, ha_proxy, llm_ser
                         logger.debug("kitchen_watch.llm_failed", exc=str(exc)[:80])
                         bin_full = sink_full = False
 
-                    cfg = scoreboard_service.get_config()
                     members = await scoreboard_service.get_members()
-                    date_str = now.strftime("%Y-%m-%d")
                     import time as _time
 
                     issues = []
