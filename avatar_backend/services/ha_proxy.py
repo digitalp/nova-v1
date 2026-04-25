@@ -267,8 +267,14 @@ class HAProxy(HAStateMixin, ParentalToolsMixin):
         entity_id = args.get("entity_id", "").strip()
         service_data: dict[str, Any] = args.get("service_data") or {}
 
+        # LLMs sometimes put entity_id inside service_data — extract it if missing at top level
+        if not entity_id and isinstance(service_data, dict) and "entity_id" in service_data:
+            entity_id = str(service_data.pop("entity_id") or "").strip()
+
         # Validate required fields before hitting ACL or HA
-        missing = [f for f in ("domain", "service", "entity_id") if not args.get(f)]
+        missing = [f for f in ("domain", "service") if not args.get(f)]
+        if not entity_id:
+            missing.append("entity_id")
         if missing:
             return ToolResult(
                 success=False,
