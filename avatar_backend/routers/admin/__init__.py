@@ -11,7 +11,7 @@ viewer — read-only: dashboard, logs, sessions
 """
 from fastapi import APIRouter
 
-from . import auth, config, motion, events, dashboard, monitoring, system, scoreboard, parental, help_docs
+from . import auth, config, coral_admin, motion, events, dashboard, monitoring, system, scoreboard, parental, help_docs
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -21,6 +21,7 @@ router.include_router(motion.router)
 router.include_router(events.router)
 router.include_router(dashboard.router)
 router.include_router(monitoring.router)
+router.include_router(coral_admin.router)
 router.include_router(system.router)
 router.include_router(scoreboard.router)
 router.include_router(parental.router)
