@@ -25,14 +25,6 @@ from avatar_backend.services.cost_log import CostLog as _CostLog
 
 logger = structlog.get_logger()
 
-_FAST_LOCAL_TEXT_MODEL_PREFERENCES: tuple[str, ...] = (
-    "qwen2.5:7b",
-    "llama3.1:8b-instruct-q4_K_M",
-    "llama3.1:8b",
-    "mistral-nemo:12b",
-    "gemma2:9b",
-)
-
 
 def _build_operational_backend(settings) -> tuple[Any | None, str | None]:
     # Always build Gemini backend if key exists — used when per-task toggle is on
@@ -56,14 +48,6 @@ _DEFAULT_MODELS = {
     "google":    "gemini-2.5-flash",
     "anthropic": "claude-haiku-4-5-20251001",
 }
-_LOCAL_TEXT_MODEL_PREFERENCES = (
-    "mistral-nemo:12b",
-    "llama3.1:8b-instruct-q4_K_M",
-    "gemma2:9b",
-    "qwen2.5:7b",
-    "llama3.1:8b",
-)
-
 from avatar_backend.services.llm_backends import (
     _OllamaBackend,
     _OpenAICompatBackend,

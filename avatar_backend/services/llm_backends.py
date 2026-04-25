@@ -639,6 +639,22 @@ class _OllamaFallbackBackend:
 _ollama_tags_cache: set[str] | None = None
 
 
+_LOCAL_TEXT_MODEL_PREFERENCES = (
+    "mistral-nemo:12b",
+    "llama3.1:8b-instruct-q4_K_M",
+    "gemma2:9b",
+    "qwen2.5:7b",
+    "llama3.1:8b",
+)
+_FAST_LOCAL_TEXT_MODEL_PREFERENCES: tuple[str, ...] = (
+    "qwen2.5:7b",
+    "llama3.1:8b-instruct-q4_K_M",
+    "llama3.1:8b",
+    "mistral-nemo:12b",
+    "gemma2:9b",
+)
+
+
 def _get_ollama_installed_models(ollama_url: str) -> set[str]:
     """Return installed Ollama model names. Cached after first call."""
     global _ollama_tags_cache
