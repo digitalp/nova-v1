@@ -1,5 +1,7 @@
 """Mixin providing MDM, parental, and scoreboard tool methods for HAProxy."""
 from __future__ import annotations
+import time
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from avatar_backend.models.tool_result import ToolResult

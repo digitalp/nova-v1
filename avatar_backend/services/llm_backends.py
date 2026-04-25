@@ -12,6 +12,11 @@ import httpx
 import structlog
 logger = structlog.get_logger()
 
+_DEFAULT_MODELS = {
+    "openai":    "gpt-4o-mini",
+    "google":    "gemini-2.5-flash",
+    "anthropic": "claude-haiku-4-5-20251001",
+}
 from avatar_backend.config import get_settings
 from avatar_backend.models.messages import ToolCall
 from avatar_backend.services._shared_http import _http_client

@@ -3,6 +3,12 @@ from __future__ import annotations
 import asyncio
 import traceback
 
+
+def _format_exc(exc: BaseException) -> str:
+    msg = str(exc).strip()
+    return f"{type(exc).__name__}: {msg}" if msg else type(exc).__name__
+
+
 import structlog
 
 _LOGGER = structlog.get_logger()

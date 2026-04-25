@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from avatar_backend.bootstrap.container import AppContainer, get_container
 from avatar_backend.runtime_paths import install_dir

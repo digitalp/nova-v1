@@ -7,6 +7,7 @@ import time
 import httpx
 import structlog
 
+from avatar_backend.config import get_settings
 from avatar_backend.services._shared_http import _http_client
 
 # ── Vision helpers ───────────────────────────────────────────────────────────
