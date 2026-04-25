@@ -5,6 +5,7 @@ import asyncio
 import time
 
 import httpx
+from avatar_backend.services._shared_http import _http_client
 import structlog
 
 _LOGGER = structlog.get_logger()
@@ -44,14 +45,14 @@ class HAUpdateMonitor:
             all_states = ws_mgr.get_all_states()
 
         if not all_states:
-            async with httpx.AsyncClient(timeout=10.0) as c:
-                r = await c.get(
-                    f"{self._ha_url}/api/states",
-                    headers={"Authorization": f"Bearer {self._token}"},
-                )
-                if r.status_code != 200:
-                    return
-                all_states = r.json()
+            r = await _http_client().get(
+                f"{self._ha_url}/api/states",
+                headers={"Authorization": f"Bearer {self._token}"},
+                timeout=10.0,
+            )
+            if r.status_code != 200:
+                return
+            all_states = r.json()
 
         now = time.monotonic()
         updates = []

@@ -16,6 +16,7 @@ import time
 from datetime import datetime, timezone
 
 import httpx
+from avatar_backend.services._shared_http import _http_client
 import structlog
 
 _LOGGER = structlog.get_logger()
@@ -80,11 +81,11 @@ class PresenceContextService:
             if states:
                 return states
         try:
-            async with httpx.AsyncClient(timeout=_HA_TIMEOUT) as client:
-                resp = await client.get(
-                    f"{self._ha_url}/api/states",
-                    headers=self._headers,
-                )
+            resp = await _http_client().get(
+                f"{self._ha_url}/api/states",
+                headers=self._headers,
+                timeout=_HA_TIMEOUT,
+            )
             return resp.json() if resp.status_code == 200 else None
         except Exception as exc:
             _LOGGER.warning("presence_context.fetch_failed", exc=str(exc))

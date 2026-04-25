@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 
 import httpx
+from avatar_backend.services._shared_http import _http_client
 import structlog
 from avatar_backend.runtime_paths import config_dir
 
@@ -389,12 +390,12 @@ class SpeakerService:
 
     async def _render_template_json(self, template: str):
         try:
-            async with httpx.AsyncClient(timeout=_DISCOVERY_TIMEOUT) as client:
-                resp = await client.post(
-                    f"{self._ha_url}/api/template",
-                    headers=self._headers,
-                    json={"template": template},
-                )
+            resp = await _http_client().post(
+                f"{self._ha_url}/api/template",
+                headers=self._headers,
+                json={"template": template},
+                timeout=_DISCOVERY_TIMEOUT,
+            )
             if resp.status_code != 200:
                 raise RuntimeError(f"template HTTP {resp.status_code}")
             return json.loads(resp.text)
@@ -410,11 +411,10 @@ class SpeakerService:
         }
 
     async def _speak_on(self, entity_id: str, text: str, alexa: bool) -> None:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            if alexa:
-                await self._alexa_notify(client, entity_id, text)
-            else:
-                await self._tts_speak(client, entity_id, text)
+        if alexa:
+            await self._alexa_notify(entity_id, text)
+        else:
+            await self._tts_speak(entity_id, text)
         _LOGGER.info("speaker.spoke", entity_id=entity_id, alexa=alexa)
 
     async def _play_media_with_tts_fallback(
@@ -436,8 +436,7 @@ class SpeakerService:
                     entity_id=entity_id,
                     exc=msg[:120],
                 )
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    await self._tts_speak(client, entity_id, text)
+                await self._tts_speak(entity_id, text)
             else:
                 raise
 
@@ -447,16 +446,16 @@ class SpeakerService:
         audio_url: str,
     ) -> None:
         """Play an audio URL on a media player via media_player.play_media."""
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                f"{self._ha_url}/api/services/media_player/play_media",
-                headers=self._headers,
-                json={
-                    "entity_id": client_or_entity,
-                    "media_content_id": audio_url,
-                    "media_content_type": "music",
-                },
-            )
+        resp = await _http_client().post(
+            f"{self._ha_url}/api/services/media_player/play_media",
+            headers=self._headers,
+            json={
+                "entity_id": client_or_entity,
+                "media_content_id": audio_url,
+                "media_content_type": "music",
+            },
+            timeout=15.0,
+        )
         if resp.status_code not in (200, 201):
             raise RuntimeError(
                 f"play_media {client_or_entity} HTTP {resp.status_code}: {resp.text[:120]}"
@@ -465,16 +464,16 @@ class SpeakerService:
 
     async def _alexa_notify(
         self,
-        client: httpx.AsyncClient,
         entity_id: str,
         text: str,
     ) -> None:
         """notify.alexa_media_<device> — works with Alexa Media Player integration."""
         svc = _notify_service_name(entity_id)
-        resp = await client.post(
+        resp = await _http_client().post(
             f"{self._ha_url}/api/services/notify/{svc}",
             headers=self._headers,
             json={"message": text, "data": {"type": "tts"}},
+            timeout=15.0,
         )
         if resp.status_code not in (200, 201):
             raise RuntimeError(
@@ -497,12 +496,12 @@ class SpeakerService:
         """
         svc = _notify_service_name(entity_id)
         ssml = f"<speak><audio src='{mp3_url}' /></speak>"
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                f"{self._ha_url}/api/services/notify/{svc}",
-                headers=self._headers,
-                json={"message": ssml, "data": {"type": "tts"}},
-            )
+        resp = await _http_client().post(
+            f"{self._ha_url}/api/services/notify/{svc}",
+            headers=self._headers,
+            json={"message": ssml, "data": {"type": "tts"}},
+            timeout=15.0,
+        )
         if resp.status_code not in (200, 201):
             # Fall back to plain text TTS if SSML fails
             _LOGGER.warning(
@@ -511,19 +510,17 @@ class SpeakerService:
                 status=resp.status_code,
                 detail=resp.text[:120],
             )
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                await self._alexa_notify(client, entity_id, "Audio playback failed.")
+            await self._alexa_notify(entity_id, "Audio playback failed.")
             return
         _LOGGER.info("speaker.ssml_audio", entity_id=entity_id, url=mp3_url)
 
     async def _tts_speak(
         self,
-        client: httpx.AsyncClient,
         entity_id: str,
         text: str,
     ) -> None:
         """tts.speak — HA 2023.6+ for non-Echo media players."""
-        resp = await client.post(
+        resp = await _http_client().post(
             f"{self._ha_url}/api/services/tts/speak",
             headers=self._headers,
             json={
@@ -531,6 +528,7 @@ class SpeakerService:
                 "media_player_entity_id": entity_id,
                 "message": text,
             },
+            timeout=15.0,
         )
         if resp.status_code not in (200, 201):
             raise RuntimeError(

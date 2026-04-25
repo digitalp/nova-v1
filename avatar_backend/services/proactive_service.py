@@ -18,6 +18,7 @@ Flow:
 """
 from __future__ import annotations
 import traceback
+from avatar_backend.services._shared_http import _http_client
 from avatar_backend.services.heating_controller import (
     HeatingController,
     _HEATING_SHADOW_SYSTEM_PROMPT,
@@ -948,7 +949,6 @@ class ProactiveService:
 
     async def _announce_daily_forecast(self) -> None:
         """Fetch weather forecasts from HA and announce a spoken morning summary."""
-        import httpx as _httpx
         headers = {
             "Authorization": f"Bearer {self._ha_token}",
             "Content-Type": "application/json",
@@ -957,8 +957,7 @@ class ProactiveService:
         payload = {"entity_id": self._weather_entity, "type": "daily"}
 
         try:
-            async with _httpx.AsyncClient(timeout=15) as client:
-                resp = await client.post(url, headers=headers, json=payload)
+            resp = await _http_client().post(url, headers=headers, json=payload, timeout=15.0)
             resp.raise_for_status()
             data = resp.json()
         except Exception as exc:

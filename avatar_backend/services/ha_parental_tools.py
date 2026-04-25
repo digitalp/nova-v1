@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from avatar_backend.models.tool_result import ToolResult
 from avatar_backend.services import mdm_client as _mdm
+from avatar_backend.services._shared_http import _http_client
 
 if TYPE_CHECKING:
     pass
@@ -285,13 +286,13 @@ class ParentalToolsMixin:
             # Reverse geocode via Nominatim
             address = None
             try:
-                async with _httpx.AsyncClient(timeout=5.0) as _hc:
-                    r = await _hc.get(
-                        "https://nominatim.openstreetmap.org/reverse",
-                        params={"lat": lat, "lon": lon, "format": "json", "zoom": 16},
-                        headers={"User-Agent": "Nova-HomeAssistant/1.0"},
-                    )
-                    if r.status_code == 200:
+                r = await _http_client().get(
+                    "https://nominatim.openstreetmap.org/reverse",
+                    params={"lat": lat, "lon": lon, "format": "json", "zoom": 16},
+                    headers={"User-Agent": "Nova-HomeAssistant/1.0"},
+                    timeout=5.0,
+                )
+                if r.status_code == 200:
                         geo = r.json()
                         addr = geo.get("address", {})
                         parts = []

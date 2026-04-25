@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 import httpx
+from avatar_backend.services._shared_http import _http_client
 import structlog
 
 _LOGGER = structlog.get_logger()
@@ -97,9 +98,8 @@ class MusicService:
         if not self._ma_url:
             return {"success": False, "message": "Music Assistant not configured"}
         try:
-            async with httpx.AsyncClient(timeout=10.0) as c:
-                r = await c.post(f"{self._ma_url}/api/players/{player_id}/play_media", json={"uri": media_uri})
-                return {"success": r.status_code == 200, "message": r.text[:200]}
+            r = await _http_client().post(f"{self._ma_url}/api/players/{player_id}/play_media", json={"uri": media_uri}, timeout=10.0)
+            return {"success": r.status_code == 200, "message": r.text[:200]}
         except Exception as exc:
             return {"success": False, "message": str(exc)[:200]}
 
@@ -107,10 +107,9 @@ class MusicService:
         if not self._ma_url:
             return []
         try:
-            async with httpx.AsyncClient(timeout=5.0) as c:
-                r = await c.get(f"{self._ma_url}/api/players")
-                if r.status_code == 200:
-                    return r.json() if isinstance(r.json(), list) else []
+            r = await _http_client().get(f"{self._ma_url}/api/players", timeout=5.0)
+            if r.status_code == 200:
+                return r.json() if isinstance(r.json(), list) else []
         except Exception:
             pass
         return []

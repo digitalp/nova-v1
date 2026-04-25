@@ -12,6 +12,7 @@ import datetime
 from pathlib import Path
 
 import structlog
+from avatar_backend.services._shared_http import _http_client
 
 _LOGGER = structlog.get_logger()
 _SYNC_HOUR = 3   # 3am local time
@@ -55,7 +56,6 @@ class PromptSyncService:
                 _LOGGER.warning("prompt_sync.nightly_failed", exc=str(exc))
 
     async def _run(self) -> None:
-        import httpx
         from avatar_backend.services.prompt_bootstrap import (
             extract_known_entity_ids,
             fetch_area_mapping,
@@ -65,13 +65,13 @@ class PromptSyncService:
 
         _LOGGER.info("prompt_sync.nightly_start")
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                f"{self._ha_url}/api/states",
-                headers={"Authorization": f"Bearer {self._ha_token}"},
-            )
-            resp.raise_for_status()
-            all_states = resp.json()
+        resp = await _http_client().get(
+            f"{self._ha_url}/api/states",
+            headers={"Authorization": f"Bearer {self._ha_token}"},
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+        all_states = resp.json()
 
         current_prompt = self._prompt_file.read_text() if self._prompt_file.exists() else ""
         known          = extract_known_entity_ids(current_prompt)

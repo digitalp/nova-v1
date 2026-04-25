@@ -341,14 +341,9 @@ async def _blind_check_loop(announce_fn, blueiris_service, llm_service, ha_proxy
             if active and (_time.time() - last_reminder) >= INTERVAL_S:
                 # Fetch snapshot
                 image_bytes = None
-                bi_url = getattr(blueiris_service, "_bi_url", "")
-                if bi_url:
+                if getattr(blueiris_service, "_bi_url", ""):
                     try:
-                        import httpx
-                        async with httpx.AsyncClient(timeout=6.0) as client:
-                            r = await client.get(f"{bi_url}/image/{LR_BI_CAM}?q=70")
-                            if r.status_code == 200 and len(r.content) > 2000:
-                                image_bytes = r.content
+                        image_bytes = await blueiris_service.fetch_snapshot_by_name(LR_BI_CAM)
                     except Exception as exc:
                         logger.debug("blind_check.bi_failed", exc=str(exc)[:80])
 
