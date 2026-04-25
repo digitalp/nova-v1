@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 import httpx
+from avatar_backend.services._shared_http import _http_client
 import structlog
 
 from avatar_backend.services.llm_service import LLMService
@@ -64,16 +65,16 @@ class PersistentMemoryService:
 
     async def _get_embedding(self, text: str) -> list[float] | None:
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(
+            resp = await _http_client().post(
                     f"{self._ollama_url}/api/embed",
                     json={"model": "qwen2.5:7b", "input": text},
+                    timeout=10.0,
                 )
-                resp.raise_for_status()
-                data = resp.json()
-                embeddings = data.get("embeddings")
-                if embeddings and len(embeddings) > 0:
-                    return embeddings[0]
+            resp.raise_for_status()
+            data = resp.json()
+            embeddings = data.get("embeddings")
+            if embeddings and len(embeddings) > 0:
+                return embeddings[0]
         except Exception as exc:
             _LOGGER.debug("persistent_memory.embedding_failed", exc=str(exc))
         return None

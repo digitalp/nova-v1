@@ -22,6 +22,7 @@ import time
 from typing import Awaitable, Callable
 
 import httpx
+from avatar_backend.services._shared_http import _http_client
 import structlog
 import websockets
 from avatar_backend.config import get_settings
@@ -206,9 +207,8 @@ async def _ollama_generate(
         "stream": False,
         "options": {"temperature": 0.1, "num_ctx": 4096, "num_predict": 120},
     }
-    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
-        resp = await client.post(f"{ollama_url.rstrip('/')}/api/chat", json=payload)
-        resp.raise_for_status()
+    resp = await _http_client().post(f"{ollama_url.rstrip('/')}/api/chat", json=payload, timeout=httpx.Timeout(timeout_s))
+    resp.raise_for_status()
     return (resp.json().get("message", {}).get("content") or "").strip()
 
 
@@ -555,10 +555,9 @@ class SensorWatchService:
                 "Content-Type": "application/json",
             }
             try:
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    resp = await client.get(f"{self._ha_url}/api/states", headers=headers)
-                    resp.raise_for_status()
-                    all_states = resp.json()
+                resp = await _http_client().get(f"{self._ha_url}/api/states", headers=headers, timeout=15.0)
+                resp.raise_for_status()
+                all_states = resp.json()
             except Exception as exc:
                 _LOGGER.warning("sensor_watch.snapshot_fetch_failed", exc=_format_exc(exc))
                 return []

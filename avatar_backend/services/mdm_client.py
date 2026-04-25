@@ -10,6 +10,7 @@ import time
 from typing import Any
 
 import httpx
+from avatar_backend.services._shared_http import _http_client
 import structlog
 
 _LOGGER = structlog.get_logger(__name__)
@@ -42,14 +43,14 @@ async def _get_jwt() -> str:
     async with _jwt_lock:
         if _jwt_token and time.time() < _jwt_expires - 60:
             return _jwt_token
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                f"{_HMDM_BASE}/rest/public/jwt/login",
-                json={"login": _HMDM_LOGIN, "password": _HMDM_API_PW},
-            )
-            resp.raise_for_status()
-            _jwt_token = resp.json()["id_token"]
-            _jwt_expires = time.time() + 23 * 3600
+        resp = await _http_client().post(
+            f"{_HMDM_BASE}/rest/public/jwt/login",
+            json={"login": _HMDM_LOGIN, "password": _HMDM_API_PW},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        _jwt_token = resp.json()["id_token"]
+        _jwt_expires = time.time() + 23 * 3600
     return _jwt_token
 
 
@@ -58,21 +59,21 @@ async def hmdm(method: str, path: str, **kwargs: Any) -> Any:
     global _jwt_expires
     token = await _get_jwt()
     headers = {"Authorization": f"Bearer {token}"}
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await getattr(client, method.lower())(
-            f"{_HMDM_BASE}{path}", headers=headers, **kwargs
+    _client = _http_client()
+    resp = await getattr(_client, method.lower())(
+        f"{_HMDM_BASE}{path}", headers=headers, timeout=15.0, **kwargs
+    )
+    if resp.status_code in (401, 403):
+        _jwt_expires = 0.0
+        token = await _get_jwt()
+        headers = {"Authorization": f"Bearer {token}"}
+        resp = await getattr(_client, method.lower())(
+            f"{_HMDM_BASE}{path}", headers=headers, timeout=15.0, **kwargs
         )
-        if resp.status_code in (401, 403):
-            _jwt_expires = 0.0
-            token = await _get_jwt()
-            headers = {"Authorization": f"Bearer {token}"}
-            resp = await getattr(client, method.lower())(
-                f"{_HMDM_BASE}{path}", headers=headers, **kwargs
-            )
-        resp.raise_for_status()
-        if resp.content:
-            return resp.json()
-        return {}
+    resp.raise_for_status()
+    if resp.content:
+        return resp.json()
+    return {}
 
 def _normalize_location_payload(raw: dict[str, Any] | None, fallback_ts: Any = None) -> dict[str, Any] | None:
     raw = raw or {}

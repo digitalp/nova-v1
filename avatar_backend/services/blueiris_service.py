@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 
 import httpx
+from avatar_backend.services._shared_http import _http_client
 import structlog
 
 from avatar_backend.services.home_runtime import load_home_runtime_config
@@ -37,13 +38,13 @@ class BlueIrisService:
         """Map an HA camera entity ID to a Blue Iris short name."""
         return self._camera_map.get(ha_entity_id)
 
-    async def _authenticate(self, client: httpx.AsyncClient) -> str | None:
+    async def _authenticate(self) -> str | None:
         """Authenticate with Blue Iris JSON API; returns session token or None."""
         if not self._bi_user or not self._bi_password:
             return None
         url = f"{self._bi_url}/json"
         try:
-            r1 = await client.post(url, json={"cmd": "login"}, timeout=5.0)
+            r1 = await _http_client().post(url, json={"cmd": "login"}, timeout=5.0)
             data1 = r1.json()
             if data1.get("result") == "fail" and "IP banned" in str(data1.get("data", "")):
                 _LOGGER.warning("blueiris.ptz_ip_banned")
@@ -53,7 +54,7 @@ class BlueIrisService:
                 return None
             pw_md5 = hashlib.md5(self._bi_password.encode()).hexdigest()
             response = hashlib.md5(f"{self._bi_user}:{pw_md5}:{session}".encode()).hexdigest()
-            r2 = await client.post(url, json={"cmd": "login", "session": session, "response": response}, timeout=5.0)
+            r2 = await _http_client().post(url, json={"cmd": "login", "session": session, "response": response}, timeout=5.0)
             data2 = r2.json()
             if data2.get("result") == "success":
                 self._session = session
@@ -71,17 +72,16 @@ class BlueIrisService:
         button = 100 + preset
         url = f"{self._bi_url}/json"
         try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                session = await self._authenticate(client)
-                if not session:
-                    return False
-                payload = {"cmd": "ptz", "camera": bi_camera, "button": button, "session": session}
-                r = await client.post(url, json=payload, timeout=5.0)
-                result = r.json().get("result")
-                if result == "success":
-                    _LOGGER.info("blueiris.ptz_preset_ok", camera=bi_camera, preset=preset)
-                    return True
-                _LOGGER.warning("blueiris.ptz_preset_failed", camera=bi_camera, preset=preset, result=result)
+            session = await self._authenticate()
+            if not session:
+                return False
+            payload = {"cmd": "ptz", "camera": bi_camera, "button": button, "session": session}
+            r = await _http_client().post(url, json=payload, timeout=5.0)
+            result = r.json().get("result")
+            if result == "success":
+                _LOGGER.info("blueiris.ptz_preset_ok", camera=bi_camera, preset=preset)
+                return True
+            _LOGGER.warning("blueiris.ptz_preset_failed", camera=bi_camera, preset=preset, result=result)
         except Exception as exc:
             _LOGGER.warning("blueiris.ptz_error", camera=bi_camera, exc=str(exc)[:100])
         return False
@@ -92,11 +92,10 @@ class BlueIrisService:
             return None
         url = f"{self._bi_url}/image/{bi_name}?q=70"
         try:
-            async with httpx.AsyncClient(timeout=6.0) as client:
-                resp = await client.get(url)
-                if resp.status_code == 200 and len(resp.content) > 2000:
-                    return resp.content
-                _LOGGER.warning("blueiris.snapshot_failed", camera=bi_name, status=resp.status_code)
+            resp = await _http_client().get(url, timeout=6.0)
+            if resp.status_code == 200 and len(resp.content) > 2000:
+                return resp.content
+            _LOGGER.warning("blueiris.snapshot_failed", camera=bi_name, status=resp.status_code)
         except Exception as exc:
             _LOGGER.warning("blueiris.snapshot_error", camera=bi_name, exc=str(exc)[:100])
         return None
@@ -110,12 +109,11 @@ class BlueIrisService:
             return None
         url = f"{self._bi_url}/image/{bi_name}?q=60"
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(url)
-                if resp.status_code == 200 and resp.content and len(resp.content) > 1000:
-                    _LOGGER.info("blueiris.snapshot_ok", camera=bi_name, bytes=len(resp.content))
-                    return resp.content
-                _LOGGER.warning("blueiris.snapshot_failed", camera=bi_name, status=resp.status_code)
+            resp = await _http_client().get(url, timeout=5.0)
+            if resp.status_code == 200 and resp.content and len(resp.content) > 1000:
+                _LOGGER.info("blueiris.snapshot_ok", camera=bi_name, bytes=len(resp.content))
+                return resp.content
+            _LOGGER.warning("blueiris.snapshot_failed", camera=bi_name, status=resp.status_code)
         except Exception as exc:
             _LOGGER.warning("blueiris.snapshot_error", camera=bi_name, exc=str(exc)[:100])
         return None
@@ -125,9 +123,8 @@ class BlueIrisService:
         if not self._bi_url:
             return False
         try:
-            async with httpx.AsyncClient(timeout=3.0) as client:
-                resp = await client.get(f"{self._bi_url}/image/index?q=10")
-                return resp.status_code == 200
+            resp = await _http_client().get(f"{self._bi_url}/image/index?q=10", timeout=3.0)
+            return resp.status_code == 200
         except Exception:
             return False
 

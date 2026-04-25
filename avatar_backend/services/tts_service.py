@@ -25,6 +25,7 @@ warnings.filterwarnings("ignore", message=".*words count mismatch.*")
 warnings.filterwarnings("ignore", message=".*phonemizer.*")
 
 import httpx
+from avatar_backend.services._shared_http import _http_client
 import structlog
 
 _LOGGER = structlog.get_logger()
@@ -150,9 +151,8 @@ class ElevenLabsTTSService(BaseTTSService):
             "Content-Type": "application/json",
         }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, json=payload, headers=headers,
-                                     params={"output_format": "pcm_22050"})
+        resp = await _http_client().post(url, json=payload, headers=headers,
+                                     params={"output_format": "pcm_22050"}, timeout=30.0)
 
         if resp.status_code != 200:
             raise RuntimeError(
@@ -297,13 +297,13 @@ class IntronAfroTTSService(BaseTTSService):
         }
         if self._reference_wav:
             payload["reference_wav"] = self._reference_wav
-        async with httpx.AsyncClient(timeout=httpx.Timeout(self._timeout_s)) as client:
-            resp = await client.post(
+        resp = await _http_client().post(
                 f"{self._base_url}/v1/synth",
                 json=payload,
                 headers={"Content-Type": "application/json"},
+                timeout=httpx.Timeout(self._timeout_s),
             )
-            resp.raise_for_status()
+        resp.raise_for_status()
         wav_bytes = resp.content
         _LOGGER.info(
             "tts.intron_afro_tts.synthesised",
@@ -317,8 +317,7 @@ class IntronAfroTTSService(BaseTTSService):
         if not self._base_url:
             return False
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(min(self._timeout_s, 10.0))) as client:
-                resp = await client.get(f"{self._base_url}/health")
+            resp = await _http_client().get(f"{self._base_url}/health", timeout=httpx.Timeout(min(self._timeout_s, 10.0)))
             return resp.status_code == 200
         except Exception:
             return False

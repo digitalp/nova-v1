@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from avatar_backend.services._shared_http import _http_client
 import structlog
 
 _LOGGER = structlog.get_logger()
@@ -71,57 +72,54 @@ class FaceRecognitionService:
         if not self._url or not image_bytes:
             return []
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(
+            resp = await _http_client().post(
                     f"{self._url}/v1/vision/face/recognize",
                     files={"image": ("frame.jpg", image_bytes, "image/jpeg")},
-                    # Use a low API threshold so the model returns the best-match
-                    # name even for weaker detections. We apply our own thresholds
-                    # below rather than relying on the API to suppress known faces.
                     data={"min_confidence": str(self._API_MIN_CONF)},
+                    timeout=10.0,
                 )
-                if resp.status_code != 200:
-                    return []
-                data = resp.json()
-                if not data.get("success"):
-                    return []
-                predictions = data.get("predictions", [])
-                faces = []
-                has_any = False
-                for p in predictions:
-                    has_any = True
-                    name = p.get("userid", "unknown")
-                    conf = round(p.get("confidence", 0), 2)
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+            if not data.get("success"):
+                return []
+            predictions = data.get("predictions", [])
+            faces = []
+            has_any = False
+            for p in predictions:
+                has_any = True
+                name = p.get("userid", "unknown")
+                conf = round(p.get("confidence", 0), 2)
 
-                    if name and name != "unknown":
-                        # Known person — never queue as unknown regardless of confidence.
-                        # Only include in results if confidence meets the announce threshold.
-                        if conf >= min_confidence:
-                            faces.append({"name": name, "confidence": conf})
-                            _LOGGER.info("face.recognized", name=name, confidence=conf)
-                        else:
-                            # Weak match for a known person: log silently, skip announcement.
-                            _LOGGER.info("face.recognized_low_conf", name=name, confidence=conf)
-                    elif p.get("x_min") is not None:
-                        # Genuinely unknown face — run local DeepFace check before queueing.
-                        if self._deepface_svc is not None:
-                            matched = await self._deepface_svc.find_match(
-                                image_bytes, self._face_photo_dir()
+                if name and name != "unknown":
+                    # Known person — never queue as unknown regardless of confidence.
+                    # Only include in results if confidence meets the announce threshold.
+                    if conf >= min_confidence:
+                        faces.append({"name": name, "confidence": conf})
+                        _LOGGER.info("face.recognized", name=name, confidence=conf)
+                    else:
+                        # Weak match for a known person: log silently, skip announcement.
+                        _LOGGER.info("face.recognized_low_conf", name=name, confidence=conf)
+                elif p.get("x_min") is not None:
+                    # Genuinely unknown face — run local DeepFace check before queueing.
+                    if self._deepface_svc is not None:
+                        matched = await self._deepface_svc.find_match(
+                            image_bytes, self._face_photo_dir()
+                        )
+                        if matched:
+                            _LOGGER.info(
+                                "face.deepface_suppressed_unknown",
+                                matched=matched, cpai_conf=conf,
                             )
-                            if matched:
-                                _LOGGER.info(
-                                    "face.deepface_suppressed_unknown",
-                                    matched=matched, cpai_conf=conf,
-                                )
-                            else:
-                                self._queue_unknown(image_bytes, p)
                         else:
                             self._queue_unknown(image_bytes, p)
+                    else:
+                        self._queue_unknown(image_bytes, p)
 
-                # Only queue an empty frame when a caller explicitly asks for that behavior.
-                if not has_any and queue_full_frame_on_empty:
-                    self._queue_full_frame(image_bytes)
-                return faces
+            # Only queue an empty frame when a caller explicitly asks for that behavior.
+            if not has_any and queue_full_frame_on_empty:
+                self._queue_full_frame(image_bytes)
+            return faces
         except Exception as exc:
             _LOGGER.warning("face.recognize_error", exc=str(exc)[:100], traceback=traceback.format_exc()[-600:])
             return []
@@ -189,17 +187,17 @@ class FaceRecognitionService:
         if not self._url or not image_bytes or not name:
             return False
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(
+            resp = await _http_client().post(
                     f"{self._url}/v1/vision/face/register",
                     files={"image": ("face.jpg", image_bytes, "image/jpeg")},
                     data={"userid": name.strip().lower()},
+                    timeout=10.0,
                 )
-                ok = resp.json().get("success", False)
-                _LOGGER.info("face.registered", name=name, success=ok)
-                if ok:
-                    self.save_face_photo(name, image_bytes)
-                return ok
+            ok = resp.json().get("success", False)
+            _LOGGER.info("face.registered", name=name, success=ok)
+            if ok:
+                self.save_face_photo(name, image_bytes)
+            return ok
         except Exception as exc:
             _LOGGER.warning("face.register_error", name=name, exc=str(exc)[:100])
             return False
@@ -210,19 +208,19 @@ class FaceRecognitionService:
         if not self._url or not image_bytes:
             return None
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(
+            resp = await _http_client().post(
                     f"{self._url}/v1/image/alpr",
                     files={"image": ("frame.jpg", image_bytes, "image/jpeg")},
+                    timeout=10.0,
                 )
-                if resp.status_code != 200:
-                    return None
-                data = resp.json()
-                for p in data.get("predictions", []):
-                    plate = (p.get("plate") or "").strip().upper()
-                    if plate and len(plate) >= 4:
-                        _LOGGER.info("alpr.plate_read", plate=plate, confidence=round(p.get("confidence", 0), 2))
-                        return plate
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            for p in data.get("predictions", []):
+                plate = (p.get("plate") or "").strip().upper()
+                if plate and len(plate) >= 4:
+                    _LOGGER.info("alpr.plate_read", plate=plate, confidence=round(p.get("confidence", 0), 2))
+                    return plate
         except Exception as exc:
             _LOGGER.warning("alpr.error", exc=str(exc)[:100], traceback=traceback.format_exc()[-600:])
         return None
@@ -233,18 +231,18 @@ class FaceRecognitionService:
         if not self._url or not image_bytes:
             return []
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(
+            resp = await _http_client().post(
                     f"{self._url}/v1/vision/detection",
                     files={"image": ("frame.jpg", image_bytes, "image/jpeg")},
                     data={"min_confidence": str(min_confidence)},
+                    timeout=10.0,
                 )
-                if resp.status_code != 200:
-                    return []
-                data = resp.json()
-                if not data.get("success"):
-                    return []
-                return [{"label": p["label"], "confidence": round(p.get("confidence", 0), 2)} for p in data.get("predictions", [])]
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+            if not data.get("success"):
+                return []
+            return [{"label": p["label"], "confidence": round(p.get("confidence", 0), 2)} for p in data.get("predictions", [])]
         except Exception as exc:
             _LOGGER.warning("yolo.detect_error", exc=str(exc)[:100], traceback=traceback.format_exc()[-600:])
             return []
@@ -255,10 +253,9 @@ class FaceRecognitionService:
         if not self._url:
             return []
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.post(f"{self._url}/v1/vision/face/list")
-                if resp.status_code == 200:
-                    return resp.json().get("faces", [])
+            resp = await _http_client().post(f"{self._url}/v1/vision/face/list", timeout=5.0)
+            if resp.status_code == 200:
+                return resp.json().get("faces", [])
         except Exception:
             pass
         return []
@@ -267,14 +264,14 @@ class FaceRecognitionService:
         if not self._url or not name:
             return False
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.post(
+            resp = await _http_client().post(
                     f"{self._url}/v1/vision/face/delete",
                     data={"userid": name.strip().lower()},
+                    timeout=5.0,
                 )
-                ok = resp.json().get("success", False)
-                _LOGGER.info("face.deleted", name=name, success=ok)
-                return ok
+            ok = resp.json().get("success", False)
+            _LOGGER.info("face.deleted", name=name, success=ok)
+            return ok
         except Exception as exc:
             _LOGGER.warning("face.delete_error", name=name, exc=str(exc)[:100])
             return False
