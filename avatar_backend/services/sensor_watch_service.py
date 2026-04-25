@@ -59,6 +59,8 @@ def _select_sensor_watch_model(settings) -> str:
     return _select_local_text_model(settings)
 
 # ── Timing ────────────────────────────────────────────────────────────────────
+_ENTITY_COOLDOWN_S = 7200          # 2 hours between re-alerting same entity
+_GLOBAL_COOLDOWN_S = 900           # 15 minutes between any threshold announce
 # How often to run the periodic snapshot review
 # ── Hard threshold rules — immediate announcement on WebSocket event ──────────
 # Format: entity_id → {"min": float|None, "max": float|None, "label": str}
