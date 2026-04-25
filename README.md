@@ -421,7 +421,8 @@ nova-v1/
 |   +-- main.py
 |   +-- config.py
 |   +-- routers/
-|   |   +-- announce.py                 # TTS announce, doorbell, motion endpoints
+|   |   +-- announce.py                 # Core TTS announce + WAV/media endpoints
+|   |   +-- announce_vision.py          # Doorbell, visual event, motion, package announce
 |   |   +-- chat.py                     # Text chat endpoint
 |   |   +-- health.py                   # Health + readiness probes
 |   |   +-- voice.py                    # WebSocket voice pipeline
@@ -430,25 +431,34 @@ nova-v1/
 |   |       +-- auth.py                 # Session login/logout
 |   |       +-- config.py               # LLM/TTS/speaker config
 |   |       +-- coral_admin.py          # Coral wake word training + Edge TPU
-|   |       +-- dashboard.py            # Entity discovery, prompt sync
+|   |       +-- dashboard.py            # Sessions, memory, avatar, prompt sync
+|   |       +-- dashboard_data.py       # Conversations, energy, test announce, faces
 |   |       +-- events.py               # AI decisions log, event history
 |   |       +-- monitoring.py           # Metrics, logs, system info
 |   |       +-- motion.py               # Motion clip archive + AI vision search
-|   |       +-- parental.py             # MDM device management, location, overrides
+|   |       +-- parental.py             # MDM device management, app blocking
+|   |       +-- parental_mdm_helpers.py # MDM constants + pure helper functions
+|   |       +-- parental_family.py      # Override queue, family, timeline, policies
 |   |       +-- scoreboard.py           # Chore scoring admin
-|   |       +-- system.py               # Restart, tunnel, heating, music, camera config
+|   |       +-- system.py               # Restart, tunnel, heating, camera discovery
+|   |       +-- system_media.py         # Music, selfheal, Gemini pool, vision cameras, rooms
 |   +-- services/
 |   |   +-- llm_service.py              # Provider routing, fallback, vision dispatch
-|   |   +-- llm_backends.py             # _OllamaBackend, _GeminiBackend, _AnthropicBackend, ...
+|   |   +-- llm_backends.py             # OllamaBackend, GeminiBackend, AnthropicBackend, ...
 |   |   +-- llm_vision.py               # Gemini/Ollama/OpenAI image description helpers
-|   |   +-- proactive_service.py        # HA WS monitor -> LLM triage -> announce
-|   |   +-- sensor_watch_service.py     # Local-only sensor monitoring
+|   |   +-- proactive_service.py        # HA WS monitor + orchestration (inherits 3 mixins)
+|   |   +-- proactive_batch.py          # Batch triage, LLM fields, heating shadow loop
+|   |   +-- proactive_motion.py         # Motion event handling, phone notifications
+|   |   +-- proactive_weather.py        # Weather alerts, daily forecast announcements
+|   |   +-- sensor_watch_service.py     # Real-time sensor threshold alerts (WS loop)
+|   |   +-- sensor_snapshot.py          # Periodic LLM snapshot review (SensorSnapshotMixin)
 |   |   +-- heating_controller.py       # Autonomous boiler control
 |   |   +-- scoreboard_service.py       # Chore tracking, points, penalties, leaderboard
 |   |   +-- family_service.py           # Typed family model, policies, state machine
 |   |   +-- mdm_client.py               # Headwind MDM JWT auth + shared API helpers
 |   |   +-- ha_parental_tools.py        # LLM tools for parental control
 |   |   +-- ha_proxy.py                 # HA REST client + ACL + tool dispatch
+|   |   +-- ha_state_mixin.py           # Entity reads, call_service, camera, state cache
 |   |   +-- ha_tool_schemas.py          # HA tool definitions (all providers)
 |   |   +-- face_recognition.py         # CPAI face ID, ALPR, YOLOv5
 |   |   +-- blueiris_service.py         # NVR snapshot fallback + PTZ control
@@ -457,9 +467,14 @@ nova-v1/
 |   |   +-- stt_service.py              # faster-whisper STT
 |   |   +-- tts_service.py              # Piper / AfroTTS / ElevenLabs / Echo TTS
 |   |   +-- realtime_voice_service.py   # WebSocket voice turn orchestration
+|   |   +-- voice_audio.py              # Audio send, STT streaming, PCM extraction
+|   |   +-- voice_session.py            # Session lifecycle, turn context, adapter resolve
 |   |   +-- voice_types.py              # Voice data-classes, Protocol, adapters, factory
-|   |   +-- motion_clip_service.py      # Video clip capture + AI description
-|   |   +-- prompt_bootstrap.py         # System prompt generation from HA states
+|   |   +-- motion_clip_service.py      # Clip scheduling, capture_and_store (core)
+|   |   +-- clip_capture_mixin.py       # FFmpeg/polling capture, validity check
+|   |   +-- clip_manage_mixin.py        # Search, ranking, cleanup, thumbnail backfill
+|   |   +-- prompt_bootstrap.py         # System prompt generation from HA states (public API)
+|   |   +-- prompt_helpers.py           # Private rendering + HA-state analysis helpers
 |   |   +-- home_runtime.py             # Runtime config dataclass
 |   |   +-- conversation_service.py     # Turn handling, tool execution, memory injection
 |   |   +-- music_service.py            # Music Assistant integration
