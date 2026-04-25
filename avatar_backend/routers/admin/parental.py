@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import hashlib
 import io
 import json
 import subprocess
@@ -16,6 +15,11 @@ from typing import Any
 
 import httpx
 from avatar_backend.services._shared_http import _http_client
+from avatar_backend.services.mdm_client import (
+    hmdm as _hmdm,
+    _normalize_location_payload,
+    _get_db_device_locations,
+)
 import structlog
 from fastapi import APIRouter, Depends, Request
 from avatar_backend.bootstrap.container import AppContainer, get_container
@@ -31,18 +35,6 @@ router = APIRouter()
 _HMDM_BASE = "http://localhost:8083"
 _HMDM_PUBLIC = "https://mdm.nova-home.co.uk"
 _HMDM_LAUNCHER_APK = "hmdm-6.34-os.apk"
-_HMDM_LOGIN = "admin"
-_HMDM_RAW_PW = "linkstar"
-# Headwind expects MD5(password).upper() as the API password
-_HMDM_API_PW = hashlib.md5(_HMDM_RAW_PW.encode()).hexdigest().upper()
-
-# Cached JWT token
-_jwt_token: str = ""
-_jwt_expires: float = 0.0
-_jwt_lock = asyncio.Lock()
-_db_location_cache: dict[str, dict[str, Any]] = {}
-_db_location_cache_expires: float = 0.0
-_db_location_cache_lock = asyncio.Lock()
 _KNOWN_SOCIAL_APPS = [
     {"name": "Instagram", "pkg": "com.instagram.android"},
     {"name": "TikTok", "pkg": "com.zhiliaoapp.musically"},
@@ -63,117 +55,11 @@ _ENROLLMENT_CORE_ALLOW_PKGS = [
 ]
 
 
-async def _get_jwt() -> str:
-    global _jwt_token, _jwt_expires
-    async with _jwt_lock:
-        if _jwt_token and time.time() < _jwt_expires - 60:
-            return _jwt_token
-        resp = await _http_client().post(
-            f"{_HMDM_BASE}/rest/public/jwt/login",
-            json={"login": _HMDM_LOGIN, "password": _HMDM_API_PW},
-            timeout=10.0,
-        )
-        resp.raise_for_status()
-        _jwt_token = resp.json()["id_token"]
-        # JWT expires in 24h; refresh after 23h
-        _jwt_expires = time.time() + 23 * 3600
-        return _jwt_token
-
-
-async def _hmdm(method: str, path: str, **kwargs) -> Any:
-    """Make an authenticated request to Headwind MDM."""
-    token = await _get_jwt()
-    headers = {"Authorization": f"Bearer {token}"}
-    _c = _http_client()
-    resp = await getattr(_c, method.lower())(
-        f"{_HMDM_BASE}{path}", headers=headers, timeout=15.0, **kwargs
-    )
-    if resp.status_code in (401, 403):
-        # Token expired — force refresh and retry once
-        global _jwt_expires
-        _jwt_expires = 0
-        token = await _get_jwt()
-        headers = {"Authorization": f"Bearer {token}"}
-        resp = await getattr(_c, method.lower())(
-            f"{_HMDM_BASE}{path}", headers=headers, timeout=15.0, **kwargs
-        )
-    resp.raise_for_status()
-    if resp.content:
-        return resp.json()
-    return {}
-
-
 async def _get_devices_payload() -> dict[str, Any]:
     return await _hmdm(
         "post", "/rest/private/devices/search",
         json={"pageSize": 100, "pageNum": 1, "sortValue": "lastUpdate", "sortDir": "DESC"},
     )
-
-
-def _normalize_location_payload(raw: dict[str, Any] | None, fallback_ts: Any = None) -> dict[str, Any] | None:
-    raw = raw or {}
-    try:
-        lat = float(raw.get("lat"))
-        lon = float(raw.get("lon"))
-    except (TypeError, ValueError):
-        return None
-    return {
-        "lat": lat,
-        "lon": lon,
-        "ts": raw.get("ts") or fallback_ts,
-    }
-
-
-async def _get_db_device_locations(force: bool = False) -> dict[str, dict[str, Any]]:
-    global _db_location_cache, _db_location_cache_expires
-    async with _db_location_cache_lock:
-        now = time.time()
-        if not force and _db_location_cache and now < _db_location_cache_expires:
-            return dict(_db_location_cache)
-
-        sql = (
-            "select number, replace(encode(convert_to(coalesce(infojson::text,'{}'),'UTF8'),'base64'), E'\\n', '') "
-            "from devices;"
-        )
-        cmd = [
-            "docker", "exec", "hmdm_db",
-            "psql", "-U", "hmdm", "-d", "hmdm",
-            "-At", "-F", "\t", "-c", sql,
-        ]
-        locations: dict[str, dict[str, Any]] = {}
-        try:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=10,
-            )
-            for line in proc.stdout.splitlines():
-                if not line.strip():
-                    continue
-                number, _, payload_b64 = line.partition("\t")
-                if not number or not payload_b64:
-                    continue
-                try:
-                    infojson = base64.b64decode(payload_b64).decode("utf-8")
-                    payload = json.loads(infojson)
-                except Exception:
-                    continue
-                location = _normalize_location_payload(
-                    payload.get("location"),
-                    payload.get("lastUpdate"),
-                )
-                if not location:
-                    continue
-                locations[number] = location
-                locations[number.lower()] = location
-        except Exception as exc:
-            _LOGGER.warning("parental.device_locations_db_error", exc=str(exc)[:160])
-
-        _db_location_cache = locations
-        _db_location_cache_expires = now + 15
-        return dict(_db_location_cache)
 
 
 def _extract_device_location(device: dict[str, Any] | None, info: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -769,7 +655,7 @@ async def parental_status(request: Request):
     """Quick health check — confirms Headwind MDM is reachable."""
     _require_session(request, min_role="viewer")
     try:
-        await _get_jwt()
+        await _hmdm("get", "/rest/private/configurations/search/")
         return {"hmdm_reachable": True, "url": _HMDM_BASE}
     except Exception as exc:
         return {"hmdm_reachable": False, "error": str(exc)[:100]}
