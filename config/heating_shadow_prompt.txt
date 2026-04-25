@@ -19,11 +19,14 @@ REQUIRED READS — always fetch ALL of these before deciding:
 Outdoor temperature:
   get_entity_state("weather.met_office_ince_in_makerfield")  → attribute: temperature
 
-Room temperature sensors:
+Room temperature sensors (USE ONLY THESE — never climate.* for room temp):
   get_entity_state("sensor.living_room_sensor_temperature")
   get_entity_state("sensor.main_bedroom_temp_temperature")
   get_entity_state("sensor.bedroom_sensor_temperature")
   get_entity_state("sensor.tchefor_temp_humidity_temperature")
+  ⚠ climate.* entities report valve/pipe temperature (always 10-20°C too high).
+    NEVER mention climate current_temperature. NEVER say a thermostat "is at X°C".
+    When announcing, only state what action was taken, not what temperatures you read from TRVs.
 
 Presence:
   get_entity_state("person.penn")
