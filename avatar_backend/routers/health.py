@@ -75,20 +75,6 @@ def _probe_piper(container: AppContainer) -> str:
         return "unavailable"
 
 
-async def _probe_intron_afro_tts(url: str) -> str:
-    """Check if the Intron Afro TTS sidecar is reachable and loaded."""
-    if not url:
-        return "not_configured"
-    try:
-        resp = await _http_client().get(f"{url}/health", timeout=3.0)
-        if resp.status_code == 200:
-            data = resp.json()
-            return "ready" if data.get("loaded") else "loading"
-        return f"http_{resp.status_code}"
-    except httpx.ConnectError:
-        return "unreachable"
-    except httpx.TimeoutException:
-        return "timeout"
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -97,10 +83,9 @@ async def _probe_intron_afro_tts(url: str) -> str:
 async def health_check(container: AppContainer = Depends(get_container)) -> dict:
     settings = get_settings()
 
-    ollama_status, ha_status, intron_status = await asyncio.gather(
+    ollama_status, ha_status = await asyncio.gather(
         _probe_ollama(settings.ollama_url),
         _probe_ha(settings.ha_url, settings.ha_token),
-        _probe_intron_afro_tts(settings.intron_afro_tts_url),
     )
 
     whisper_status = _probe_whisper(container)
@@ -111,13 +96,10 @@ async def health_check(container: AppContainer = Depends(get_container)) -> dict
         "whisper":          whisper_status,
         "piper":            piper_status,
         "home_assistant":   ha_status,
-        "intron_afro_tts":  intron_status,
     }
 
     healthy    = {"reachable", "ready", "loading"}
-    # intron_afro_tts is optional — don't degrade overall status if it's off
-    core_components = {k: v for k, v in components.items() if k != "intron_afro_tts"}
-    all_ok     = all(v in healthy for v in core_components.values())
+    all_ok     = all(v in healthy for v in components.values())
     overall    = "ok" if all_ok else "degraded"
 
     issue_autofix = getattr(container, "issue_autofix_service", None)
