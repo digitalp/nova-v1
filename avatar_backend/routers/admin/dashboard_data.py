@@ -2,6 +2,7 @@
 Dashboard sub-router: conversations, energy summary, test announce, face recognition.
 """
 from __future__ import annotations
+import asyncio
 
 import io
 import os
@@ -13,13 +14,13 @@ import httpx
 import structlog
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 from avatar_backend.bootstrap.container import AppContainer, get_container
 from avatar_backend.services.deepface_service import DeepFaceService
 from avatar_backend.config import get_settings
 
-from .common import _require_session
+from .common import _require_session, AnnounceBody
 
 _LOGGER = structlog.get_logger()
 router = APIRouter()

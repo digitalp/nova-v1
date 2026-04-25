@@ -17,6 +17,15 @@ from avatar_backend.runtime_paths import data_dir
 _LOGGER = structlog.get_logger()
 
 
+import re as _re_cap
+_SAFE_PATH_CHARS = _re_cap.compile(r"[^a-z0-9_-]+")
+
+
+def _format_exc(exc: BaseException) -> str:
+    msg = str(exc).strip()
+    return f"{type(exc).__name__}: {msg}" if msg else type(exc).__name__
+
+
 class ClipCaptureMixin:
     """Low-level clip capture methods — mixed into MotionClipService."""
     _POLLING_ONLY_CAMERAS: set[str] = set()  # Loaded from home_runtime.json

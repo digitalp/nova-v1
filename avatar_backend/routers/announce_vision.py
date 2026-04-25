@@ -20,6 +20,11 @@ if TYPE_CHECKING:
     from avatar_backend.bootstrap.container import AppContainer
 
 from avatar_backend.middleware.auth import verify_api_key
+from avatar_backend.routers.announce import (
+    AnnounceRequest,
+    announce_handler,
+    _LEGACY_DEFAULT_DOORBELL_CAMERA,
+)
 from avatar_backend.services.event_service import publish_visual_event
 from avatar_backend.services.home_runtime import load_home_runtime_config
 from avatar_backend.services.speaker_service import SpeakerService

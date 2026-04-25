@@ -17,6 +17,11 @@ from avatar_backend.services.perceptual_hash import compute_phash, hamming_dista
 _LOGGER = structlog.get_logger()
 
 
+def _format_exc(exc: BaseException) -> str:
+    msg = str(exc).strip()
+    return f"{type(exc).__name__}: {msg}" if msg else type(exc).__name__
+
+
 class ClipManageMixin:
     """Clip search, ranking, cleanup, and backfill — mixed into MotionClipService."""
     async def search(

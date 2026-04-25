@@ -236,7 +236,7 @@ class HAProxy(HAStateMixin, ParentalToolsMixin):
                 subject=subject, resource=resource, reason=reason,
                 duration_m=duration_m, requested_by="nova"
             )
-            _LOGGER.info("parental.override_requested", subject=subject, resource=resource, id=row.get("id"))
+            logger.info("parental.override_requested", subject=subject, resource=resource, id=row.get("id"))
             return (
                 f"I've submitted a request for {subject} to have {duration_m} minutes of "
                 f"{resource or 'the requested activity'}. Reason: {reason}. "

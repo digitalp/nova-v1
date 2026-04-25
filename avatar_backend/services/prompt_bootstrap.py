@@ -122,6 +122,8 @@ from avatar_backend.services.prompt_helpers import (
     _infer_excluded_entities,
     _infer_sensor_threshold_rules,
     _infer_sensor_exclusions,
+    _should_include_entity,
+    _classify_group,
 )
 
 def fetch_ha_states(ha_url: str, ha_token: str, timeout_s: float = 20.0) -> list[dict]:

@@ -16,6 +16,7 @@ from avatar_backend.services.prompt_bootstrap import (
     summarise_new_entities,
 )
 from avatar_backend.runtime_paths import install_dir
+from avatar_backend.services._shared_http import _http_client
 
 from .common import (
     _CONFIG_DIR,

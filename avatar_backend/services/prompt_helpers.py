@@ -13,6 +13,94 @@ from typing import Iterable, TYPE_CHECKING
 if TYPE_CHECKING:
     from avatar_backend.services.prompt_bootstrap import HouseholdMember, VehicleProfile
 
+_DISCOVERY_DOMAINS = {
+    "binary_sensor",
+    "camera",
+    "climate",
+    "cover",
+    "device_tracker",
+    "fan",
+    "humidifier",
+    "input_boolean",
+    "input_number",
+    "input_select",
+    "input_text",
+    "light",
+    "lock",
+    "media_player",
+    "number",
+    "person",
+    "sensor",
+    "switch",
+    "water_heater",
+    "weather",
+}
+
+_SKIP_PREFIXES = (
+    "automation.",
+    "button.",
+    "counter.",
+    "event.",
+    "image.",
+    "scene.",
+    "script.",
+    "sun.",
+    "system_log.",
+    "timer.",
+    "update.",
+    "zone.",
+)
+
+_SKIP_NAME_FRAGMENTS = (
+    "firmware",
+    "linkquality",
+    "lqi",
+    "ping",
+    "reboot",
+    "restart",
+    "rssi",
+    "signal",
+    "strength",
+    "uptime",
+    "version",
+)
+
+_SENSOR_DEVICE_CLASSES = {
+    "aqi",
+    "battery",
+    "carbon_dioxide",
+    "carbon_monoxide",
+    "current",
+    "door",
+    "energy",
+    "gas",
+    "humidity",
+    "illuminance",
+    "moisture",
+    "occupancy",
+    "opening",
+    "pm1",
+    "pm10",
+    "pm25",
+    "power",
+    "precipitation",
+    "pressure",
+    "signal_strength",
+    "smoke",
+    "temperature",
+    "voltage",
+    "water",
+    "weight",
+    "wind_speed",
+}
+
+_PRESENCE_BINARY_CLASSES = {"connectivity", "motion", "occupancy", "opening", "presence"}
+_ACCESS_BINARY_CLASSES = {"door", "garage_door", "lock", "opening", "window"}
+_SAFETY_BINARY_CLASSES = {"battery", "gas", "moisture", "plug", "problem", "safety", "smoke", "tamper"}
+_VEHICLE_KEYWORDS = ("car", "ev", "fuel", "ignition", "mileage", "odometer", "tire", "tyre", "vehicle")
+
+
+
 def _replace_home_profile_section(template_text: str, rendered_section: str) -> str:
     pattern = re.compile(
         r"={70}\n2\. HOME PROFILE\n={70}\n.*?\n={70}\nENTITY ID RULES — CRITICAL, NEVER VIOLATE\n={70}",

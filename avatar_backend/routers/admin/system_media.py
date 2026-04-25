@@ -29,6 +29,7 @@ from .common import (
 _LOGGER = structlog.get_logger()
 router = APIRouter()
 
+_MUSIC_ASSISTANT_BASE = "http://localhost:8095"
 _SELFHEAL_BASE = "http://localhost:7779"
 
 def _sync_gemini_pool_env(pool, primary_key: str) -> None:

@@ -1,5 +1,7 @@
 """Mixin for RealtimeVoiceService: session state management, turn lifecycle, adapter resolution."""
 from __future__ import annotations
+from contextlib import suppress
+import json
 import asyncio
 from typing import Any
 

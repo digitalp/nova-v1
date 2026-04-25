@@ -1,5 +1,6 @@
 """Mixin for RealtimeVoiceService: audio output, streaming STT, and WAV utilities."""
 from __future__ import annotations
+import json
 import asyncio
 import io
 import re
@@ -9,11 +10,16 @@ from typing import Any
 
 import structlog
 from fastapi import WebSocket
+from avatar_backend.services.ws_manager import ConnectionManager
 
+from avatar_backend.services.stt_service import STTService
 from avatar_backend.services.voice_types import (
     IDLE, LISTENING, THINKING, SPEAKING, ERROR,
     _STREAMING_SENTENCE_RE, _AUDIO_CACHE_TTL,
     VoiceTurnResult,
+    VoiceTurnContext,
+    RealtimeVoiceAdapter,
+    VoiceSessionState,
 )
 
 _LOGGER = structlog.get_logger()

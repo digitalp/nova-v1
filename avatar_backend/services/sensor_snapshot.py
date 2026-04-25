@@ -23,6 +23,8 @@ def _format_exc(exc: BaseException) -> str:
 
 
 # Constants owned by snapshot (not used elsewhere in sensor_watch_service)
+_NOISE_STATES: frozenset[str] = frozenset({"unavailable", "unknown", "none", ""})
+
 _REVIEW_INTERVAL_S          = 1800   # 30 minutes
 _REVIEW_ANNOUNCE_COOLDOWN_S = 3600   # 1 hour
 _MAX_REVIEW_SNAPSHOT_ITEMS  = 24

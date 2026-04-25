@@ -18,6 +18,20 @@ logger = structlog.get_logger()
 _CALL_TIMEOUT = httpx.Timeout(connect=5.0, read=15.0, write=5.0, pool=5.0)
 
 
+_DENIED_DOMAINS: frozenset[str] = frozenset({"shell_command", "script"})
+_DENIED_SERVICES: frozenset[tuple[str, str]] = frozenset({
+    ("homeassistant", "restart"),
+    ("homeassistant", "stop"),
+    ("system_log", "write"),
+})
+
+
+def _validate_service_data(data: dict) -> dict:
+    """Strip keys that are code-injection vectors."""
+    blocked = {"template", "event_data_template", "message_template"}
+    return {k: v for k, v in data.items() if k not in blocked}
+
+
 class HAStateMixin:
     """HA entity/state operations, call_service, camera fetch, diagnostics — mixed into HAProxy."""
     _LARGE_DOMAINS: frozenset = frozenset({"sensor", "binary_sensor", "automation", "input_boolean"})
