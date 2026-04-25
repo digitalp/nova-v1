@@ -12,6 +12,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 import httpx
+from avatar_backend.services._shared_http import _http_client
 import structlog
 
 from avatar_backend.bootstrap.container import AppContainer, get_container
@@ -27,9 +28,8 @@ _VERSION = "0.7.0"
 
 async def _probe_ollama(url: str) -> str:
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"{url}/api/tags")
-            return "reachable" if resp.status_code == 200 else f"http_{resp.status_code}"
+        resp = await _http_client().get(f"{url}/api/tags", timeout=3.0)
+        return "reachable" if resp.status_code == 200 else f"http_{resp.status_code}"
     except httpx.ConnectError:
         return "unreachable"
     except httpx.TimeoutException:
@@ -39,16 +39,16 @@ async def _probe_ollama(url: str) -> str:
 async def _probe_ha(url: str, token: str) -> str:
     try:
         timeout = httpx.Timeout(connect=3.0, read=8.0, write=5.0, pool=5.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.get(
-                f"{url}/api/",
-                headers={"Authorization": f"Bearer {token}"},
-            )
-            if resp.status_code == 200:
-                return "reachable"
-            if resp.status_code == 401:
-                return "bad_token"
-            return f"http_{resp.status_code}"
+        resp = await _http_client().get(
+            f"{url}/api/",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=timeout,
+        )
+        if resp.status_code == 200:
+            return "reachable"
+        if resp.status_code == 401:
+            return "bad_token"
+        return f"http_{resp.status_code}"
     except httpx.ConnectError:
         return "unreachable"
     except httpx.TimeoutException:
@@ -80,12 +80,11 @@ async def _probe_intron_afro_tts(url: str) -> str:
     if not url:
         return "not_configured"
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"{url}/health")
-            if resp.status_code == 200:
-                data = resp.json()
-                return "ready" if data.get("loaded") else "loading"
-            return f"http_{resp.status_code}"
+        resp = await _http_client().get(f"{url}/health", timeout=3.0)
+        if resp.status_code == 200:
+            data = resp.json()
+            return "ready" if data.get("loaded") else "loading"
+        return f"http_{resp.status_code}"
     except httpx.ConnectError:
         return "unreachable"
     except httpx.TimeoutException:
@@ -241,70 +240,73 @@ async def ambient_data(container: AppContainer = Depends(get_container)) -> dict
     headers = {"Authorization": f"Bearer {settings.ha_token}", "Content-Type": "application/json"}
 
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            # Current state
-            resp = await client.get(
-                f"{settings.ha_url}/api/states/{weather_entity}",
+        client = _http_client()
+        # Current state
+        resp = await client.get(
+            f"{settings.ha_url}/api/states/{weather_entity}",
+            headers=headers,
+            timeout=8.0,
+        )
+        weather = {}
+        if resp.status_code == 200:
+            s = resp.json()
+            attrs = s.get("attributes", {})
+            weather = {
+                "condition": s.get("state", ""),
+                "temperature": attrs.get("temperature"),
+                "humidity": attrs.get("humidity"),
+                "wind_speed": attrs.get("wind_speed"),
+                "wind_bearing": attrs.get("wind_bearing"),
+            }
+
+        # Hourly forecast
+        try:
+            fc_resp = await client.post(
+                f"{settings.ha_url}/api/services/weather/get_forecasts?return_response",
                 headers=headers,
+                json={"entity_id": weather_entity, "type": "hourly"},
+                timeout=8.0,
             )
-            weather = {}
-            if resp.status_code == 200:
-                s = resp.json()
-                attrs = s.get("attributes", {})
-                weather = {
-                    "condition": s.get("state", ""),
-                    "temperature": attrs.get("temperature"),
-                    "humidity": attrs.get("humidity"),
-                    "wind_speed": attrs.get("wind_speed"),
-                    "wind_bearing": attrs.get("wind_bearing"),
-                }
+            if fc_resp.status_code == 200:
+                fc_data = fc_resp.json()
+                hourly = fc_data.get("service_response", {}).get(weather_entity, {}).get("forecast", [])
+                # Return next 4 hours
+                weather["hourly"] = [
+                    {
+                        "time": h.get("datetime", ""),
+                        "temperature": h.get("temperature"),
+                        "condition": h.get("condition", ""),
+                    }
+                    for h in hourly[:4]
+                ]
+        except Exception:
+            weather["hourly"] = []
 
-            # Hourly forecast
-            try:
-                fc_resp = await client.post(
-                    f"{settings.ha_url}/api/services/weather/get_forecasts?return_response",
-                    headers=headers,
-                    json={"entity_id": weather_entity, "type": "hourly"},
-                )
-                if fc_resp.status_code == 200:
-                    fc_data = fc_resp.json()
-                    hourly = fc_data.get("service_response", {}).get(weather_entity, {}).get("forecast", [])
-                    # Return next 4 hours
-                    weather["hourly"] = [
-                        {
-                            "time": h.get("datetime", ""),
-                            "temperature": h.get("temperature"),
-                            "condition": h.get("condition", ""),
-                        }
-                        for h in hourly[:4]
-                    ]
-            except Exception:
-                weather["hourly"] = []
+        # Tomorrow forecast
+        try:
+            daily_resp = await client.post(
+                f"{settings.ha_url}/api/services/weather/get_forecasts?return_response",
+                headers=headers,
+                json={"entity_id": weather_entity, "type": "daily"},
+                timeout=8.0,
+            )
+            if daily_resp.status_code == 200:
+                daily_data = daily_resp.json()
+                daily = daily_data.get("service_response", {}).get(weather_entity, {}).get("forecast", [])
+                if len(daily) >= 2:
+                    tmrw = daily[1]
+                    weather["tomorrow"] = {
+                        "condition": tmrw.get("condition", ""),
+                        "temperature_high": tmrw.get("temperature"),
+                        "temperature_low": tmrw.get("templow"),
+                    }
+        except Exception:
+            pass
 
-            # Tomorrow forecast
-            try:
-                daily_resp = await client.post(
-                    f"{settings.ha_url}/api/services/weather/get_forecasts?return_response",
-                    headers=headers,
-                    json={"entity_id": weather_entity, "type": "daily"},
-                )
-                if daily_resp.status_code == 200:
-                    daily_data = daily_resp.json()
-                    daily = daily_data.get("service_response", {}).get(weather_entity, {}).get("forecast", [])
-                    if len(daily) >= 2:
-                        tmrw = daily[1]
-                        weather["tomorrow"] = {
-                            "condition": tmrw.get("condition", ""),
-                            "temperature_high": tmrw.get("temperature"),
-                            "temperature_low": tmrw.get("templow"),
-                        }
-            except Exception:
-                pass
-
-            if weather:
-                _ambient_cache["ts"] = mono
-                _ambient_cache["data"] = weather
-                result.update(weather)
+        if weather:
+            _ambient_cache["ts"] = mono
+            _ambient_cache["data"] = weather
+            result.update(weather)
     except Exception as exc:
         logger.warning("ambient.weather_fetch_failed", exc=str(exc))
 

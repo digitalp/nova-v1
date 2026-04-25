@@ -152,15 +152,14 @@ async def reload_config(request: Request, container: AppContainer = Depends(get_
 async def list_ollama_models(request: Request):
     """Return list of locally available Ollama model names."""
     _require_session(request, min_role="viewer")
-    import httpx as _httpx
+    from avatar_backend.services._shared_http import _http_client
     from avatar_backend.config import get_settings as _gs
     settings = _gs()
     ollama_url = getattr(settings, "OLLAMA_URL", "http://localhost:11434").rstrip("/")
     try:
-        async with _httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{ollama_url}/api/tags")
-            resp.raise_for_status()
-            data = resp.json()
+        resp = await _http_client().get(f"{ollama_url}/api/tags", timeout=5.0)
+        resp.raise_for_status()
+        data = resp.json()
         models = [m["name"] for m in data.get("models", [])]
     except Exception as exc:
         _LOGGER.warning("ollama_models.fetch_failed", error=str(exc))

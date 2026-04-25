@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
+from avatar_backend.services._shared_http import _http_client
 
 from avatar_backend.runtime_paths import data_dir
 from avatar_backend.services.perceptual_hash import compute_phash, hamming_distance
@@ -198,10 +199,12 @@ class MotionClipService:
 
         # --- Perceptual hash dedup check ---
         try:
-            import httpx as _httpx
+            import httpx as _httpx  # still needed for Timeout/Limits in polling loop
             frame_url = f"{self._ha.ha_url}/api/camera_proxy/{camera_entity_id}"
-            async with _httpx.AsyncClient(timeout=_httpx.Timeout(connect=3.0, read=5.0, write=3.0, pool=5.0)) as client:
-                resp = await client.get(frame_url, headers=self._ha.auth_headers)
+            resp = await _http_client().get(
+                frame_url, headers=self._ha.auth_headers,
+                timeout=_httpx.Timeout(connect=3.0, read=5.0, write=3.0, pool=5.0),
+            )
             if resp.status_code == 200 and resp.content and len(resp.content) > 1000:
                 new_hash = await compute_phash(resp.content)
                 cached = self._phash_cache.get(camera_entity_id)

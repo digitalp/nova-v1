@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 import httpx
+from avatar_backend.services._shared_http import _http_client
 import structlog
 import numpy as np
 
@@ -745,12 +746,13 @@ async def music_assistant_proxy(request: Request, path: str = ""):
     if request.url.query:
         url += f"?{request.url.query}"
     try:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-            resp = await client.request(
-                method=request.method,
-                url=url,
-                content=await request.body(),
-            )
+        resp = await _http_client().request(
+            method=request.method,
+            url=url,
+            content=await request.body(),
+            follow_redirects=True,
+            timeout=15.0,
+        )
         headers = {k: v for k, v in resp.headers.items() if k.lower() not in ("x-frame-options", "content-security-policy", "transfer-encoding")}
         return RawResponse(content=resp.content, status_code=resp.status_code, headers=headers)
     except httpx.ConnectError:
@@ -766,13 +768,13 @@ async def selfheal_proxy(path: str, request: Request):
     _require_session(request, min_role="viewer")
     url = f"{_SELFHEAL_BASE}/{path}"
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.request(
-                method=request.method,
-                url=url,
-                content=await request.body(),
-                headers={"Content-Type": request.headers.get("Content-Type", "application/json")},
-            )
+        resp = await _http_client().request(
+            method=request.method,
+            url=url,
+            content=await request.body(),
+            headers={"Content-Type": request.headers.get("Content-Type", "application/json")},
+            timeout=10.0,
+        )
         try:
             content = resp.json()
         except Exception:

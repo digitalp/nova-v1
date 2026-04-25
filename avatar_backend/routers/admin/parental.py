@@ -15,6 +15,7 @@ from collections import defaultdict
 from typing import Any
 
 import httpx
+from avatar_backend.services._shared_http import _http_client
 import structlog
 from fastapi import APIRouter, Depends, Request
 from avatar_backend.bootstrap.container import AppContainer, get_container
@@ -67,15 +68,15 @@ async def _get_jwt() -> str:
     async with _jwt_lock:
         if _jwt_token and time.time() < _jwt_expires - 60:
             return _jwt_token
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                f"{_HMDM_BASE}/rest/public/jwt/login",
-                json={"login": _HMDM_LOGIN, "password": _HMDM_API_PW},
-            )
-            resp.raise_for_status()
-            _jwt_token = resp.json()["id_token"]
-            # JWT expires in 24h; refresh after 23h
-            _jwt_expires = time.time() + 23 * 3600
+        resp = await _http_client().post(
+            f"{_HMDM_BASE}/rest/public/jwt/login",
+            json={"login": _HMDM_LOGIN, "password": _HMDM_API_PW},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        _jwt_token = resp.json()["id_token"]
+        # JWT expires in 24h; refresh after 23h
+        _jwt_expires = time.time() + 23 * 3600
         return _jwt_token
 
 
@@ -83,23 +84,23 @@ async def _hmdm(method: str, path: str, **kwargs) -> Any:
     """Make an authenticated request to Headwind MDM."""
     token = await _get_jwt()
     headers = {"Authorization": f"Bearer {token}"}
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await getattr(client, method.lower())(
-            f"{_HMDM_BASE}{path}", headers=headers, **kwargs
+    _c = _http_client()
+    resp = await getattr(_c, method.lower())(
+        f"{_HMDM_BASE}{path}", headers=headers, timeout=15.0, **kwargs
+    )
+    if resp.status_code in (401, 403):
+        # Token expired — force refresh and retry once
+        global _jwt_expires
+        _jwt_expires = 0
+        token = await _get_jwt()
+        headers = {"Authorization": f"Bearer {token}"}
+        resp = await getattr(_c, method.lower())(
+            f"{_HMDM_BASE}{path}", headers=headers, timeout=15.0, **kwargs
         )
-        if resp.status_code in (401, 403):
-            # Token expired — force refresh and retry once
-            global _jwt_expires
-            _jwt_expires = 0
-            token = await _get_jwt()
-            headers = {"Authorization": f"Bearer {token}"}
-            resp = await getattr(client, method.lower())(
-                f"{_HMDM_BASE}{path}", headers=headers, **kwargs
-            )
-        resp.raise_for_status()
-        if resp.content:
-            return resp.json()
-        return {}
+    resp.raise_for_status()
+    if resp.content:
+        return resp.json()
+    return {}
 
 
 async def _get_devices_payload() -> dict[str, Any]:
@@ -738,9 +739,8 @@ async def enrollment_info(config_id: int, request: Request):
         qr_key = cfg.get("qrCodeKey", "")
         enroll_url = f"{_HMDM_PUBLIC}/?k={qr_key}"
         # Fetch the QR JSON content the launcher app actually expects (public endpoint)
-        async with httpx.AsyncClient(timeout=10) as _c:
-            _r = await _c.get(f"{_HMDM_BASE}/rest/public/qr/json/{qr_key}")
-            qr_content = _r.text  # already JSON string
+        _r = await _http_client().get(f"{_HMDM_BASE}/rest/public/qr/json/{qr_key}", timeout=10.0)
+        qr_content = _r.text  # already JSON string
         # Generate QR code from JSON content
         import qrcode
         qr = qrcode.QRCode(box_size=6, border=2)

@@ -237,18 +237,18 @@ async def sync_prompt_preview(request: Request, container: AppContainer = Depend
     Returns structured entity list enriched with area + state — no LLM call, no prompt changes.
     """
     _require_session(request, min_role="admin")
-    import httpx as _httpx
+    from avatar_backend.services._shared_http import _http_client
     from avatar_backend.services.prompt_bootstrap import fetch_area_mapping, discover_new_entities
 
     ha = container.ha_proxy
     try:
-        async with _httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                f"{ha._ha_url}/api/states",
-                headers={"Authorization": ha._headers["Authorization"]},
-            )
-            resp.raise_for_status()
-            all_states: list[dict] = resp.json()
+        resp = await _http_client().get(
+            f"{ha._ha_url}/api/states",
+            headers={"Authorization": ha._headers["Authorization"]},
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+        all_states: list[dict] = resp.json()
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Could not fetch HA states: {exc}")
 
@@ -285,7 +285,6 @@ async def sync_prompt_apply(body: ApplySyncBody, request: Request, container: Ap
     Integrate a user-selected subset of new entities into the system prompt via LLM.
     """
     _require_session(request, min_role="admin")
-    import httpx as _httpx
     from avatar_backend.services.prompt_bootstrap import fetch_area_mapping, discover_new_entities
 
     if not body.entity_ids:
@@ -295,13 +294,13 @@ async def sync_prompt_apply(body: ApplySyncBody, request: Request, container: Ap
     llm = container.llm_service
 
     try:
-        async with _httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                f"{ha._ha_url}/api/states",
-                headers={"Authorization": ha._headers["Authorization"]},
-            )
-            resp.raise_for_status()
-            all_states: list[dict] = resp.json()
+        resp = await _http_client().get(
+            f"{ha._ha_url}/api/states",
+            headers={"Authorization": ha._headers["Authorization"]},
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+        all_states: list[dict] = resp.json()
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Could not fetch HA states: {exc}")
 
@@ -374,20 +373,19 @@ async def sync_prompt_apply(body: ApplySyncBody, request: Request, container: Ap
 async def sync_prompt_legacy(request: Request, container: AppContainer = Depends(get_container)):
     """Legacy full-auto sync — now area-aware. Prefer /preview + /apply for manual syncs."""
     _require_session(request, min_role="admin")
-    import httpx as _httpx
 
     ha  = container.ha_proxy
     llm = container.llm_service
 
     _LOGGER.info("sync_prompt.started")
     try:
-        async with _httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                f"{ha._ha_url}/api/states",
-                headers={"Authorization": ha._headers["Authorization"]},
-            )
-            resp.raise_for_status()
-            all_states: list[dict] = resp.json()
+        resp = await _http_client().get(
+            f"{ha._ha_url}/api/states",
+            headers={"Authorization": ha._headers["Authorization"]},
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+        all_states: list[dict] = resp.json()
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Could not fetch HA states: {exc}")
 
