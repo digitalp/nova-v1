@@ -64,6 +64,7 @@ def _select_sensor_watch_model(settings) -> str:
 # Format: entity_id → {"min": float|None, "max": float|None, "label": str}
 # An announcement fires when value crosses a bound (and cooldown allows).
 # Configure in config/home_runtime.json under "sensor_threshold_rules".
+_LEGACY_SNAPSHOT_EXCLUDE_PREFIXES: tuple[str, ...] = ()
 _LEGACY_THRESHOLD_RULES: dict[str, dict] = {}
 
 # ── Temperature sensor entity prefixes to SKIP in threshold check ─────────────
