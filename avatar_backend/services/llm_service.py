@@ -56,6 +56,7 @@ from avatar_backend.services.llm_backends import (
     _OllamaFallbackBackend,
     _select_local_text_model,
     _select_fast_local_text_model,
+    _get_ollama_installed_models,
     set_cost_log as _set_backends_cost_log,
 )
 from avatar_backend.services.llm_vision import (
