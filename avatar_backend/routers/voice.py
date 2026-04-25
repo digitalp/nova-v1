@@ -96,6 +96,12 @@ async def voice_websocket(
                 continue
 
             if msg["type"] == "websocket.receive" and msg.get("bytes"):
+                _rl = getattr(container, "session_limiter", None)
+                if _rl:
+                    _ok, _ra = _rl.check(session_id)
+                    if not _ok:
+                        await ws.send_text(json.dumps({"type": "error", "detail": f"Rate limit — retry in {_ra}s"}))
+                        continue
                 await voice_service.handle_binary_frame(
                     session_key,
                     VoiceTurnContext(

@@ -35,6 +35,16 @@ async def chat(body: ChatRequest, container: AppContainer = Depends(get_containe
             detail="LLM not ready — model may still be loading.",
         )
 
+    limiter = getattr(container, "session_limiter", None)
+    if limiter:
+        allowed, retry_after = limiter.check(body.session_id)
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded — slow down.",
+                headers={"Retry-After": str(retry_after)},
+            )
+
     logger.info("chat.request", session_id=body.session_id, text_len=len(body.text))
     try:
         result = await container.conversation_service.handle_text_turn(
@@ -76,6 +86,16 @@ async def chat_followup_event(body: EventFollowupChatRequest, container: AppCont
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="LLM not ready — model may still be loading.",
         )
+
+    limiter = getattr(container, "session_limiter", None)
+    if limiter:
+        allowed, retry_after = limiter.check(body.session_id)
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded — slow down.",
+                headers={"Retry-After": str(retry_after)},
+            )
 
     recent_events: dict[str, tuple[float, dict[str, Any]]] = getattr(container, "recent_event_contexts", {})
     stored = recent_events.get(body.event_id)

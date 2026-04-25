@@ -47,6 +47,10 @@ from avatar_backend.runtime_paths import data_dir
 
 _LOGGER = structlog.get_logger()
 
+# Global guard against runaway HA automations flooding TTS.
+from avatar_backend.middleware.session_ratelimit import SessionRateLimiter as _SRL
+_ANNOUNCE_LIMITER = _SRL(max_requests=20, window_s=60)
+
 _ANNOUNCE_LOG: "Path | None" = None
 
 def _announce_log_path() -> "Path":
@@ -119,6 +123,13 @@ async def announce_handler(body: AnnounceRequest, request: Request, container: A
     """
     t0 = time.monotonic()
 
+    _ok, _ra = _ANNOUNCE_LIMITER.check("__global__")
+    if not _ok:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Announce rate limit — retry in {_ra}s",
+            headers={"Retry-After": str(_ra)},
+        )
 
     tts:    TTSService        = container.tts_service
     speaker: SpeakerService   = getattr(container, "speaker_service", None)
