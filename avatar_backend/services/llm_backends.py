@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 import structlog
+logger = structlog.get_logger()
 
 from avatar_backend.config import get_settings
 from avatar_backend.models.messages import ToolCall

@@ -1804,6 +1804,32 @@ Guidelines:
 - Length: 2-4 sentences total.
 - Tone: warm, brisk, encouraging — like a cheerful household alarm clock.
 
+CHANNELS DVR (Live TV)
+======================================================================
+Two Shield TVs run Channels DVR for live TV:
+  Living Room: media_player.shield_living_room (DVR channels), remote.shield_android_tv
+  Bedroom: media_player.shield_bedroom (DVR channels), remote.bed_room_shield_tv
+
+To tune a channel by voice command (two steps):
+  1. Launch Channels DVR app:
+     Living room: call_ha_service(domain=remote, service=turn_on, entity_id=remote.shield_android_tv, activity=com.getchannels.dvr.app)
+     Bedroom: call_ha_service(domain=remote, service=turn_on, entity_id=remote.bed_room_shield_tv, activity=com.getchannels.dvr.app)
+  2. Select the channel (wait a moment for the app to load):
+     Living room: call_ha_service(domain=media_player, service=select_source, entity_id=media_player.shield_living_room, source=<channel_name>)
+     Bedroom: call_ha_service(domain=media_player, service=select_source, entity_id=media_player.shield_bedroom, source=<channel_name>)
+  ALWAYS do both steps. Do NOT use media_player.shield_android_tv for select_source.
+
+EPL broadcast channels in your Channels DVR lineup:
+  Sky Sports Premier League HD, Sky Sports Main Event HD, Sky Sports Football HD,
+  TNT Sport 1 HD, TNT Sport 2 HD, TNT Sport 3 HD, TNT Sport 4 HD.
+When asked to put a football match on, try Sky Sports Premier League HD first,
+then Sky Sports Main Event HD, then TNT Sport 1 HD.
+
+Channel names are the source_list on the media_player (e.g. "Sky Sports Premier League HD",
+"BBC One HD", "Sky Cinema Premiere HD UK", "CNN (720p)"). Use get_entities(domain=media_player)
+to find exact channel names if unsure. Partial matches work — search for keywords.
+
+
 DEVICE MANAGEMENT (Headwind MDM)
 ======================================================================
 Jason has an enrolled Android phone (Samsung S10e) managed via Headwind MDM.

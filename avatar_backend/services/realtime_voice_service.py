@@ -59,6 +59,64 @@ class RealtimeVoiceService:
         if session and session.current_task:
             await self._cancel_turn_task(session.current_task)
 
+
+    async def _try_media_shortcut(self, ctx, transcript: str) -> str | None:
+        """Handle media control commands with a focused prompt instead of the full system prompt."""
+        import re as _re
+        _lower = transcript.lower()
+        _media_keywords = ("switch to", "put on", "tune to", "play channel", "change to", "turn on cnn",
+                           "turn on bbc", "turn on sky", "watch channel", "put the match on",
+                           "turn on the tv", "switch channel")
+        if not any(kw in _lower for kw in _media_keywords):
+            return None
+
+        _LOGGER.info("voice_ws.media_shortcut", transcript=transcript[:80])
+
+        # Determine room
+        room = "living room"
+        if any(w in _lower for w in ("bedroom", "bed room")):
+            room = "bedroom"
+
+        media_prompt = (
+            "You are Nova, a home TV controller. Respond briefly.\n"
+            "Available Shields:\n"
+            "  Living room: remote.shield_android_tv + media_player.shield_living_room\n"
+            "  Bedroom: remote.bed_room_shield_tv + media_player.shield_bedroom\n"
+            "Channels DVR app package: com.getchannels.dvr.app\n"
+            "To tune a channel, ALWAYS make these two tool calls:\n"
+            "  1. call_ha_service(domain=remote, service=turn_on, entity_id=<remote>, activity=com.getchannels.dvr.app)\n"
+            "  2. call_ha_service(domain=media_player, service=select_source, entity_id=<media_player>, source=<channel>)\n"
+            "Popular channels: BBC One HD, BBC Two HD, ITV 1 HD, Channel 4 HD, Sky Sports Premier League HD, "
+            "Sky Sports Main Event HD, Sky Sports Football HD, TNT Sport 1 HD, Sky News HD, CNN (720p), "
+            "Sky Cinema Premiere HD UK, Discovery Channel HD, Cartoon Network HD, Nickelodeon HD UK.\n"
+            "NEVER use media_player.shield_android_tv or media_player.bed_room_shield_tv for select_source."
+        )
+
+        messages = [
+            {"role": "system", "content": media_prompt},
+            {"role": "user", "content": transcript},
+        ]
+
+        llm = ctx.container.llm
+        text, tool_calls = await llm.chat(messages, use_tools=True)
+
+        # Execute tool calls
+        if tool_calls:
+            import asyncio
+            for tc in tool_calls:
+                try:
+                    await ctx.container.ha_proxy.execute_tool_call(tc)
+                    if tc.function_name == "call_ha_service" and "turn_on" in str(tc.arguments.get("service", "")):
+                        await asyncio.sleep(3)  # wait for app to launch
+                except Exception as e:
+                    _LOGGER.warning("voice_ws.media_shortcut_tool_error", exc=str(e)[:80])
+
+            # If there were tool calls but no text, get a confirmation
+            if not text:
+                text = "Done."
+
+        return text or None
+
     async def start_audio_turn(
         self,
         session_key: str,
@@ -306,6 +364,15 @@ class RealtimeVoiceService:
 
             await self._send_json(ctx.ws, {"type": "transcript", "text": transcript}, turn_id=turn_id)
             _LOGGER.info("voice_ws.transcript", chars=len(transcript), text=transcript[:80])
+
+            # Try media shortcut first
+            media_reply = await self._try_media_shortcut(ctx, transcript)
+            if media_reply:
+                reply_text = media_reply
+                await self._send_state(ctx.ws, ctx.ws_mgr, SPEAKING, session_key=session_key, turn_id=turn_id)
+                await self._speak_and_stream(ctx, reply_text, session_key, turn_id)
+                await self._finish_turn(ctx.ws, session_key, turn_id, "stop")
+                return
 
             await self._send_state(ctx.ws, ctx.ws_mgr, THINKING, session_key=session_key, turn_id=turn_id)
             fallback_text = None
