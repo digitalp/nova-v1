@@ -276,6 +276,9 @@ class HeatingController:
             # Execute each tool call
             for i, tc in enumerate(tool_calls):
                 result = await self._ha.execute_tool_call(tc)
+                # Block climate entity current_temperature from being reported as room temp
+                if tc.function_name == "get_entity_state" and "climate." in str(tc.arguments.get("entity_id", "")):
+                    result = type(result)(success=False, message="Climate entities report valve temperature, not room temperature. Use sensor.* entities for room temps.")
                 performed_action = performed_action or _is_heating_action_tool(
                     tc.function_name,
                     tc.arguments,

@@ -81,6 +81,12 @@ async def lifespan(app: FastAPI):
         except Exception as _me:
             logger.info("family_service.mdm_sync_skipped", reason=str(_me)[:80])
 
+    # Start media fun fact watcher
+    if hasattr(container, "ha_ws_manager") and container.ha_ws_manager:
+        from avatar_backend.services.media_fun_fact_watcher import MediaFunFactWatcher
+        container.media_fun_fact_watcher = MediaFunFactWatcher(container)
+        container.media_fun_fact_watcher.start(container.ha_ws_manager)
+
     yield
 
     await teardown(container)

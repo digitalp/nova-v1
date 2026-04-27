@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     sensor_watch_ollama_model: str = ""
     sensor_watch_review_timeout_s: float = 120.0
     openai_api_key: str = ""
+    groq_api_key: str = ""
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    groq_model: str = "llama-3.3-70b-versatile"
     google_api_key: str = ""
     google_api_key_enabled: bool = True
     gemini_api_keys: str = ""  # Comma-separated pool of Gemini API keys for vision rotation
@@ -136,9 +139,9 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _validate_llm_provider(self):
         p = self.llm_provider.lower()
-        if p not in ("ollama", "openai", "google", "anthropic"):
-            raise ValueError(f"LLM_PROVIDER must be ollama/openai/google/anthropic, got '{p}'")
-        key_map = {"openai": self.openai_api_key, "google": self.google_api_key, "anthropic": self.anthropic_api_key}
+        if p not in ("ollama", "openai", "google", "anthropic", "groq"):
+            raise ValueError(f"LLM_PROVIDER must be ollama/openai/google/anthropic/groq, got '{p}'")
+        key_map = {"openai": self.openai_api_key, "google": self.google_api_key, "anthropic": self.anthropic_api_key, "groq": self.groq_api_key}
         if p != "ollama" and not key_map.get(p):
             raise ValueError(f"LLM_PROVIDER={p} requires {p.upper()}_API_KEY to be set")
         return self

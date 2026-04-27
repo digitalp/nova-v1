@@ -134,3 +134,7 @@ rules:
   # ── Security-sensitive domains — BLOCKED ────────────────────────────
   # lock, alarm_control_panel, and safe_mode are NOT listed.
   # Any domain not listed here is denied by default (no wildcard rule).
+
+  - domain: "wake_on_lan"
+    entities: "*"
+    services: "*"

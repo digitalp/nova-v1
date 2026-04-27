@@ -505,10 +505,11 @@ const _CLOUD_MODELS = {
   openai:    ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
   google:    ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-lite-001'],
   anthropic: ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
+  groq:      ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768', 'deepseek-r1-distill-llama-70b'],
 };
 
 const _FIELD_OPTIONS = {
-  LLM_PROVIDER:  ['ollama', 'openai', 'google', 'anthropic'],
+  LLM_PROVIDER:  ['ollama', 'openai', 'google', 'anthropic', 'groq'],
   TTS_PROVIDER:  ['piper', 'elevenlabs', 'afrotts', 'intron_afro_tts'],
   AFROTTS_VOICE: ['af_heart', 'af_nicole', 'af_sarah', 'af_sky', 'am_adam', 'am_michael', 'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis'],
   WHISPER_MODEL: ['tiny', 'base', 'small', 'medium', 'large-v2', 'large-v3'],

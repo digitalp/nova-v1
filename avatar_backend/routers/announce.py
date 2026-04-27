@@ -441,7 +441,7 @@ async def media_fun_fact_handler(body: MediaFunFactRequest, request: Request, co
 
     announce_resp = await announce_handler(
         AnnounceRequest(message=fun_fact, priority="normal", target_areas=target_areas, source="media_fun_fact"),
-        request,
+        request, container,
     )
 
     elapsed_ms = int((time.monotonic() - t0) * 1000)

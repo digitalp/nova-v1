@@ -87,6 +87,166 @@ def _is_automated_session_on_cooldown(session_id: str) -> bool:
     return False
 
 
+
+
+_channel_cache: dict[str, str] = {}  # name → channel_number
+_channel_cache_ts: float = 0.0
+_CHANNELS_DVR_URL = "http://192.168.0.33:8089"
+
+
+async def _match_channel(query: str, ha: "HAProxy") -> tuple[str, str] | None:
+    """Match a spoken channel name against the live Channels DVR source_list."""
+    import time as _t
+    global _channel_cache, _channel_cache_ts
+
+    # Cache channels from Channels DVR API (refreshes every 10 minutes)
+    if not _channel_cache or _t.time() - _channel_cache_ts > 600:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=5.0) as _hc:
+                _r = await _hc.get(f"{_CHANNELS_DVR_URL}/api/v1/channels")
+                if _r.status_code == 200:
+                    _all = _r.json()
+                    # Build name → number mapping (first occurrence wins)
+                    for ch in _all:
+                        name = ch.get("name", "")
+                        num = ch.get("number", "")
+                        if name and num and name not in _channel_cache:
+                            _channel_cache[name] = num
+            _channel_cache_ts = _t.time()
+            _LOGGER.info("chat.channel_cache_loaded", count=len(_channel_cache), source="channels_dvr_api")
+        except Exception as e:
+            _LOGGER.warning("chat.channel_cache_error", exc=str(e)[:80])
+
+    if not _channel_cache:
+        # Fallback: common channel names when DVR player is idle
+        _FALLBACK = {
+            "cnn": "CNN (720p)", "bbc one": "BBC One HD", "bbc two": "BBC Two HD",
+            "bbc news": "BBC News HD", "bbc": "BBC One HD",
+            "itv": "ITV 1 HD", "itv 2": "ITV 2 HD", "itv 3": "ITV 3 HD", "itv 4": "ITV 4 HD",
+            "channel 4": "Channel 4 HD", "channel 5": "Channel 5 HD",
+            "sky sports premier league": "Sky Sports Premier League HD",
+            "sky sports main event": "Sky Sports Main Event HD",
+            "sky sports football": "Sky Sports Football HD",
+            "sky sports f1": "Sky Sports F1 HD", "sky sports": "Sky Sports Main Event HD",
+            "sky news": "Sky News HD", "sky cinema": "Sky Cinema Premiere HD UK",
+            "sky one": "Sky One HD",
+            "tnt sport 1": "TNT Sport 1 HD", "tnt sport 2": "TNT Sport 2 HD",
+            "tnt sport": "TNT Sport 1 HD",
+            "discovery": "Discovery Channel HD", "cartoon network": "Cartoon Network HD",
+            "nickelodeon": "Nickelodeon HD UK", "nick": "Nickelodeon HD UK",
+            "eurosport": "Eurosport 1", "premier league": "Sky Sports Premier League HD",
+            "comedy central": "Comedy Central HD UK",
+            "al jazeera": "Al Jazeera HD", "bloomberg": "Bloomberg TV HD",
+        }
+        for key, val in sorted(_FALLBACK.items(), key=lambda x: -len(x[0])):
+            if key in query:
+                return (val, "")  # No number for fallback
+        return None
+
+    # Build lowercase lookup
+    best = None
+    best_num = None
+    best_len = 0
+    for ch_name, ch_num in _channel_cache.items():
+        ch_lower = ch_name.lower()
+        clean = ch_lower
+        for suffix in (" hd", " (720p)", " (1080p)", " (2160p)", " (480p)", " (576p)", " (360p)", " (540p)", " uk", " [geo-blocked]"):
+            clean = clean.replace(suffix, "")
+        clean = clean.strip()
+
+        if clean in query and len(clean) > best_len:
+            best = ch_name
+            best_num = ch_num
+            best_len = len(clean)
+        elif ch_lower.split(" (")[0].split(" [")[0].strip() in query:
+            name = ch_lower.split(" (")[0].split(" [")[0].strip()
+            if len(name) > best_len:
+                best = ch_name
+                best_num = ch_num
+                best_len = len(name)
+
+    return (best, best_num) if best else None
+
+async def _try_media_shortcut(user_text: str, llm: "LLMService", ha: "HAProxy") -> str | None:
+    """Detect media/TV commands and execute directly without LLM."""
+    import asyncio, re as _re
+    _lower = user_text.lower()
+    _media_kw = ("switch to", "put on", "tune to", "play channel", "change to",
+                 "watch channel", "put the match on", "switch channel",
+                 "turn on the tv", "turn on the living", "turn on the bedroom", "switch the channel", "change the channel", "switch it to", "to cnn", "to bbc", "to sky", "to itv")
+    if not any(kw in _lower for kw in _media_kw):
+        return None
+
+    # Match channel from DVR channel list
+    _match = await _match_channel(_lower, ha)
+    if not _match:
+        return None
+    channel, channel_number = _match
+
+    # Determine room
+    bedroom = any(w in _lower for w in ("bedroom", "bed room"))
+    remote = "remote.bed_room_shield_tv" if bedroom else "remote.shield_android_tv"
+    player = "media_player.shield_bedroom" if bedroom else "media_player.shield_living_room"
+    room = "bedroom" if bedroom else "living room"
+
+    _LOGGER.info("chat.media_shortcut", text=user_text[:80], channel=channel, room=room)
+
+    from avatar_backend.models.messages import ToolCall
+    # Step 1: Wake the Shield TV
+    if not bedroom:
+        # Living room Shield needs WoL (remote.turn_on doesn't work)
+        try:
+            await ha.execute_tool_call(ToolCall(
+                function_name="call_ha_service",
+                arguments={"domain": "wake_on_lan", "service": "send_magic_packet", "entity_id": "all", "service_data": {"mac": "3C:6D:66:24:F8:AE"}}
+            ))
+        except Exception as e:
+            _LOGGER.warning("chat.media_shortcut_wol_error", exc=str(e)[:80])
+    else:
+        try:
+            await ha.execute_tool_call(ToolCall(
+                function_name="call_ha_service",
+                arguments={"domain": "remote", "service": "turn_on", "entity_id": remote}
+            ))
+        except Exception as e:
+            _LOGGER.warning("chat.media_shortcut_wake_error", exc=str(e)[:80])
+
+    await asyncio.sleep(8)
+
+    # Step 2: Launch Channels DVR app
+    try:
+        await ha.execute_tool_call(ToolCall(
+            function_name="call_ha_service",
+            arguments={"domain": "remote", "service": "turn_on", "entity_id": remote, "service_data": {"activity": "com.getchannels.dvr.app"}}
+        ))
+    except Exception as e:
+        _LOGGER.warning("chat.media_shortcut_launch_error", exc=str(e)[:80])
+
+    await asyncio.sleep(5)
+
+    # Step 2: Select channel
+    try:
+        await ha.execute_tool_call(ToolCall(
+            function_name="call_ha_service",
+            arguments={"domain": "media_player", "service": "select_source", "entity_id": player, "service_data": {"source": channel}}
+        ))
+    except Exception as e:
+        _LOGGER.warning("chat.media_shortcut_channel_error", exc=str(e)[:80])
+        return f"Launched Channels DVR but couldn't tune to {channel}."
+
+    # Also tune directly via Channels DVR client API
+    _shield_ip = "192.168.0.129" if not bedroom else "192.168.0.139"
+    if channel_number:
+        try:
+            import httpx as _hx
+            async with _hx.AsyncClient(timeout=5.0) as _client:
+                await _client.post(f"http://{_shield_ip}:57000/api/play/channel/{channel_number}")
+        except Exception:
+            pass
+
+    return f"Switching {room} TV to {channel}."
+
 async def run_chat(
     *,
     session_id: str,
@@ -110,6 +270,7 @@ async def run_chat(
     6. Return final text + annotated ToolCall list.
     """
     t_start = time.monotonic()
+    _LOGGER.info("chat.run_chat_entered", session_id=session_id, text=user_text[:60])
     all_tool_calls: list[ToolCall] = []
 
     if _is_automated_session_on_cooldown(session_id):
@@ -126,6 +287,22 @@ async def run_chat(
             tool_calls=[],
             processing_time_ms=elapsed_ms,
             model="cooldown_skip",
+            session_id=session_id,
+        )
+
+    # Media shortcut — use focused prompt for TV/channel commands
+    try:
+        _media_result = await _try_media_shortcut(user_text, llm, ha)
+    except Exception as _me:
+        _LOGGER.error("chat.media_shortcut_exception", exc=str(_me)[:200])
+        _media_result = None
+    if _media_result:
+        elapsed_ms = int((time.monotonic() - t_start) * 1000)
+        return ChatResult(
+            text=_media_result,
+            tool_calls=[],
+            processing_time_ms=elapsed_ms,
+            model="media_shortcut",
             session_id=session_id,
         )
 

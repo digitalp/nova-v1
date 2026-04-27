@@ -67,58 +67,79 @@ class RealtimeVoiceService(VoiceAudioMixin, VoiceSessionMixin):
         """Handle media control commands with a focused prompt instead of the full system prompt."""
         import re as _re
         _lower = transcript.lower()
-        _media_keywords = ("switch to", "put on", "tune to", "play channel", "change to", "turn on cnn",
-                           "turn on bbc", "turn on sky", "watch channel", "put the match on",
-                           "turn on the tv", "switch channel")
-        if not any(kw in _lower for kw in _media_keywords):
+        _media_keywords = ("switch to", "put on", "tune to", "play channel", "change to",
+                           "watch channel", "put the match on", "switch channel",
+                           "turn on the tv", "turn on the living", "turn on the bedroom", "switch the channel", "change the channel", "switch it to", "to cnn", "to bbc", "to sky", "to itv")
+        _channel_names = ("cnn", "bbc", "sky", "itv", "channel 4", "channel 5",
+                          "discovery", "cartoon", "nick", "tnt sport", "premier league",
+                          "eurosport", "sky news", "sky cinema", "sky sports")
+        if not any(kw in _lower for kw in _media_keywords) and not any(ch in _lower for ch in _channel_names):
             return None
 
-        _LOGGER.info("voice_ws.media_shortcut", transcript=transcript[:80])
+        from avatar_backend.services.chat_service import _match_channel
+        _match = await _match_channel(_lower, ctx.container.ha_proxy)
+        if not _match:
+            return None
+        channel, channel_number = _match
 
-        # Determine room
-        room = "living room"
-        if any(w in _lower for w in ("bedroom", "bed room")):
-            room = "bedroom"
+        bedroom = any(w in _lower for w in ("bedroom", "bed room"))
+        remote = "remote.bed_room_shield_tv" if bedroom else "remote.shield_android_tv"
+        player = "media_player.shield_bedroom" if bedroom else "media_player.shield_living_room"
+        room = "bedroom" if bedroom else "living room"
 
-        media_prompt = (
-            "You are Nova, a home TV controller. Respond briefly.\n"
-            "Available Shields:\n"
-            "  Living room: remote.shield_android_tv + media_player.shield_living_room\n"
-            "  Bedroom: remote.bed_room_shield_tv + media_player.shield_bedroom\n"
-            "Channels DVR app package: com.getchannels.dvr.app\n"
-            "To tune a channel, ALWAYS make these two tool calls:\n"
-            "  1. call_ha_service(domain=remote, service=turn_on, entity_id=<remote>, activity=com.getchannels.dvr.app)\n"
-            "  2. call_ha_service(domain=media_player, service=select_source, entity_id=<media_player>, source=<channel>)\n"
-            "Popular channels: BBC One HD, BBC Two HD, ITV 1 HD, Channel 4 HD, Sky Sports Premier League HD, "
-            "Sky Sports Main Event HD, Sky Sports Football HD, TNT Sport 1 HD, Sky News HD, CNN (720p), "
-            "Sky Cinema Premiere HD UK, Discovery Channel HD, Cartoon Network HD, Nickelodeon HD UK.\n"
-            "NEVER use media_player.shield_android_tv or media_player.bed_room_shield_tv for select_source."
-        )
+        _LOGGER.info("voice_ws.media_shortcut", transcript=transcript[:80], channel=channel, room=room)
 
-        messages = [
-            {"role": "system", "content": media_prompt},
-            {"role": "user", "content": transcript},
-        ]
+        from avatar_backend.models.messages import ToolCall
+        import asyncio
+        if not bedroom:
+            try:
+                await ctx.container.ha_proxy.execute_tool_call(ToolCall(
+                    function_name="call_ha_service",
+                    arguments={"domain": "wake_on_lan", "service": "send_magic_packet", "entity_id": "all", "service_data": {"mac": "3C:6D:66:24:F8:AE"}}
+                ))
+            except Exception as e:
+                _LOGGER.warning("voice_ws.media_shortcut_wol_error", exc=str(e)[:80])
+        else:
+            try:
+                await ctx.container.ha_proxy.execute_tool_call(ToolCall(
+                    function_name="call_ha_service",
+                    arguments={"domain": "remote", "service": "turn_on", "entity_id": remote}
+                ))
+            except Exception as e:
+                _LOGGER.warning("voice_ws.media_shortcut_wake_error", exc=str(e)[:80])
 
-        llm = ctx.container.llm
-        text, tool_calls = await llm.chat(messages, use_tools=True)
+        await asyncio.sleep(8)
 
-        # Execute tool calls
-        if tool_calls:
-            import asyncio
-            for tc in tool_calls:
-                try:
-                    await ctx.container.ha_proxy.execute_tool_call(tc)
-                    if tc.function_name == "call_ha_service" and "turn_on" in str(tc.arguments.get("service", "")):
-                        await asyncio.sleep(3)  # wait for app to launch
-                except Exception as e:
-                    _LOGGER.warning("voice_ws.media_shortcut_tool_error", exc=str(e)[:80])
+        try:
+            await ctx.container.ha_proxy.execute_tool_call(ToolCall(
+                function_name="call_ha_service",
+                arguments={"domain": "remote", "service": "turn_on", "entity_id": remote, "service_data": {"activity": "com.getchannels.dvr.app"}}
+            ))
+        except Exception as e:
+            _LOGGER.warning("voice_ws.media_shortcut_launch_error", exc=str(e)[:80])
 
-            # If there were tool calls but no text, get a confirmation
-            if not text:
-                text = "Done."
+        await asyncio.sleep(5)
 
-        return text or None
+        try:
+            await ctx.container.ha_proxy.execute_tool_call(ToolCall(
+                function_name="call_ha_service",
+                arguments={"domain": "media_player", "service": "select_source", "entity_id": player, "service_data": {"source": channel}}
+            ))
+        except Exception as e:
+            _LOGGER.warning("voice_ws.media_shortcut_channel_error", exc=str(e)[:80])
+            return f"Launched Channels DVR but couldn't tune to {channel}."
+
+        # Tune directly via Channels DVR client API
+        _shield_ip = "192.168.0.129" if not bedroom else "192.168.0.139"
+        if channel_number:
+            try:
+                import httpx as _hx
+                async with _hx.AsyncClient(timeout=5.0) as _client:
+                    await _client.post(f"http://{_shield_ip}:57000/api/play/channel/{channel_number}")
+            except Exception:
+                pass
+
+        return f"Switching {room} TV to {channel}."
 
     async def start_audio_turn(
         self,

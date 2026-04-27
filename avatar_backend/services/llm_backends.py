@@ -207,6 +207,7 @@ class _OllamaBackend:
 
 class _OpenAICompatBackend:
     """OpenAI chat completions API."""
+    _provider_name = "openai"
 
     def __init__(self, settings) -> None:
         self._base_url = "https://api.openai.com/v1"
@@ -241,7 +242,7 @@ class _OpenAICompatBackend:
         text    = (message.get("content") or "").strip()
         tools   = _parse_tool_calls_openai(message.get("tool_calls") or [])
         _usage  = data.get("usage", {})
-        _log("openai", self._model, t0, text, tools,
+        _log(self._provider_name, self._model, t0, text, tools,
              input_tokens=_usage.get("prompt_tokens", 0),
              output_tokens=_usage.get("completion_tokens", 0))
         return text, tools
@@ -259,7 +260,7 @@ class _OpenAICompatBackend:
         _d = resp.json()
         text = (_d.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
         _u = _d.get("usage", {})
-        _log("openai", self._model, t0, text, [],
+        _log(self._provider_name, self._model, t0, text, [],
              input_tokens=_u.get("prompt_tokens", 0),
              output_tokens=_u.get("completion_tokens", 0),
              purpose="proactive")
@@ -324,6 +325,66 @@ def _to_gemini_tools() -> list[dict]:
         }
         for t in HA_TOOLS
     ]}]
+
+
+
+class _GroqBackend(_OpenAICompatBackend):
+    """Groq API — OpenAI-compatible with custom base URL."""
+    _provider_name = "groq"
+    _MAX_PROMPT_CHARS = 16000  # Groq free tier payload limit
+
+    async def chat(self, messages: list[dict], use_tools: bool) -> tuple[str, list]:
+        import re as _re
+        # Truncate system prompt if too large for Groq
+        trimmed = []
+        for m in messages:
+            if m.get("role") == "system" and len(m.get("content", "")) > self._MAX_PROMPT_CHARS:
+                trimmed.append({"role": "system", "content": m["content"][:self._MAX_PROMPT_CHARS] + "\n[...truncated for context limit]"})
+            else:
+                trimmed.append(m)
+        try:
+            return await super().chat(trimmed, use_tools)
+        except Exception as exc:
+            # Groq sometimes returns tool_use_failed with XML-style calls
+            # Parse them from the error response
+            err_str = str(exc)
+            if "tool_use_failed" not in err_str and "failed_generation" not in err_str:
+                raise
+            # Re-request without tools, let the model generate XML, then parse it
+            text, _ = await super().chat(trimmed, use_tools=False)
+            tools = self._parse_xml_tool_calls(text)
+            if tools:
+                # Strip the XML from the text
+                clean_text = _re.sub(r"<function=.*?</function>", "", text).strip()
+                return clean_text, tools
+            return text, []
+
+    @staticmethod
+    def _parse_xml_tool_calls(text: str) -> list:
+        import re as _re, json as _json
+        """Parse Llama-style <function=name{args}</function> into ToolCall objects."""
+        pattern = r"<function=([^{>]+)(\{.*?\})?\s*(?:</function>|$)"
+        matches = _re.findall(pattern, text)
+        if not matches:
+            return []
+        calls = []
+        for name, args_str in matches:
+            name = name.strip()
+            try:
+                args = _json.loads(args_str) if args_str else {}
+            except _json.JSONDecodeError:
+                args = {}
+            calls.append(ToolCall(function_name=name, arguments=args))
+        return calls
+
+    def __init__(self, settings) -> None:
+        self._base_url = settings.groq_base_url.rstrip("/")
+        self._api_key = settings.groq_api_key
+        self._model = settings.groq_model or "llama-3.3-70b-versatile"
+
+    @property
+    def model_name(self) -> str:
+        return self._model
 
 
 class _GeminiBackend:

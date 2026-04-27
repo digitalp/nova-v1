@@ -138,6 +138,11 @@ class SensorSnapshotMixin:
             # Skip excluded prefixes
             if any(entity_id.startswith(p) for p in self._snapshot_exclude_prefixes):
                 continue
+            # Skip thermostat/TRV internal temperature sensors
+            _thermo_skip = ("_thermo_local_temperature", "_thermostat_temperature",
+                           "_thermostat_temp", "_trv_local_temperature", "_thermo_temperature", "_thermostat_local_temperature")
+            if any(s in entity_id for s in _thermo_skip):
+                continue
 
             attrs        = entity.get("attributes", {})
             device_class = attrs.get("device_class", "")

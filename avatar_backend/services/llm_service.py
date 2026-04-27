@@ -49,6 +49,7 @@ _DEFAULT_MODELS = {
     "anthropic": "claude-haiku-4-5-20251001",
 }
 from avatar_backend.services.llm_backends import (
+    _GroqBackend,
     _OllamaBackend,
     _OpenAICompatBackend,
     _GeminiBackend,
@@ -97,11 +98,16 @@ class LLMService:
             self._backend = _GeminiBackend(settings)
         elif provider == "anthropic":
             self._backend = _AnthropicBackend(settings)
+        elif provider == "groq":
+            self._backend = _GroqBackend(settings)
         else:
             self._backend = _OllamaBackend(settings)
         self._provider = provider
 
-        # Ollama gemma2:9b failover - only for cloud providers
+        # Fallback chain: Groq → Ollama (only for cloud providers)
+        self._groq_fallback = None
+        if settings.groq_api_key:
+            self._groq_fallback = _GroqBackend(settings)
         if provider != "ollama":
             self._fallback: _OllamaBackend | None = _OllamaFallbackBackend(
                 settings.ollama_url, self._FALLBACK_MODEL
@@ -136,18 +142,31 @@ class LLMService:
             # Check runtime toggle for Gemini chat
             from avatar_backend.services.home_runtime import load_home_runtime_config
             _rt = load_home_runtime_config()
-            backend = self._operational_backend if (_rt.use_gemini_chat and self._operational_backend) else self._backend
+            _use_gemini = _rt.use_gemini_chat and self._operational_backend is not None
+            backend = self._operational_backend if _use_gemini else self._backend
+            logger.info("llm.chat_backend_selected", use_gemini=_use_gemini, backend=type(backend).__name__)
             return await backend.chat(messages, use_tools)
         except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
             if self._fallback is None:
                 _reason = str(exc)[:120]
                 raise RuntimeError(f"LLM unavailable: {_reason}") from exc
-            logger.warning("llm.primary_failed_using_fallback",
+            # Try Groq fallback first
+            if self._groq_fallback:
+                try:
+                    logger.warning("llm.primary_failed_trying_groq",
+                                   provider=self._provider, reason=str(exc)[:120])
+                    return await self._groq_fallback.chat(messages, use_tools)
+                except Exception as groq_exc:
+                    logger.warning("llm.groq_fallback_failed", reason=str(groq_exc)[:120])
+
+            # Final fallback: Ollama
+            if self._fallback is None:
+                raise RuntimeError(f"LLM unavailable: {str(exc)[:120]}") from exc
+            logger.warning("llm.falling_back_to_ollama",
                            provider=self._provider,
                            fallback=self._FALLBACK_MODEL,
                            reason=str(exc)[:120])
             try:
-                # Sanitize messages for Ollama — strip tool_calls and tool role messages
                 clean = []
                 for m in messages:
                     if m.get("role") == "tool":
@@ -201,7 +220,7 @@ class LLMService:
         # Cloud providers - assume ready if API key is set
         settings = get_settings()
         provider = settings.llm_provider.lower()
-        key_map  = {"openai": settings.openai_api_key,
+        key_map  = {"openai": settings.openai_api_key, "groq": settings.groq_api_key,
                     "google": settings.google_api_key,
                     "anthropic": settings.anthropic_api_key}
         return bool(key_map.get(provider, ""))

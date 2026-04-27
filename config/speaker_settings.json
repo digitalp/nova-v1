@@ -12,7 +12,7 @@
     "media_player.bedroom": false,
     "media_player.bedroom_3": true,
     "media_player.bedroom_4": false,
-    "media_player.bedroom_airplay_2": false,
+    "media_player.bedroom_5": false,
     "media_player.bedroom_sonos": true,
     "media_player.c889f3ba4575_airplay": false,
     "media_player.denon_avr_x4300h": false,
@@ -30,12 +30,11 @@
     "media_player.living_room_3": true,
     "media_player.living_room_4": false,
     "media_player.living_room_sonos": true,
-    "media_player.living_room_tv": false,
     "media_player.media_player": false,
     "media_player.mibox": false,
     "media_player.mibox3_2": false,
     "media_player.party_time_2": false,
-    "media_player.penn_s_2nd_echo_dot": true,
+    "media_player.penn_s_2nd_echo_dot": false,
     "media_player.penn_s_2nd_fire_tv": false,
     "media_player.penn_s_2nd_firetvstick_2": false,
     "media_player.penn_s_3rd_echo_dot_2": true,
@@ -81,6 +80,6 @@
     "media_player.tcl_fire_tv": false,
     "media_player.xbox": false,
     "media_player.xbox_2": false,
-    "media_player.xbox_airplay_2": false
+    "media_player.xbox_airplay": false
   }
 }

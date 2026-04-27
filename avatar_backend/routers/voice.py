@@ -200,6 +200,10 @@ async def check_wake_word(request: Request, container: AppContainer = Depends(ge
 # ── Face recognition from browser webcam ──────────────────────────────────────
 
 
+# Track greeting history: name → last_greeted_timestamp
+_greeting_history: dict[str, float] = {}
+_GREETING_FIRST_WINDOW_S = 1800  # 30 minutes — if seen again after this, it is a check-in not a greeting
+
 @router.post("/face/greet", dependencies=[Depends(verify_api_key)])
 async def greet_face(request: Request, container: AppContainer = Depends(get_container)):
     """Browser sends recognized name and optionally image_b64; returns a WAV greeting."""
@@ -215,14 +219,26 @@ async def greet_face(request: Request, container: AppContainer = Depends(get_con
     if not name:
         return JSONResponse({"error": "name required"}, status_code=400)
     
-    # 1. Base greeting
+    # 1. Determine if first greeting or check-in
+    import time as _time
+    _now = _time.time()
+    _last = _greeting_history.get(name.lower(), 0)
+    _is_checkin = (_now - _last) > _GREETING_FIRST_WINDOW_S and _last > 0
+    _greeting_history[name.lower()] = _now
+
     hour = _dt.now().hour
     time_phrase = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
-    msg = f"{time_phrase}, {name}!"
+
+    if _is_checkin:
+        msg = f"Hey {name}, need help with anything?"
+    else:
+        msg = f"{time_phrase}, {name}!"
     
-    # 2. Add Emotion if DeepFace enabled
+    # 2. Add Emotion if DeepFace enabled (skip for check-ins)
     df_svc = getattr(container, "deepface_service", None)
-    if df_svc and img_b64:
+    if _is_checkin:
+        pass  # Already set msg above
+    elif df_svc and img_b64:
         try:
             with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
                 header, _, data = img_b64.partition(",")

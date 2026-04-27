@@ -36,7 +36,7 @@ _CONFIG_FIELDS = {
     "API_KEY":              ("API Key",                                      True),
     "HA_URL":               ("Home Assistant URL",                           False),
     "HA_TOKEN":             ("HA Long-lived Token",                          True),
-    "LLM_PROVIDER":         ("LLM Provider (ollama/openai/google/anthropic)", False),
+    "LLM_PROVIDER":         ("LLM Provider (ollama/openai/google/anthropic/groq)", False),
     "OLLAMA_URL":           ("Ollama URL",                                   False),
     "OLLAMA_MODEL":         ("Ollama Model",                                 False),
     "CLOUD_MODEL":          ("Cloud Model Name",                             False),

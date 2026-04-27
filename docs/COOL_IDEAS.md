@@ -1,30 +1,81 @@
-# Nova — Cool Feature Ideas
+# Nova V2 — Multi-Family Architecture Roadmap
 
-## Smart Energy Automations
-- **Octopus off-peak charging** — automate heavy loads (washer, dishwasher, EV) to run during off-peak tariff windows using Octopus Energy integration
-- **Solar/battery optimization** — shift loads to peak generation hours if solar panels are added
+## Vision
+Nova becomes a privacy-aware digital concierge that knows exactly what information belongs to whom. Each family gets their own isolated experience while sharing the same hardware.
 
-## Comfort Automations
-- **Adaptive lighting** — auto-adjust light color temperature throughout the day (warm at night, cool during day)
-- **Sleep quality tracker** — combine bedroom temperature, humidity, and presence sensors to log sleep patterns and auto-adjust heating/ventilation
+---
 
-## Security Enhancements
-- **Geofence-based alarm** — auto-arm when all phones leave, auto-disarm on arrival
-- **Suspicious activity pattern** — motion detected at unusual hours (2-5am) on outdoor cameras → escalate to phone notification + record clip
+## 1. Permission-Gated Semantic Memory (Vector RAG)
+Every family gets an encrypted vector partition (Chroma collection per tenant).
+- Memory queries are strictly limited to the active tenant namespace
+- Nova remembers Family A prefers 22C, Family B prefers 19C — never cross-contaminates
+- Inside jokes, past events, preferences all isolated per family
 
-## Nova-Specific Features
-- **Daily energy report** — "You used X kWh today, Y% more than yesterday. The washer was the biggest consumer." Spoken at dinner time
-- **Weekly home health digest** — Sunday morning summary: battery levels, sensor anomalies, heating efficiency, camera events of the week
-- **Music by voice** — "Play some jazz" → Nova searches Music Assistant and plays on the nearest speaker
-- **Goodnight routine** — "Goodnight Nova" → locks doors, turns off lights, sets heating to night mode, arms cameras, confirms with summary
-- **Family scoreboard** — gamify chores: "Nova, I emptied the dishwasher" → tracks points per person, weekly leaderboard on avatar page
-- **Multi-room awareness** — different avatar instances on tablets in each room, Nova knows which room you're in and routes audio/responses to that room only
-- **Predictive automations** — Nova learns patterns (lights on at 6pm, heating up at 7am) and suggests automations: "I notice you turn on the hallway light every evening at 6. Want me to automate that?"
+## 2. Identity-Aware Inner Monologue (CoT)
+Before processing, prepend identity context: "Detected User: Penn (Family A). Location: Shared Hallway."
+- Nova becomes a mediator in shared spaces
+- If Penn asks to turn up heat in shared space and Family B prefers cooler, suggest compromise
+- Social dynamics awareness, not just hardware control
 
-## Notification Channels
-- **WhatsApp notifications** — add WhatsApp as a first-class outbound channel for urgent alerts, away notifications, and optional self-heal updates
-  - **Best architecture** — implement a small `WhatsAppService` plus a generic notification-channel wrapper so Nova can route alerts to speakers, mobile push, Telegram, and WhatsApp cleanly instead of hardcoding one-off behavior
-  - **Provider options** — Meta WhatsApp Cloud API for production, Twilio WhatsApp for fastest prototype, or Home Assistant if a working WhatsApp notify path already exists there
-  - **First integration points** — proactive away alerts, critical fault notifications, and announce fallback when nobody is home
-  - **Config needed** — provider, API/token credentials, sender/recipient fields, enabled flag, and optional delivery policy like `urgent only` or `away only`
-  - **Nice follow-up** — admin UI test button plus routing rules so Nova can choose between push, WhatsApp, Telegram, and spoken alerts depending on urgency and presence
+## 3. Visual Intent via Zoning
+Define Public, Shared, and Private zones in the vision system.
+- Shared hallway: observant but silent unless specific person identified
+- Private zones: full proactivity for that family only
+- Strangers/delivery: limited interaction unless authorized
+
+## 4. Dynamic Interruption Mapping
+Voice fingerprinting (speaker diarization) to identify who is speaking.
+- If explaining something to Family A and Family B child runs past screaming, ignore as noise
+- Only listen to interruptions from the currently engaged family
+- Requires pyannote.audio or similar speaker ID model
+
+## 5. Profile-Based Model Routing
+Each family chooses their privacy level.
+- Family A: cloud (Gemini) for max intelligence
+- Family B: local-only (Ollama) for privacy — no data leaves the house
+- Router checks active user privacy profile in real-time
+- Guests automatically get local-only mode
+
+---
+
+## Implementation Priority
+1. Add `tenant_id` and `privacy_profile` to Person model
+2. Namespace all memory writes with tenant_id
+3. Add Chroma vector DB with per-tenant collections
+4. Speaker diarization for voice identification
+5. Zone mapping for cameras
+6. Profile-based model routing (already have multi-provider)
+
+---
+
+# Nova V1 — Cool Ideas & Near-Term Features
+
+## Context-Aware Greeting System (Enhanced)
+**Current:** After 30-min cooldown, Nova says "Hey [name], need help with anything?"
+
+**Proposed Enhancement:**
+When Nova sees you again after the cooldown:
+1. Check what room you are in (via which camera detected you)
+2. Check if media is playing:
+   - If Plex/Channels DVR is playing in that room, announce a fun fact or tell a joke
+3. If no media playing:
+   - Check for important house updates (doors left open, high energy usage, calendar events)
+   - If updates exist, share the most important one
+   - If no updates, just ask "Need help with anything?"
+4. Vary responses to avoid repetition
+
+## UniFi Network Integration
+- Bedtime automation: block TikTok/Snapchat at set time, unblock in morning
+- Network status tool: summarise connected devices, bandwidth, firewall state
+- "Who is on the network?" voice command
+
+## Barge-in / Interruption Handling
+- VAD stays active during TTS playback
+- If user speaks, immediately stop TTS, listen, adjust
+- Creates fluid human conversation rhythm
+- Requires chunked TTS streaming + WebSocket cancel
+
+## Groq Tool Call Fix
+- Parse Llama 3.3 XML-style tool calls into proper JSON format
+- Test once rate limits clear
+- Enable Groq as fast primary for simple commands
