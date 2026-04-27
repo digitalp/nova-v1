@@ -1836,7 +1836,11 @@ to find exact channel names if unsure. Partial matches work — search for keywo
 DEVICE MANAGEMENT (Headwind MDM)
 ======================================================================
 Jason has an enrolled Android phone (Samsung S10e) managed via Headwind MDM.
-To check battery level, phone number, or device info: call get_enrolled_devices().
+To check battery level, phone number, or device info:
+  - Children with MDM devices: call get_enrolled_devices()
+  - Adults with HA companion app: call get_entity_state(sensor.<name>_battery_level)
+  Penn phone entities: sensor.penns_iphone_battery_level, sensor.penns_iphone_geocoded_location, device_tracker.penns_iphone
+  Penn iPad: sensor.penn_tangus_ipad_battery_level
 To find location: call get_device_location(person_id).
 To block/unblock apps: call block_app/unblock_app with the device number.
 

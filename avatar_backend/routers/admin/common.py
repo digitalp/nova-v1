@@ -36,7 +36,7 @@ _CONFIG_FIELDS = {
     "API_KEY":              ("API Key",                                      True),
     "HA_URL":               ("Home Assistant URL",                           False),
     "HA_TOKEN":             ("HA Long-lived Token",                          True),
-    "LLM_PROVIDER":         ("LLM Provider (ollama/openai/google/anthropic/groq)", False),
+    "LLM_PROVIDER":         ("LLM Provider (ollama/openai/google/anthropic/groq/fireworks)", False),
     "OLLAMA_URL":           ("Ollama URL",                                   False),
     "OLLAMA_MODEL":         ("Ollama Model",                                 False),
     "CLOUD_MODEL":          ("Cloud Model Name",                             False),
@@ -46,6 +46,8 @@ _CONFIG_FIELDS = {
     "WHISPER_MODEL":        ("Whisper Model",                                False),
     "TTS_PROVIDER":         ("TTS Provider",                                 False),
     "PIPER_VOICE":          ("Piper Voice",                                  False),
+    "GROQ_API_KEY":        ("Groq API Key",                                True),
+    "FIREWORKS_API_KEY":   ("Fireworks API Key",                            True),
     "ELEVENLABS_API_KEY":   ("ElevenLabs API Key",                           True),
     "ELEVENLABS_VOICE_ID":  ("ElevenLabs Voice ID",                          False),
     "ELEVENLABS_MODEL":     ("ElevenLabs Model",                             False),
@@ -74,7 +76,7 @@ _CONFIG_FIELDS = {
     "PROACTIVE_FORECAST_HOUR":            ("Daily forecast hour (0-23)",                      False),
     "HA_POWER_ALERT_COOLDOWN_S":          ("Power alert cooldown (seconds)",                  False),
     # ── Motion vision ──
-    "MOTION_VISION_PROVIDER":             ("Motion Vision Provider (gemini/ollama/ollama_remote)",  False),
+    "MOTION_VISION_PROVIDER":             ("Motion Vision Provider (gemini/fireworks/ollama/ollama_remote)",  False),
 
     "OLLAMA_VISION_MODEL":                ("Ollama Vision Model",                              False),
     # ── Heating ──

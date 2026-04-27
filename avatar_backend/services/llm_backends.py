@@ -387,6 +387,78 @@ class _GroqBackend(_OpenAICompatBackend):
         return self._model
 
 
+class _FireworksBackend(_OpenAICompatBackend):
+    """Fireworks AI — OpenAI-compatible with JSON tool call parsing from content."""
+    _provider_name = "fireworks"
+    _MAX_PROMPT_CHARS = 24000
+
+    def __init__(self, settings) -> None:
+        self._base_url = getattr(settings, "fireworks_base_url", "https://api.fireworks.ai/inference/v1").rstrip("/")
+        self._api_key = getattr(settings, "fireworks_api_key", "")
+        self._model = getattr(settings, "fireworks_model", "accounts/fireworks/models/llama-v3p3-70b-instruct")
+
+    @property
+    def model_name(self) -> str:
+        return self._model.split("/")[-1] if "/" in self._model else self._model
+
+    async def chat(self, messages: list[dict], use_tools: bool) -> tuple[str, list]:
+        import json as _json, re as _re
+        # Truncate system prompt if too large
+        trimmed = []
+        for m in messages:
+            if m.get("role") == "system" and len(m.get("content", "")) > self._MAX_PROMPT_CHARS:
+                trimmed.append({"role": "system", "content": m["content"][:self._MAX_PROMPT_CHARS] + "\n[...truncated]"})
+            else:
+                trimmed.append(m)
+
+        text, tools = await super().chat(trimmed, use_tools)
+
+        # If no structured tool_calls but text contains JSON tool call, parse it
+        if not tools and text and use_tools:
+            parsed = self._parse_json_tool_calls(text)
+            if parsed:
+                clean_text = text
+                for p in parsed:
+                    # Remove the JSON from the text
+                    try:
+                        clean_text = clean_text.replace(_json.dumps({"name": p.function_name, "parameters": p.arguments}), "")
+                    except Exception:
+                        pass
+                clean_text = _re.sub(r'{\s*"name".*?}', '', clean_text).strip()
+                return clean_text, parsed
+
+        return text, tools
+
+    @staticmethod
+    def _parse_json_tool_calls(text: str) -> list:
+        """Parse JSON tool calls embedded in text content."""
+        import json as _json
+        calls = []
+        try:
+            # Try parsing the whole text as a single JSON tool call
+            d = _json.loads(text.strip())
+            if isinstance(d, dict) and "name" in d:
+                calls.append(ToolCall(function_name=d["name"], arguments=d.get("parameters", d.get("arguments", {}))))
+                return calls
+            if isinstance(d, list):
+                for item in d:
+                    if isinstance(item, dict) and "name" in item:
+                        calls.append(ToolCall(function_name=item["name"], arguments=item.get("parameters", item.get("arguments", {}))))
+                return calls
+        except _json.JSONDecodeError:
+            pass
+        # Try extracting JSON objects from mixed text
+        import re as _re
+        for match in _re.finditer(r'\{[^{}]*"name"[^{}]*\}', text):
+            try:
+                d = _json.loads(match.group())
+                if "name" in d:
+                    calls.append(ToolCall(function_name=d["name"], arguments=d.get("parameters", d.get("arguments", {}))))
+            except _json.JSONDecodeError:
+                continue
+        return calls
+
+
 class _GeminiBackend:
     """Native Google Gemini API (generativelanguage.googleapis.com)."""
 

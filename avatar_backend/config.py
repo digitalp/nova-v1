@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_base_url: str = "https://api.groq.com/openai/v1"
     groq_model: str = "llama-3.3-70b-versatile"
+    fireworks_api_key: str = ""
+    fireworks_base_url: str = "https://api.fireworks.ai/inference/v1"
+    fireworks_model: str = "accounts/fireworks/models/llama-v3p3-70b-instruct"
     google_api_key: str = ""
     google_api_key_enabled: bool = True
     gemini_api_keys: str = ""  # Comma-separated pool of Gemini API keys for vision rotation
@@ -139,9 +142,9 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _validate_llm_provider(self):
         p = self.llm_provider.lower()
-        if p not in ("ollama", "openai", "google", "anthropic", "groq"):
+        if p not in ("ollama", "openai", "google", "anthropic", "groq", "fireworks"):
             raise ValueError(f"LLM_PROVIDER must be ollama/openai/google/anthropic/groq, got '{p}'")
-        key_map = {"openai": self.openai_api_key, "google": self.google_api_key, "anthropic": self.anthropic_api_key, "groq": self.groq_api_key}
+        key_map = {"openai": self.openai_api_key, "google": self.google_api_key, "anthropic": self.anthropic_api_key, "groq": self.groq_api_key, "fireworks": self.fireworks_api_key}
         if p != "ollama" and not key_map.get(p):
             raise ValueError(f"LLM_PROVIDER={p} requires {p.upper()}_API_KEY to be set")
         return self
@@ -161,8 +164,8 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _validate_motion_vision(self):
         p = (self.motion_vision_provider or "").lower()
-        if p and p not in ("gemini", "ollama", "ollama_remote"):
-            raise ValueError(f"MOTION_VISION_PROVIDER must be gemini/ollama/ollama_remote, got '{p}'")
+        if p and p not in ("gemini", "fireworks", "ollama", "ollama_remote"):
+            raise ValueError(f"MOTION_VISION_PROVIDER must be gemini/fireworks/ollama/ollama_remote, got '{p}'")
         return self
         return data
 

@@ -50,6 +50,7 @@ _DEFAULT_MODELS = {
 }
 from avatar_backend.services.llm_backends import (
     _GroqBackend,
+    _FireworksBackend,
     _OllamaBackend,
     _OpenAICompatBackend,
     _GeminiBackend,
@@ -61,6 +62,7 @@ from avatar_backend.services.llm_backends import (
     set_cost_log as _set_backends_cost_log,
 )
 from avatar_backend.services.llm_vision import (
+    _fireworks_describe_image,
     _GPU_GATE,
     _VISION_SEMAPHORE,
     _DEFAULT_IMAGE_PROMPT,
@@ -100,6 +102,8 @@ class LLMService:
             self._backend = _AnthropicBackend(settings)
         elif provider == "groq":
             self._backend = _GroqBackend(settings)
+        elif provider == "fireworks":
+            self._backend = _FireworksBackend(settings)
         else:
             self._backend = _OllamaBackend(settings)
         self._provider = provider
@@ -150,14 +154,14 @@ class LLMService:
             if self._fallback is None:
                 _reason = str(exc)[:120]
                 raise RuntimeError(f"LLM unavailable: {_reason}") from exc
-            # Try Groq fallback first
-            if self._groq_fallback:
+            # Try Gemini fallback first (operational backend)
+            if self._operational_backend:
                 try:
-                    logger.warning("llm.primary_failed_trying_groq",
+                    logger.warning("llm.primary_failed_trying_gemini",
                                    provider=self._provider, reason=str(exc)[:120])
-                    return await self._groq_fallback.chat(messages, use_tools)
-                except Exception as groq_exc:
-                    logger.warning("llm.groq_fallback_failed", reason=str(groq_exc)[:120])
+                    return await self._operational_backend.chat(messages, use_tools)
+                except Exception as gemini_exc:
+                    logger.warning("llm.gemini_fallback_failed", reason=str(gemini_exc)[:120])
 
             # Final fallback: Ollama
             if self._fallback is None:
@@ -220,7 +224,7 @@ class LLMService:
         # Cloud providers - assume ready if API key is set
         settings = get_settings()
         provider = settings.llm_provider.lower()
-        key_map  = {"openai": settings.openai_api_key, "groq": settings.groq_api_key,
+        key_map  = {"openai": settings.openai_api_key, "groq": settings.groq_api_key, "fireworks": settings.fireworks_api_key,
                     "google": settings.google_api_key,
                     "anthropic": settings.anthropic_api_key}
         return bool(key_map.get(provider, ""))
@@ -424,6 +428,15 @@ class LLMService:
         """Describe a camera image using vision capability of the active LLM provider.
         Falls back to Ollama vision if the primary provider fails."""
         _prompt = prompt or _DEFAULT_IMAGE_PROMPT
+        # Check if motion_vision_provider overrides the default
+        settings = get_settings()
+        _vision_prov = (settings.motion_vision_provider or "").strip().lower()
+        if _vision_prov == "fireworks" and settings.fireworks_api_key:
+            try:
+                return await _fireworks_describe_image(image_bytes, settings.fireworks_api_key, settings.fireworks_model, _prompt)
+            except Exception as exc:
+                structlog.get_logger().warning("llm.fireworks_vision_failed", exc=str(exc)[:80])
+                # Fall through to default provider
         try:
             if self._provider == "google":
                 api_key = _get_gemini_key() or self._backend._api_key
@@ -436,6 +449,9 @@ class LLMService:
                 if (settings.motion_vision_provider or "").strip().lower() == "ollama_remote":
                     return await _ollama_describe_image(image_bytes, _vision_ollama_url(), settings.ollama_vision_model, _prompt)
                 return await _ollama_describe_image(image_bytes, self._backend._base_url, self._backend._vision_model, _prompt)
+            if self._provider == "fireworks":
+                settings = get_settings()
+                return await _fireworks_describe_image(image_bytes, settings.fireworks_api_key, settings.fireworks_model, _prompt)
             return "Camera vision is not supported with the current LLM provider."
         except Exception as exc:
             _log_struct = structlog.get_logger()
